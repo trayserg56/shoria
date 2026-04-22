@@ -1,0 +1,491 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
+import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
+import { trackEvent } from '@/lib/analytics'
+import { toProductRoute } from '@/lib/product-route'
+import { useCartStore } from '@/stores/cart'
+
+const cartStore = useCartStore()
+const router = useRouter()
+const { items, total, totalItems, lastOrder, orderHistory, checkoutOptions } = storeToRefs(cartStore)
+
+const customerName = ref('')
+const customerEmail = ref('')
+const customerPhone = ref('')
+const comment = ref('')
+const deliveryMethod = ref('')
+const paymentMethod = ref('')
+const promoCode = ref('')
+const promoStatusMessage = ref('')
+const promoStatusApplied = ref(false)
+const checkoutError = ref('')
+const checkoutLoading = ref(false)
+const previewLoading = ref(false)
+
+function formatPrice(value: number) {
+  return new Intl.NumberFormat('ru-RU', {
+    style: 'currency',
+    currency: 'RUB',
+    maximumFractionDigits: 0,
+  }).format(value)
+}
+
+const canCheckout = computed(() => items.value.length > 0 && !checkoutLoading.value && !!deliveryMethod.value)
+const deliveryMethods = computed(() => checkoutOptions.value?.delivery_methods ?? [])
+const paymentMethods = computed(() => checkoutOptions.value?.payment_methods ?? [])
+const subtotalAmount = ref(0)
+const discountAmount = ref(0)
+const deliveryAmount = ref(0)
+const checkoutTotalPreview = ref(0)
+const hasPreviewSnapshot = ref(false)
+const cartSubtotalFallback = computed(() => items.value.reduce((sum, item) => sum + item.total_price, 0))
+const selectedDeliveryFee = computed(
+  () => deliveryMethods.value.find((method) => method.code === deliveryMethod.value)?.fee ?? 0,
+)
+const displayedSubtotal = computed(() =>
+  hasPreviewSnapshot.value ? subtotalAmount.value : cartSubtotalFallback.value,
+)
+const displayedDiscount = computed(() => (hasPreviewSnapshot.value ? discountAmount.value : 0))
+const displayedDelivery = computed(() =>
+  hasPreviewSnapshot.value ? deliveryAmount.value : selectedDeliveryFee.value,
+)
+const displayedTotal = computed(() => displayedSubtotal.value - displayedDiscount.value + displayedDelivery.value)
+
+async function refreshCheckoutPreview() {
+  if (!deliveryMethod.value) {
+    hasPreviewSnapshot.value = false
+    return
+  }
+
+  previewLoading.value = true
+
+  try {
+    const preview = await cartStore.previewCheckout({
+      delivery_method: deliveryMethod.value,
+      promo_code: promoCode.value.trim() || undefined,
+      customer_email: customerEmail.value.trim() || undefined,
+    })
+
+    subtotalAmount.value = preview.subtotal
+    discountAmount.value = preview.discount_total
+    deliveryAmount.value = preview.delivery_total
+    checkoutTotalPreview.value = preview.total
+    hasPreviewSnapshot.value = true
+    promoStatusMessage.value = preview.promo.message ?? ''
+    promoStatusApplied.value = preview.promo.is_applied
+  } catch (error) {
+    console.error(error)
+    hasPreviewSnapshot.value = false
+    discountAmount.value = 0
+    deliveryAmount.value = selectedDeliveryFee.value
+    subtotalAmount.value = cartSubtotalFallback.value
+    checkoutTotalPreview.value = cartSubtotalFallback.value + selectedDeliveryFee.value
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+async function increaseQty(itemId: number, qty: number) {
+  await cartStore.updateQty(itemId, qty + 1)
+}
+
+async function decreaseQty(itemId: number, qty: number) {
+  if (qty <= 1) {
+    await cartStore.removeItem(itemId)
+    return
+  }
+
+  await cartStore.updateQty(itemId, qty - 1)
+}
+
+async function removeItem(itemId: number) {
+  await cartStore.removeItem(itemId)
+}
+
+async function submitCheckout() {
+  checkoutError.value = ''
+  checkoutLoading.value = true
+
+  try {
+    void trackEvent('begin_checkout', {
+      total: total.value,
+      items_count: totalItems.value,
+    })
+
+    const order = await cartStore.checkout({
+      customer_name: customerName.value,
+      customer_email: customerEmail.value,
+      customer_phone: customerPhone.value,
+      delivery_method: deliveryMethod.value,
+      payment_method: paymentMethod.value,
+      promo_code: promoCode.value.trim() || undefined,
+      comment: comment.value,
+    })
+
+    void trackEvent('purchase', {
+      order_number: order.order_number,
+      total: order.total,
+      items_count: order.items_count,
+    })
+
+    void router.push({
+      name: 'order-success',
+      params: { orderNumber: order.order_number },
+    })
+  } catch (error) {
+    console.error(error)
+    checkoutError.value = 'Не удалось оформить заказ. Проверь данные и повтори попытку.'
+  } finally {
+    checkoutLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  await cartStore.loadCheckoutOptions()
+  deliveryMethod.value = deliveryMethods.value[0]?.code ?? ''
+  paymentMethod.value = paymentMethods.value[0]?.code ?? ''
+  await cartStore.loadCart()
+  await cartStore.loadOrderHistory()
+  await refreshCheckoutPreview()
+})
+
+watch(
+  () => [deliveryMethod.value, promoCode.value, customerEmail.value, total.value, items.value.length],
+  async () => {
+    await refreshCheckoutPreview()
+  },
+)
+</script>
+
+<template>
+  <main class="cart-page">
+    <header class="cart-header">
+      <h1>Корзина</h1>
+      <p>Проверь состав заказа и оформи покупку.</p>
+    </header>
+
+    <p v-if="lastOrder" class="success">
+      Заказ <strong>{{ lastOrder.order_number }}</strong> успешно создан.
+    </p>
+
+    <section v-if="items.length > 0" class="cart-layout">
+      <div class="items">
+        <article v-for="item in items" :key="item.id" class="item">
+          <img v-if="item.image_url" :src="item.image_url" :alt="item.product_name" />
+          <div class="item__body">
+            <RouterLink :to="toProductRoute({ slug: item.product_slug })">
+              {{ item.product_name }}
+            </RouterLink>
+            <p v-if="item.variant_label" class="variant">Размер: {{ item.variant_label }}</p>
+            <p>{{ formatPrice(item.unit_price) }}</p>
+            <div class="qty-row">
+              <button @click="decreaseQty(item.id, item.qty)">-</button>
+              <span>{{ item.qty }}</span>
+              <button @click="increaseQty(item.id, item.qty)">+</button>
+              <button class="remove" @click="removeItem(item.id)">Удалить</button>
+            </div>
+          </div>
+          <strong>{{ formatPrice(item.total_price) }}</strong>
+        </article>
+      </div>
+
+      <form class="checkout" @submit.prevent="submitCheckout">
+        <h2>Оформление</h2>
+        <label>
+          Имя
+          <input v-model="customerName" type="text" required />
+        </label>
+        <label>
+          Email
+          <input v-model="customerEmail" type="email" required />
+        </label>
+        <label>
+          Телефон
+          <input v-model="customerPhone" type="text" required />
+        </label>
+        <label>
+          Доставка
+          <select v-model="deliveryMethod" required>
+            <option v-for="method in deliveryMethods" :key="method.code" :value="method.code">
+              {{ method.name }}{{ method.is_test_mode ? ' · тест' : '' }} ({{ formatPrice(method.fee) }})
+            </option>
+          </select>
+        </label>
+        <label>
+          Оплата
+          <select v-model="paymentMethod" required>
+            <option v-for="method in paymentMethods" :key="method.code" :value="method.code">
+              {{ method.name }}{{ method.is_test_mode ? ' · тест' : '' }}
+            </option>
+          </select>
+        </label>
+        <label>
+          Промокод
+          <input v-model="promoCode" type="text" placeholder="Например, WELCOME10" />
+        </label>
+        <p v-if="promoStatusMessage" class="promo-status" :class="{ 'promo-status--ok': promoStatusApplied }">
+          {{ promoStatusMessage }}
+        </p>
+        <label>
+          Комментарий
+          <textarea v-model="comment" rows="3" />
+        </label>
+        <div class="summary summary--stack">
+          <span>Товаров: {{ totalItems }}</span>
+          <span>Подытог: {{ formatPrice(displayedSubtotal) }}</span>
+          <span>Скидка: -{{ formatPrice(displayedDiscount) }}</span>
+          <span>Доставка: {{ formatPrice(displayedDelivery) }}</span>
+          <strong>Итого: {{ formatPrice(displayedTotal) }}</strong>
+          <span v-if="previewLoading" class="preview-loading">Пересчитываем...</span>
+        </div>
+        <button type="submit" :disabled="!canCheckout">
+          {{ checkoutLoading ? 'Оформляем...' : 'Оформить заказ' }}
+        </button>
+        <p v-if="checkoutError" class="error">{{ checkoutError }}</p>
+      </form>
+    </section>
+
+    <section v-else class="empty">
+      <p>Корзина пока пустая.</p>
+      <RouterLink to="/catalog">Перейти в каталог</RouterLink>
+    </section>
+
+    <section v-if="orderHistory.length > 0" class="history">
+      <h2>Последние заказы</h2>
+      <article v-for="order in orderHistory" :key="order.order_number" class="history-item">
+        <div>
+          <RouterLink :to="{ name: 'order-success', params: { orderNumber: order.order_number } }">
+            {{ order.order_number }}
+          </RouterLink>
+          <p>{{ order.status }}</p>
+        </div>
+        <strong>{{ formatPrice(order.total) }}</strong>
+      </article>
+    </section>
+  </main>
+</template>
+
+<style scoped>
+.cart-page {
+  width: min(1240px, 92vw);
+  margin: 0 auto;
+  padding: 20px 0 60px;
+}
+
+.cart-header h1 {
+  font-family: var(--font-display);
+  font-size: clamp(42px, 7vw, 78px);
+  line-height: 0.9;
+}
+
+.cart-header p {
+  margin-top: 6px;
+  color: var(--color-text-soft);
+}
+
+.success {
+  margin-top: 10px;
+  color: #137c3b;
+}
+
+.cart-layout {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 20px;
+}
+
+.items {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-height: 520px;
+  padding: 14px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 18px 40px rgb(16 24 40 / 8%);
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  border-radius: 20px;
+  padding: 16px;
+  background: #fffdf9;
+  border: 1px solid #efe2d4;
+}
+
+.item img {
+  width: 90px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.item__body a {
+  color: #1f2233;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.item__body p {
+  color: #546179;
+}
+
+.item__body .variant {
+  margin-top: 4px;
+  color: #7a4a1d;
+  font-size: 13px;
+}
+
+.qty-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qty-row button {
+  border: 1px solid #d7d4ce;
+  border-radius: 8px;
+  background: #fff;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.qty-row .remove {
+  border-color: #efb39a;
+  color: #a83a0f;
+}
+
+.checkout {
+  border-radius: 28px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 40px rgb(16 24 40 / 8%);
+}
+
+.checkout h2 {
+  font-size: 22px;
+}
+
+.checkout label {
+  margin-top: 10px;
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.checkout input,
+.checkout select,
+.checkout textarea {
+  border: 1px solid #d7d4ce;
+  border-radius: 10px;
+  padding: 10px;
+  font: inherit;
+}
+
+.summary {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.summary--stack {
+  display: grid;
+  justify-content: stretch;
+  gap: 6px;
+}
+
+.promo-status {
+  margin-top: 8px;
+  color: #8f5014;
+  font-size: 13px;
+}
+
+.promo-status--ok {
+  color: #1f7a44;
+}
+
+.preview-loading {
+  color: #66748f;
+  font-size: 12px;
+}
+
+.checkout button {
+  margin-top: 12px;
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  padding: 11px;
+  background: #1f2233;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.checkout button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.error {
+  margin-top: 8px;
+  color: #a83a0f;
+  font-size: 14px;
+}
+
+.empty {
+  margin-top: 16px;
+}
+
+.empty a {
+  color: #1f2233;
+}
+
+.history {
+  margin-top: 26px;
+}
+
+.history h2 {
+  margin-bottom: 10px;
+  font-size: 22px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 40px rgb(16 24 40 / 9%);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.history-item a {
+  color: #1f2233;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.history-item p {
+  color: #6b7386;
+  font-size: 14px;
+}
+
+@media (max-width: 960px) {
+  .cart-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .items {
+    min-height: auto;
+  }
+}
+</style>

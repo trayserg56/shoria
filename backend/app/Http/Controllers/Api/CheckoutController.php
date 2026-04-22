@@ -1,0 +1,543 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\Cart;
+use App\Models\PaymentProvider;
+use App\Models\PaymentTransaction;
+use App\Models\DeliveryMethod;
+use App\Models\Order;
+use App\Models\PromoCode;
+use App\Models\PromoCodeUsage;
+use App\Models\User;
+use App\Support\Delivery\DeliveryGatewayRegistry;
+use App\Support\Payments\PaymentGatewayRegistry;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\PersonalAccessToken;
+
+class CheckoutController extends Controller
+{
+    public function __construct(
+        private PaymentGatewayRegistry $paymentGateways,
+        private DeliveryGatewayRegistry $deliveryGateways,
+    ) {
+    }
+
+    public function options(): JsonResponse
+    {
+        $deliveryMethods = DeliveryMethod::query()
+            ->with('provider')
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->get()
+            ->filter(fn (DeliveryMethod $method) => $this->isDeliveryMethodAvailable($method))
+            ->map(fn (DeliveryMethod $method) => [
+                'code' => $method->code,
+                'name' => $method->name,
+                'fee' => $this->resolveDeliveryFee($method, 0),
+                'provider_code' => $method->provider_code,
+                'provider_mode' => $method->provider?->mode,
+                'is_test_mode' => $method->provider?->mode === 'sandbox',
+            ])
+            ->values();
+
+        $paymentMethods = PaymentProvider::query()
+            ->where('is_active', true)
+            ->orderByDesc('is_default')
+            ->orderBy('sort_order')
+            ->get()
+            ->map(fn (PaymentProvider $provider) => $this->paymentGateways->for($provider)->toCheckoutOption($provider))
+            ->values();
+
+        $promoCodes = PromoCode::query()
+            ->where('is_active', true)
+            ->orderBy('code')
+            ->get()
+            ->filter(fn (PromoCode $promo) => $this->isPromoDateValid($promo))
+            ->map(fn (PromoCode $promo) => [
+                'code' => $promo->code,
+                'name' => $promo->name,
+                'discount_type' => $promo->discount_type,
+                'discount_value' => (float) $promo->discount_value,
+                'min_subtotal' => $promo->min_subtotal !== null ? (float) $promo->min_subtotal : null,
+            ])
+            ->values();
+
+        return response()->json([
+            'delivery_methods' => $deliveryMethods,
+            'payment_methods' => $paymentMethods,
+            'promo_codes' => $promoCodes,
+        ]);
+    }
+
+    public function store(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'session_id' => ['nullable', 'string', 'max:64'],
+            'customer_name' => ['required', 'string', 'max:120'],
+            'customer_email' => ['required', 'email', 'max:255'],
+            'customer_phone' => ['required', 'string', 'max:30'],
+            'delivery_method' => ['required', 'string', 'max:32'],
+            'payment_method' => ['required', 'string', Rule::in($this->allowedPaymentMethodCodes())],
+            'promo_code' => ['nullable', 'string', 'max:64'],
+            'comment' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity(
+            $request,
+            $validated['session_id'] ?? null,
+        );
+
+        $cartQuery = Cart::query()
+            ->with('items')
+            ->where('status', 'open');
+
+        if ($user) {
+            $cartQuery->where('user_id', $user->id);
+        } else {
+            $cartQuery->whereNull('user_id')->where('session_id', $sessionId);
+        }
+
+        $cart = $cartQuery->first();
+
+        if (! $cart || $cart->items->isEmpty()) {
+            throw ValidationException::withMessages([
+                'cart' => 'Корзина пуста или не найдена.',
+            ]);
+        }
+
+        $subtotal = (float) $cart->items->sum(fn ($item) => (float) $item->total_price);
+
+        if ((float) $cart->subtotal !== $subtotal || (float) $cart->total !== $subtotal) {
+            $cart->subtotal = $subtotal;
+            $cart->total = $subtotal;
+            $cart->save();
+        }
+
+        $deliveryMethod = $this->resolveDeliveryMethod($validated['delivery_method']);
+        $paymentProvider = $this->resolvePaymentProvider($validated['payment_method']);
+        $paymentGateway = $this->paymentGateways->for($paymentProvider);
+        $promoCode = $this->resolvePromoCode(
+            $validated['promo_code'] ?? null,
+            $subtotal,
+            $validated['customer_email'],
+        );
+        $discountTotal = $promoCode ? $this->calculateDiscount($promoCode, $subtotal) : 0.0;
+        $deliveryTotal = $this->resolveDeliveryFee($deliveryMethod, $subtotal);
+        $orderTotal = max(0, $subtotal - $discountTotal + $deliveryTotal);
+
+        $order = DB::transaction(function () use (
+            $cart,
+            $validated,
+            $user,
+            $sessionId,
+            $deliveryMethod,
+            $paymentProvider,
+            $paymentGateway,
+            $promoCode,
+            $subtotal,
+            $discountTotal,
+            $deliveryTotal,
+            $orderTotal,
+        ): Order {
+            $order = Order::query()->create([
+                'order_number' => $this->generateOrderNumber(),
+                'user_id' => $user?->id,
+                'session_id' => $sessionId ?? $cart->session_id,
+                'status' => 'new',
+                'order_status' => 'placed',
+                'payment_status' => $paymentGateway->initialPaymentStatus($paymentProvider),
+                'fulfillment_status' => 'pending',
+                'refund_status' => 'none',
+                'delivery_method' => $deliveryMethod->code,
+                'payment_method' => $this->resolvePaymentMethodKind($paymentProvider),
+                'currency' => $cart->currency,
+                'subtotal' => $subtotal,
+                'discount_total' => $discountTotal,
+                'delivery_total' => $deliveryTotal,
+                'total' => $orderTotal,
+                'customer_name' => $validated['customer_name'],
+                'customer_email' => $validated['customer_email'],
+                'customer_phone' => $validated['customer_phone'],
+                'comment' => $validated['comment'] ?? null,
+                'promo_code' => $promoCode?->code,
+                'placed_at' => now(),
+            ]);
+
+            foreach ($cart->items as $cartItem) {
+                $order->items()->create([
+                    'product_id' => $cartItem->product_id,
+                    'product_variant_id' => $cartItem->product_variant_id,
+                    'product_name' => $cartItem->product_name,
+                    'product_slug' => $cartItem->product_slug,
+                    'variant_label' => $cartItem->variant_label,
+                    'image_url' => $cartItem->image_url,
+                    'qty' => $cartItem->qty,
+                    'unit_price' => $cartItem->unit_price,
+                    'total_price' => $cartItem->total_price,
+                ]);
+            }
+
+            PaymentTransaction::query()->create([
+                'order_id' => $order->id,
+                'provider' => $paymentProvider->code,
+                'payment_method' => $paymentProvider->driver,
+                'type' => 'charge',
+                'status' => $paymentGateway->initialTransactionStatus($paymentProvider),
+                'currency' => $order->currency,
+                'amount' => $order->total,
+                'idempotence_key' => (string) Str::uuid(),
+                'meta' => array_merge(
+                    $paymentGateway->buildTransactionMeta($order, $paymentProvider),
+                    [
+                        'customer_email' => strtolower(trim($validated['customer_email'])),
+                        'delivery_method' => $deliveryMethod->code,
+                    ],
+                ),
+            ]);
+
+            $cart->status = 'checked_out';
+            $cart->save();
+
+            if ($promoCode) {
+                PromoCode::query()->whereKey($promoCode->id)->increment('used_count');
+
+                PromoCodeUsage::query()->create([
+                    'promo_code_id' => $promoCode->id,
+                    'order_id' => $order->id,
+                    'user_id' => $user?->id,
+                    'session_id' => $sessionId ?? $cart->session_id,
+                    'customer_email' => strtolower(trim($validated['customer_email'])),
+                    'used_at' => now(),
+                ]);
+            }
+
+            return $order->fresh(['items', 'paymentTransactions']);
+        });
+
+        return response()->json([
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => $order->status,
+            'order_status' => $order->order_status,
+            'payment_status' => $order->payment_status,
+            'fulfillment_status' => $order->fulfillment_status,
+            'refund_status' => $order->refund_status,
+            'delivery_method' => $order->delivery_method,
+            'payment_method' => $order->payment_method,
+            'payment_transaction_status' => $order->paymentTransactions->first()?->status,
+            'promo_code' => $order->promo_code,
+            'subtotal' => (float) $order->subtotal,
+            'discount_total' => (float) $order->discount_total,
+            'delivery_total' => (float) $order->delivery_total,
+            'total' => (float) $order->total,
+            'currency' => $order->currency,
+            'items_count' => $order->items->sum('qty'),
+        ], 201);
+    }
+
+    public function preview(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'session_id' => ['nullable', 'string', 'max:64'],
+            'delivery_method' => ['required', 'string', 'max:32'],
+            'promo_code' => ['nullable', 'string', 'max:64'],
+            'customer_email' => ['nullable', 'email', 'max:255'],
+        ]);
+
+        ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity(
+            $request,
+            $validated['session_id'] ?? null,
+        );
+
+        $cartQuery = Cart::query()
+            ->with('items')
+            ->where('status', 'open');
+
+        if ($user) {
+            $cartQuery->where('user_id', $user->id);
+        } else {
+            $cartQuery->whereNull('user_id')->where('session_id', $sessionId);
+        }
+
+        $cart = $cartQuery->first();
+        $subtotal = $cart
+            ? (float) $cart->items->sum(fn ($item) => (float) $item->total_price)
+            : 0.0;
+
+        if ($cart && ((float) $cart->subtotal !== $subtotal || (float) $cart->total !== $subtotal)) {
+            $cart->subtotal = $subtotal;
+            $cart->total = $subtotal;
+            $cart->save();
+        }
+
+        $deliveryMethod = $this->resolveDeliveryMethod($validated['delivery_method']);
+        $requestedPromoCode = isset($validated['promo_code'])
+            ? strtoupper(trim((string) $validated['promo_code']))
+            : null;
+
+        $promoCode = null;
+        $promoMessage = null;
+        $promoApplied = false;
+
+        try {
+            $promoCode = $this->resolvePromoCode(
+                $validated['promo_code'] ?? null,
+                $subtotal,
+                $validated['customer_email'] ?? null,
+            );
+            if ($promoCode) {
+                $promoApplied = true;
+                $promoMessage = 'Промокод применен.';
+            }
+        } catch (ValidationException $exception) {
+            $promoMessage = (string) collect($exception->errors())->flatten()->first();
+        }
+
+        $discountTotal = $promoCode ? $this->calculateDiscount($promoCode, $subtotal) : 0.0;
+        $deliveryTotal = $this->resolveDeliveryFee($deliveryMethod, $subtotal);
+        $total = max(0, $subtotal - $discountTotal + $deliveryTotal);
+
+        return response()->json([
+            'subtotal' => $subtotal,
+            'discount_total' => $discountTotal,
+            'delivery_total' => $deliveryTotal,
+            'total' => $total,
+            'currency' => $cart?->currency ?? 'RUB',
+            'promo' => [
+                'code' => $promoCode?->code ?? $requestedPromoCode,
+                'is_applied' => $promoApplied,
+                'message' => $promoMessage,
+            ],
+        ]);
+    }
+
+    private function resolveDeliveryMethod(string $code): DeliveryMethod
+    {
+        $deliveryMethod = DeliveryMethod::query()
+            ->with('provider')
+            ->where('is_active', true)
+            ->where('code', $code)
+            ->first();
+
+        if (! $deliveryMethod || ! $this->isDeliveryMethodAvailable($deliveryMethod)) {
+            throw ValidationException::withMessages([
+                'delivery_method' => 'Выбранный способ доставки недоступен.',
+            ]);
+        }
+
+        return $deliveryMethod;
+    }
+
+    private function resolvePaymentProvider(string $code): PaymentProvider
+    {
+        $aliases = [
+            'card' => PaymentProvider::query()
+                ->where('is_active', true)
+                ->where('driver', '!=', 'manual_cash')
+                ->orderByDesc('is_default')
+                ->orderBy('sort_order')
+                ->value('code'),
+            'cash' => PaymentProvider::query()
+                ->where('is_active', true)
+                ->where('driver', 'manual_cash')
+                ->orderByDesc('is_default')
+                ->orderBy('sort_order')
+                ->value('code'),
+        ];
+
+        $resolvedCode = $aliases[$code] ?? $code;
+
+        $provider = PaymentProvider::query()
+            ->where('code', $resolvedCode)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $provider) {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Выбранный способ оплаты недоступен.',
+            ]);
+        }
+
+        return $provider;
+    }
+
+    private function allowedPaymentMethodCodes(): array
+    {
+        return array_values(array_unique(array_merge(
+            ['card', 'cash'],
+            PaymentProvider::query()
+                ->where('is_active', true)
+                ->pluck('code')
+                ->all(),
+        )));
+    }
+
+    private function isDeliveryMethodAvailable(DeliveryMethod $method): bool
+    {
+        if (! $method->provider_code) {
+            return true;
+        }
+
+        return $method->provider?->is_active === true;
+    }
+
+    private function resolveDeliveryFee(DeliveryMethod $method, float $subtotal): float
+    {
+        if (! $method->provider_code || ! $method->provider) {
+            return (float) $method->fee;
+        }
+
+        return $this->deliveryGateways
+            ->for($method->provider)
+            ->resolveFee($method->provider, $method, $subtotal);
+    }
+
+    private function resolvePaymentMethodKind(PaymentProvider $provider): string
+    {
+        return $provider->driver === 'manual_cash' ? 'cash' : 'card';
+    }
+
+    private function resolvePromoCode(?string $code, float $subtotal, ?string $customerEmail = null): ?PromoCode
+    {
+        if (! $code) {
+            return null;
+        }
+
+        $normalizedCode = strtoupper(trim($code));
+
+        /** @var PromoCode|null $promo */
+        $promo = PromoCode::query()
+            ->where('is_active', true)
+            ->where('code', $normalizedCode)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $promo) {
+            throw ValidationException::withMessages([
+                'promo_code' => 'Промокод не найден или неактивен.',
+            ]);
+        }
+
+        if (! $this->isPromoDateValid($promo)) {
+            throw ValidationException::withMessages([
+                'promo_code' => 'Срок действия промокода истек или еще не начался.',
+            ]);
+        }
+
+        if ($promo->usage_limit !== null && $promo->used_count >= $promo->usage_limit) {
+            throw ValidationException::withMessages([
+                'promo_code' => 'Промокод уже исчерпал лимит использований.',
+            ]);
+        }
+
+        if ($customerEmail && $this->hasPromoBeenUsedByCustomer($promo, $customerEmail)) {
+            throw ValidationException::withMessages([
+                'promo_code' => 'Промокод уже использован для этого email.',
+            ]);
+        }
+
+        if ($promo->min_subtotal !== null && $subtotal < (float) $promo->min_subtotal) {
+            throw ValidationException::withMessages([
+                'promo_code' => 'Сумма заказа недостаточна для этого промокода.',
+            ]);
+        }
+
+        return $promo;
+    }
+
+    private function hasPromoBeenUsedByCustomer(PromoCode $promo, string $customerEmail): bool
+    {
+        $normalizedEmail = strtolower(trim($customerEmail));
+
+        return PromoCodeUsage::query()
+            ->where('promo_code_id', $promo->id)
+            ->where('customer_email', $normalizedEmail)
+            ->exists();
+    }
+
+    private function isPromoDateValid(PromoCode $promo): bool
+    {
+        $now = now();
+
+        if ($promo->starts_at && $promo->starts_at->gt($now)) {
+            return false;
+        }
+
+        if ($promo->ends_at && $promo->ends_at->lt($now)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function calculateDiscount(PromoCode $promo, float $subtotal): float
+    {
+        $discount = match ($promo->discount_type) {
+            'fixed_percent' => $subtotal * ((float) $promo->discount_value / 100),
+            'fixed_amount' => (float) $promo->discount_value,
+            default => 0.0,
+        };
+
+        return round(min($subtotal, max(0, $discount)), 2);
+    }
+
+    private function resolveIdentity(Request $request, ?string $sessionFromPayload = null): array
+    {
+        $user = $this->resolveAuthenticatedUser($request);
+
+        $sessionId = (string) (
+            $sessionFromPayload
+            ?? $request->query('session_id')
+            ?? $request->header('X-Session-Id')
+        );
+
+        if (! $user && $sessionId === '') {
+            throw ValidationException::withMessages([
+                'session_id' => 'session_id обязателен для гостевого checkout.',
+            ]);
+        }
+
+        return [
+            'user' => $user,
+            'session_id' => $sessionId !== '' ? $sessionId : null,
+        ];
+    }
+
+    private function resolveAuthenticatedUser(Request $request): ?User
+    {
+        /** @var User|null $user */
+        $user = $request->user('sanctum');
+
+        if ($user) {
+            return $user;
+        }
+
+        $token = $request->bearerToken();
+
+        if (! $token) {
+            return null;
+        }
+
+        $accessToken = PersonalAccessToken::findToken($token);
+
+        if (! $accessToken || $accessToken->tokenable_type !== User::class) {
+            return null;
+        }
+
+        $tokenable = $accessToken->tokenable;
+
+        return $tokenable instanceof User ? $tokenable : null;
+    }
+
+    private function generateOrderNumber(): string
+    {
+        return 'SH' . now()->format('ymdHis') . random_int(100, 999);
+    }
+}

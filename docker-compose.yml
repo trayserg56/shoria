@@ -1,0 +1,116 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-shoria}
+      POSTGRES_USER: ${POSTGRES_USER:-shoria}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shoria}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shoria} -d ${POSTGRES_DB:-shoria}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    volumes:
+      - ./backend:/var/www/html
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_DEBUG: ${APP_DEBUG:-true}
+      # Должен совпадать с тем, как вы открываете сайт в браузере (порт = HTTP_PORT)
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_DB:-shoria}
+      DB_USERNAME: ${POSTGRES_USER:-shoria}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-shoria}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CACHE_STORE: ${CACHE_STORE:-redis}
+      SESSION_DRIVER: ${SESSION_DRIVER:-redis}
+      QUEUE_CONNECTION: ${QUEUE_CONNECTION:-redis}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # Воркер очередей (после установки Laravel). Запуск: docker compose --profile workers up -d queue
+  queue:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    working_dir: /var/www/html
+    volumes:
+      - ./backend:/var/www/html
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_DB:-shoria}
+      DB_USERNAME: ${POSTGRES_USER:-shoria}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-shoria}
+      REDIS_HOST: redis
+    command: ["php", "artisan", "queue:work", "--sleep=1", "--tries=3"]
+    depends_on:
+      - app
+      - postgres
+      - redis
+    profiles: ["workers"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    volumes:
+      - ./backend:/var/www/html:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+  # Только для первичной установки Laravel / Composer-команд с хоста
+  composer:
+    image: composer:2
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
+    volumes:
+      - ./backend:/app
+    working_dir: /app
+    profiles: ["tools"]
+
+  node-tools:
+    image: node:22-alpine
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    profiles: ["tools"]
+
+  # Разработка Vue (Vite). Запуск: docker compose --profile frontend up node
+  node:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "${VITE_PORT:-5173}:5173"
+    environment:
+      # URL API для браузера (с хоста). При необходимости смените порт.
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+    command: ["sh", "-c", "if [ ! -f package.json ]; then echo 'Frontend not initialized. Run: make init-frontend'; sleep infinity; else npm install && npm run dev -- --host 0.0.0.0 --port 5173; fi"]
+    profiles: ["frontend"]
+
+volumes:
+  postgres_data:

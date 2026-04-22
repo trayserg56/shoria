@@ -1,0 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;500;700;800&display=swap');
+
+:root {
+  --font-body: 'Manrope', 'Segoe UI', sans-serif;
+  --font-display: 'Bebas Neue', 'Arial Narrow', sans-serif;
+  --color-background: #f6f2ea;
+  --color-text: #131524;
+  --color-text-soft: #5c6477;
+  --card-bg: #fffdf7;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  color: var(--color-text);
+  background:
+    radial-gradient(circle at 4% 6%, #ffd9b0 0, transparent 35%),
+    radial-gradient(circle at 100% 0, #d4e8ff 0, transparent 28%),
+    var(--color-background);
+  line-height: 1.5;
+  font-family: var(--font-body);
+  font-size: 16px;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
