@@ -21,26 +21,31 @@ class MarketingDashboardMetricsTest extends TestCase
         TrackingEvent::query()->create([
             'event_name' => 'view_product',
             'session_id' => 'session-1',
+            'first_touch_source' => 'telegram',
             'occurred_at' => now()->subDay(),
         ]);
         TrackingEvent::query()->create([
             'event_name' => 'add_to_cart',
             'session_id' => 'session-1',
+            'first_touch_source' => 'telegram',
             'occurred_at' => now()->subDay(),
         ]);
         TrackingEvent::query()->create([
             'event_name' => 'begin_checkout',
             'session_id' => 'session-1',
+            'first_touch_source' => 'telegram',
             'occurred_at' => now()->subDay(),
         ]);
         TrackingEvent::query()->create([
             'event_name' => 'purchase',
             'session_id' => 'session-1',
+            'first_touch_source' => 'telegram',
             'occurred_at' => now()->subDay(),
         ]);
         TrackingEvent::query()->create([
             'event_name' => 'view_product',
             'session_id' => 'session-2',
+            'first_touch_source' => 'google',
             'occurred_at' => now()->subDay(),
         ]);
 
@@ -48,6 +53,7 @@ class MarketingDashboardMetricsTest extends TestCase
             'email' => 'dash@example.com',
             'status' => 'subscribed',
             'source' => 'home',
+            'first_touch_source' => 'telegram',
             'subscribed_at' => now()->subDay(),
         ]);
 
@@ -67,6 +73,7 @@ class MarketingDashboardMetricsTest extends TestCase
             'customer_name' => 'Dash Buyer',
             'customer_email' => 'dash-buyer@example.com',
             'customer_phone' => '+79990000001',
+            'first_touch_source' => 'telegram',
             'placed_at' => now()->subDay(),
         ]);
 
@@ -86,6 +93,10 @@ class MarketingDashboardMetricsTest extends TestCase
         $this->assertSame(100.0, $metrics['funnel']['cart_to_checkout_rate']);
         $this->assertSame(100.0, $metrics['funnel']['checkout_to_purchase_rate']);
         $this->assertSame(50.0, $metrics['funnel']['view_to_purchase_rate']);
+        $this->assertSame(['telegram', 'google'], $metrics['attribution']['labels']);
+        $this->assertSame([1, 1], $metrics['attribution']['sessions']);
+        $this->assertSame([1, 0], $metrics['attribution']['orders']);
+        $this->assertSame([10480.0, 0.0], $metrics['attribution']['revenue']);
 
         $this->assertContains('22.04', $metrics['daily']['labels']);
         $index = array_search('22.04', $metrics['daily']['labels'], true);

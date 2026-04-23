@@ -25,6 +25,7 @@ class AuthController extends Controller
         $user = User::query()->create([
             'name' => $validated['name'],
             'email' => $validated['email'],
+            'role' => User::ROLE_CUSTOMER,
             'password' => $validated['password'],
         ]);
 
@@ -282,6 +283,7 @@ class AuthController extends Controller
             'name' => $user->name,
             'email' => $user->email,
             'phone' => $user->phone,
+            'role' => $user->role,
             'email_verified_at' => $user->email_verified_at?->toJSON(),
         ];
     }

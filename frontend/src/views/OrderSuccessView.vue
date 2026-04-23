@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import { useCartStore } from '@/stores/cart'
 
 type OrderDetails = {
@@ -137,7 +138,18 @@ onMounted(loadOrder)
 
 <template>
   <main class="success-page">
-    <p v-if="isLoading">Загружаем заказ...</p>
+    <section v-if="isLoading && !order" class="card card--skeleton" aria-hidden="true">
+      <AppSkeleton width="52%" height="56px" />
+      <AppSkeleton width="28%" height="18px" />
+      <AppSkeleton width="24%" height="18px" />
+      <AppSkeleton width="30%" height="18px" />
+      <AppSkeleton width="100%" height="16px" />
+      <AppSkeleton width="100%" height="16px" />
+      <AppSkeleton width="88%" height="16px" />
+      <AppSkeleton width="34%" height="28px" />
+      <AppSkeleton width="100%" height="56px" radius="14px" />
+      <AppSkeleton width="100%" height="56px" radius="14px" />
+    </section>
     <p v-if="hasError" class="error">Не удалось загрузить данные заказа.</p>
 
     <section v-if="order" class="card">
@@ -196,6 +208,11 @@ onMounted(loadOrder)
   background: #fff;
   box-shadow: 0 12px 40px rgb(16 24 40 / 9%);
   padding: 18px 16px;
+}
+
+.card--skeleton {
+  display: grid;
+  gap: 14px;
 }
 
 .card h1 {

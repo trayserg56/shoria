@@ -10,6 +10,7 @@ import { fetchJson } from '@/lib/api'
 import { toProductRoute } from '@/lib/product-route'
 import { clearStructuredData, setSeoMeta, setStructuredData } from '@/lib/seo'
 import { saveRecentlyViewed } from '@/lib/recently-viewed'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 import {
   buildBreadcrumbStructuredData,
@@ -20,6 +21,18 @@ type ProductImage = {
   url: string
   alt: string | null
   is_cover: boolean
+}
+
+type ProductVariantPayload = {
+  id: number
+  slug: string
+  size_label: string
+  color_label: string | null
+  sku: string | null
+  price: number | null
+  stock: number
+  images: ProductImage[]
+  has_custom_images: boolean
 }
 
 type ProductPayload = {
@@ -43,13 +56,8 @@ type ProductPayload = {
     code: string
     label: string
   }>
-  variants: Array<{
-    id: number
-    size_label: string
-    sku: string | null
-    price: number | null
-    stock: number
-  }>
+  selected_variant_slug: string | null
+  variants: ProductVariantPayload[]
   images: ProductImage[]
 }
 
@@ -87,16 +95,58 @@ const addError = ref('')
 const compareMessage = ref('')
 const activeImageIndex = ref(0)
 const selectedVariantId = ref<number | null>(null)
+const selectedColorLabel = ref<string | null>(null)
 const recommendations = ref<RecommendedProduct[]>([])
 const recommendationsSlider = ref<HTMLElement | null>(null)
 const isCartBusy = ref(false)
 
 const slug = computed(() => String(route.params.slug ?? ''))
 const currentCategorySlug = computed(() => String(route.params.categorySlug ?? ''))
+const currentVariantSlug = computed(() => String(route.params.variantSlug ?? '').trim())
 const activeImage = computed(() => product.value?.images[activeImageIndex.value] ?? null)
 const selectedVariant = computed(
   () => product.value?.variants.find((variant) => variant.id === selectedVariantId.value) ?? null,
 )
+const selectedSizeLabel = computed(() => selectedVariant.value?.size_label ?? null)
+const availableColors = computed(() => {
+  if (!product.value) {
+    return []
+  }
+
+  return Array.from(
+    new Set(
+      product.value.variants
+        .map((variant) => variant.color_label?.trim() ?? '')
+        .filter((label) => label !== ''),
+    ),
+  )
+})
+const hasColorOptions = computed(() => availableColors.value.length > 0)
+const colorOptions = computed(() =>
+  availableColors.value.map((label) => {
+    const variants = product.value?.variants.filter(
+      (variant) => (variant.color_label?.trim() ?? '') === label,
+    ) ?? []
+
+    return {
+      label,
+      available: variants.some((variant) => variant.stock > 0),
+    }
+  }),
+)
+const variantsByColor = computed(() => {
+  if (!product.value) {
+    return []
+  }
+
+  if (!selectedColorLabel.value) {
+    return product.value.variants
+  }
+
+  return product.value.variants.filter(
+    (variant) => (variant.color_label?.trim() ?? '') === selectedColorLabel.value,
+  )
+})
 const effectivePrice = computed(() => selectedVariant.value?.price ?? product.value?.price ?? 0)
 const effectiveStock = computed(() => selectedVariant.value?.stock ?? product.value?.stock ?? 0)
 const isWishlisted = computed(() => (product.value ? wishlistStore.has(product.value.id) : false))
@@ -143,6 +193,106 @@ function scrollSlider(target: HTMLElement | null, direction: 'prev' | 'next') {
   })
 }
 
+function resolveInitialVariant(data: ProductPayload): ProductVariantPayload | null {
+  if (!data.variants.length) {
+    return null
+  }
+
+  if (data.selected_variant_slug) {
+    const bySelectedSlug = data.variants.find((variant) => variant.slug === data.selected_variant_slug)
+
+    if (bySelectedSlug) {
+      return bySelectedSlug
+    }
+  }
+
+  if (currentVariantSlug.value) {
+    const byRouteSlug = data.variants.find((variant) => variant.slug === currentVariantSlug.value)
+
+    if (byRouteSlug) {
+      return byRouteSlug
+    }
+  }
+
+  return data.variants.find((variant) => variant.stock > 0) ?? data.variants[0] ?? null
+}
+
+function variantsForColor(colorLabel: string): ProductVariantPayload[] {
+  if (!product.value) {
+    return []
+  }
+
+  return product.value.variants.filter(
+    (variant) => (variant.color_label?.trim() ?? '') === colorLabel,
+  )
+}
+
+function findBestVariantForColor(colorLabel: string): ProductVariantPayload | null {
+  const variants = variantsForColor(colorLabel)
+
+  if (!variants.length) {
+    return null
+  }
+
+  if (selectedSizeLabel.value) {
+    const sameSizeInStock = variants.find(
+      (variant) => variant.size_label === selectedSizeLabel.value && variant.stock > 0,
+    )
+
+    if (sameSizeInStock) {
+      return sameSizeInStock
+    }
+  }
+
+  const firstInStock = variants.find((variant) => variant.stock > 0)
+
+  if (firstInStock) {
+    return firstInStock
+  }
+
+  if (selectedSizeLabel.value) {
+    const sameSizeAny = variants.find((variant) => variant.size_label === selectedSizeLabel.value)
+
+    if (sameSizeAny) {
+      return sameSizeAny
+    }
+  }
+
+  return variants[0] ?? null
+}
+
+async function openVariant(variant: ProductVariantPayload) {
+  if (!product.value) {
+    return
+  }
+
+  if (currentVariantSlug.value === variant.slug) {
+    selectedVariantId.value = variant.id
+    selectedColorLabel.value = variant.color_label?.trim() || null
+    return
+  }
+
+  await router.push(
+    toProductRoute({
+      slug: product.value.slug,
+      category: product.value.category,
+      variant_slug: variant.slug,
+    }),
+  )
+}
+
+async function selectColor(colorLabel: string) {
+  selectedColorLabel.value = colorLabel
+
+  const candidate = findBestVariantForColor(colorLabel)
+
+  if (!candidate) {
+    return
+  }
+
+  await openVariant(candidate)
+}
+
 async function loadProduct() {
   if (!slug.value) {
     return
@@ -151,23 +301,56 @@ async function loadProduct() {
   isLoading.value = true
 
   try {
-    product.value = await fetchJson<ProductPayload>(`/api/products/${slug.value}`)
+    const variantQuery = currentVariantSlug.value
+      ? `?variant=${encodeURIComponent(currentVariantSlug.value)}`
+      : ''
+
+    product.value = await fetchJson<ProductPayload>(`/api/products/${slug.value}${variantQuery}`)
     const recommendationsPayload = await fetchJson<RecommendationsPayload>(
       `/api/products/${slug.value}/recommendations`,
     )
     recommendations.value = recommendationsPayload.data
     hasError.value = false
     activeImageIndex.value = 0
-    selectedVariantId.value =
-      product.value.variants.find((variant) => variant.stock > 0)?.id ??
-      product.value.variants[0]?.id ??
-      null
+    const initialVariant = resolveInitialVariant(product.value)
+    selectedVariantId.value = initialVariant?.id ?? null
+    selectedColorLabel.value = initialVariant?.color_label?.trim() || null
     const actualCategorySlug = product.value.category?.slug ?? ''
+    const selectedVariantSlug = initialVariant?.slug ?? null
 
     if (actualCategorySlug && currentCategorySlug.value !== actualCategorySlug) {
-      await router.replace(toProductRoute(product.value))
+      await router.replace(
+        toProductRoute({
+          slug: product.value.slug,
+          category: product.value.category,
+          variant_slug: currentVariantSlug.value || selectedVariantSlug,
+        }),
+      )
       return
     }
+
+    if (
+      currentVariantSlug.value &&
+      selectedVariantSlug &&
+      currentVariantSlug.value !== selectedVariantSlug
+    ) {
+      await router.replace(
+        toProductRoute({
+          slug: product.value.slug,
+          category: product.value.category,
+          variant_slug: selectedVariantSlug,
+        }),
+      )
+      return
+    }
+
+    const canonicalPath = router.resolve(
+      toProductRoute({
+        slug: product.value.slug,
+        category: product.value.category,
+        variant_slug: selectedVariantSlug,
+      }),
+    ).href
 
     setSeoMeta({
       title:
@@ -178,10 +361,7 @@ async function loadProduct() {
         product.value.description?.trim() ||
         `Купить ${product.value.name} в Shoria: актуальная цена, наличие и рекомендации.`,
       robots: 'index,follow',
-      canonical: `${window.location.origin}/product/${product.value.category?.slug ?? ''}/${product.value.slug}`.replace(
-        /\/product\/\//,
-        '/product/',
-      ),
+      canonical: `${window.location.origin}${canonicalPath}`,
     })
     setStructuredData([
       buildBreadcrumbStructuredData([
@@ -192,14 +372,14 @@ async function loadProduct() {
           : []),
         {
           name: product.value.name,
-          path: `/product/${product.value.category?.slug ?? ''}/${product.value.slug}`.replace('//', '/'),
+          path: canonicalPath,
         },
       ]),
       buildProductStructuredData({
-        slug: `${product.value.category?.slug ? `${product.value.category.slug}/` : ''}${product.value.slug}`,
+        slug: canonicalPath.replace(/^\/product\//, ''),
         name: product.value.name,
         description: product.value.description,
-        sku: product.value.sku,
+        sku: selectedVariant.value?.sku ?? product.value.sku,
         price: effectivePrice.value,
         currency: product.value.currency,
         imageUrl: product.value.images[0]?.url ?? null,
@@ -210,15 +390,16 @@ async function loadProduct() {
 
     void trackEvent('view_product', {
       slug: product.value.slug,
-      price: product.value.price,
+      price: effectivePrice.value,
       category: product.value.category?.slug ?? null,
+      variant_slug: selectedVariantSlug,
     })
 
     saveRecentlyViewed({
       id: product.value.id,
       slug: product.value.slug,
       name: product.value.name,
-      price: product.value.price,
+      price: effectivePrice.value,
       old_price: product.value.old_price,
       stock: effectiveStock.value,
       currency: product.value.currency,
@@ -319,7 +500,7 @@ function currentWishlistItem(): WishlistItem | null {
     id: product.value.id,
     slug: product.value.slug,
     name: product.value.name,
-    price: product.value.price,
+    price: effectivePrice.value,
     old_price: product.value.old_price,
     stock: effectiveStock.value,
     currency: product.value.currency,
@@ -352,7 +533,7 @@ function currentCompareItem(): CompareItem | null {
     id: product.value.id,
     slug: product.value.slug,
     name: product.value.name,
-    price: product.value.price,
+    price: effectivePrice.value,
     old_price: product.value.old_price,
     currency: product.value.currency,
     image_url: product.value.images[0]?.url ?? null,
@@ -395,7 +576,21 @@ watch(
 
 <template>
   <main class="product-page">
-    <p v-if="isLoading" class="status">Загружаем карточку товара...</p>
+    <section v-if="isLoading && !product" class="product-layout product-layout--skeleton" aria-hidden="true">
+      <div class="gallery gallery--skeleton">
+        <AppSkeleton width="100%" height="560px" radius="22px" />
+      </div>
+      <article class="details details--skeleton">
+        <AppSkeleton width="24%" height="14px" />
+        <AppSkeleton width="58%" height="46px" />
+        <AppSkeleton width="28%" height="14px" />
+        <AppSkeleton width="32%" height="28px" />
+        <AppSkeleton width="38%" height="16px" />
+        <AppSkeleton width="100%" height="16px" />
+        <AppSkeleton width="88%" height="16px" />
+        <AppSkeleton width="100%" height="54px" radius="16px" />
+      </article>
+    </section>
     <p v-if="hasError" class="status status--warn">Товар не найден или API недоступно.</p>
 
     <section v-if="product" class="product-layout">
@@ -443,23 +638,49 @@ watch(
         </div>
 
         <div v-if="product.has_variants" class="sizes">
-          <p class="sizes__title">Размер</p>
-          <div class="sizes__grid">
-            <button
-              v-for="variant in product.variants"
-              :key="variant.id"
-              type="button"
-              class="size-chip"
-              :class="{ 'size-chip--active': selectedVariantId === variant.id }"
-              :disabled="variant.stock <= 0"
-              @click="selectedVariantId = variant.id"
-            >
-              {{ variant.size_label }}
-            </button>
+          <div v-if="hasColorOptions" class="sizes__group">
+            <p class="sizes__title">Цвет</p>
+            <div class="sizes__grid sizes__grid--colors">
+              <button
+                v-for="color in colorOptions"
+                :key="color.label"
+                type="button"
+                class="size-chip size-chip--color"
+                :class="{
+                  'size-chip--active': selectedColorLabel === color.label,
+                  'size-chip--unavailable': !color.available,
+                }"
+                @click="selectColor(color.label)"
+              >
+                <span class="size-chip__label">{{ color.label }}</span>
+                <span v-if="!color.available" class="size-chip__meta">нет в наличии</span>
+              </button>
+            </div>
+          </div>
+          <div class="sizes__group">
+            <p class="sizes__title">Размер</p>
+            <div class="sizes__grid">
+              <button
+                v-for="variant in variantsByColor"
+                :key="variant.id"
+                type="button"
+                class="size-chip"
+                :class="{
+                  'size-chip--active': selectedVariantId === variant.id,
+                  'size-chip--unavailable': variant.stock <= 0,
+                }"
+                @click="openVariant(variant)"
+              >
+                <span class="size-chip__label">{{ variant.size_label }}</span>
+                <span v-if="variant.stock <= 0" class="size-chip__meta">нет в наличии</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        <p class="details__stock">В наличии: {{ effectiveStock }} шт.</p>
+        <p class="details__stock" :class="{ 'details__stock--empty': effectiveStock <= 0 }">
+          {{ effectiveStock > 0 ? `В наличии: ${effectiveStock} шт.` : 'Нет в наличии' }}
+        </p>
         <p class="details__description">{{ product.description ?? 'Описание скоро обновим.' }}</p>
 
         <div class="cta-row">
@@ -566,6 +787,10 @@ watch(
   gap: 22px;
 }
 
+.product-layout--skeleton {
+  align-items: start;
+}
+
 .gallery {
   border-radius: 22px;
   background: #fff;
@@ -614,6 +839,11 @@ watch(
   padding: 24px 20px;
 }
 
+.details--skeleton {
+  display: grid;
+  gap: 14px;
+}
+
 .details__category {
   color: #7f8ca8;
   font-size: 12px;
@@ -655,6 +885,11 @@ watch(
   color: #1f2233;
 }
 
+.details__stock--empty {
+  color: #b84a14;
+  font-weight: 600;
+}
+
 .details__description {
   margin-top: 14px;
   color: #3d4760;
@@ -662,12 +897,19 @@ watch(
 
 .sizes {
   margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.sizes__group {
+  display: grid;
+  gap: 8px;
 }
 
 .sizes__title {
-  margin-bottom: 8px;
   color: #4f5a74;
   font-weight: 600;
+  font-size: 14px;
 }
 
 .sizes__grid {
@@ -676,13 +918,21 @@ watch(
   gap: 8px;
 }
 
+.sizes__grid--colors {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
 .size-chip {
   border: 1px solid #d7d4ce;
   border-radius: 10px;
   background: #fff;
-  padding: 8px 10px;
+  padding: 8px 10px 9px;
   font-weight: 600;
   cursor: pointer;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  text-align: center;
 }
 
 .size-chip--active {
@@ -691,9 +941,28 @@ watch(
   background: #fff5ed;
 }
 
-.size-chip:disabled {
-  opacity: 0.45;
-  cursor: default;
+.size-chip--color {
+  font-weight: 500;
+}
+
+.size-chip__label {
+  line-height: 1.2;
+}
+
+.size-chip__meta {
+  font-size: 11px;
+  line-height: 1.1;
+  color: #8b94a7;
+}
+
+.size-chip--unavailable {
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.size-chip--unavailable .size-chip__meta {
+  color: #b84a14;
+  font-weight: 600;
 }
 
 .buy-button {

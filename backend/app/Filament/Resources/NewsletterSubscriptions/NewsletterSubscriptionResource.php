@@ -7,11 +7,13 @@ use App\Filament\Resources\NewsletterSubscriptions\Pages\ListNewsletterSubscript
 use App\Filament\Resources\NewsletterSubscriptions\Schemas\NewsletterSubscriptionForm;
 use App\Filament\Resources\NewsletterSubscriptions\Tables\NewsletterSubscriptionsTable;
 use App\Models\NewsletterSubscription;
+use App\Support\Admin\AdminAccess;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 
 class NewsletterSubscriptionResource extends Resource
 {
@@ -20,6 +22,31 @@ class NewsletterSubscriptionResource extends Resource
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
     protected static ?string $navigationLabel = 'Подписки';
+
+    public static function canViewAny(): bool
+    {
+        return AdminAccess::canUseAdminOnlyResource();
+    }
+
+    public static function canCreate(): bool
+    {
+        return false;
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return AdminAccess::canUseAdminOnlyResource();
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return AdminAccess::canUseAdminOnlyResource();
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return AdminAccess::canUseAdminOnlyResource();
+    }
 
     public static function form(Schema $schema): Schema
     {
@@ -39,4 +66,3 @@ class NewsletterSubscriptionResource extends Resource
         ];
     }
 }
-

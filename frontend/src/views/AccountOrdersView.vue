@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import { useCartStore } from '@/stores/cart'
 
 const cartStore = useCartStore()
@@ -116,9 +117,24 @@ watch(
       </button>
     </div>
 
-    <p v-if="isLoading" class="status">Загружаем заказы...</p>
+    <section v-if="isLoading && !orderHistory.length" class="orders-list" aria-hidden="true">
+      <article v-for="index in 4" :key="`order-skeleton-${index}`" class="order-row">
+        <div class="order-row__left-skeleton">
+          <AppSkeleton width="180px" height="20px" />
+          <AppSkeleton width="140px" height="14px" />
+          <AppSkeleton width="160px" height="14px" />
+        </div>
+        <div class="order-row__right">
+          <div class="order-row__badges">
+            <AppSkeleton width="110px" height="30px" radius="999px" />
+            <AppSkeleton width="110px" height="30px" radius="999px" />
+          </div>
+          <AppSkeleton width="90px" height="24px" />
+        </div>
+      </article>
+    </section>
 
-    <section v-if="orderHistory.length > 0" class="orders-list">
+    <section v-else-if="orderHistory.length > 0" class="orders-list">
       <article v-for="order in orderHistory" :key="order.order_number" class="order-row">
         <div>
           <RouterLink :to="{ name: 'order-success', params: { orderNumber: order.order_number } }">
@@ -216,6 +232,11 @@ watch(
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid #eadfcf;
   box-shadow: 0 18px 40px rgb(16 24 40 / 8%);
+}
+
+.order-row__left-skeleton {
+  display: grid;
+  gap: 10px;
 }
 
 .order-row a {

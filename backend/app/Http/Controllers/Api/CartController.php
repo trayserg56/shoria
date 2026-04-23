@@ -19,6 +19,7 @@ class CartController extends Controller
     {
         ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity($request);
         $cart = $this->findOrCreateOpenCart($user, $sessionId);
+        $cart = $this->recalculateCart($cart);
 
         return response()->json($this->serializeCart($cart));
     }
@@ -41,7 +42,8 @@ class CartController extends Controller
         $product = Product::query()
             ->with([
                 'images:id,product_id,url,is_cover,sort_order',
-                'variants:id,product_id,size_label,price,stock,is_active,sort_order',
+                'variants:id,product_id,slug,size_label,color_label,price,stock,is_active,sort_order',
+                'variants.images:id,product_variant_id,url,is_cover,sort_order',
             ])
             ->where('is_active', true)
             ->where('slug', $validated['product_slug'])
@@ -79,12 +81,7 @@ class CartController extends Controller
             ], 422);
         }
 
-        $coverImage = $product->images
-            ->sortBy([
-                ['is_cover', 'desc'],
-                ['sort_order', 'asc'],
-            ])
-            ->first();
+        $coverImage = $this->resolveCoverImageUrl($product, $selectedVariant);
 
         $unitPrice = (float) ($selectedVariant?->price ?? $product->price);
 
@@ -97,8 +94,8 @@ class CartController extends Controller
 
         $item->product_name = $product->name;
         $item->product_slug = $product->slug;
-        $item->variant_label = $selectedVariant?->size_label;
-        $item->image_url = $coverImage?->url;
+        $item->variant_label = $this->resolveVariantLabel($selectedVariant);
+        $item->image_url = $coverImage;
         $item->qty = $nextQty;
         $item->unit_price = $unitPrice;
         $item->total_price = $unitPrice * $item->qty;
@@ -125,7 +122,7 @@ class CartController extends Controller
         $cart = $this->findOrCreateOpenCart($user, $sessionId);
         $item = $cart->items()->where('id', $itemId)->firstOrFail();
         $product = Product::query()
-            ->with('variants:id,product_id,size_label,price,stock,is_active,sort_order')
+            ->with('variants:id,product_id,slug,size_label,color_label,price,stock,is_active,sort_order')
             ->findOrFail($item->product_id);
         $variant = $item->product_variant_id
             ? $product->variants->firstWhere('id', $item->product_variant_id)
@@ -139,6 +136,7 @@ class CartController extends Controller
             ], 422);
         }
 
+        $item->unit_price = (float) ($variant?->price ?? $product->price);
         $item->qty = $qty;
         $item->total_price = ((float) $item->unit_price) * $qty;
         $item->save();
@@ -263,6 +261,8 @@ class CartController extends Controller
     private function recalculateCart(Cart $cart): Cart
     {
         $cart->load('items');
+        $this->syncCartItemSnapshots($cart);
+        $cart->load('items');
 
         $subtotal = $cart->items->sum(fn (CartItem $item) => (float) $item->total_price);
 
@@ -273,22 +273,97 @@ class CartController extends Controller
         return $cart->fresh('items');
     }
 
+    private function syncCartItemSnapshots(Cart $cart): void
+    {
+        if ($cart->items->isEmpty()) {
+            return;
+        }
+
+        $productIds = $cart->items->pluck('product_id')->filter()->unique()->all();
+
+        $products = Product::query()
+            ->with([
+                'images:id,product_id,url,is_cover,sort_order',
+                'variants:id,product_id,slug,size_label,color_label,price,stock,is_active,sort_order',
+                'variants.images:id,product_variant_id,url,is_cover,sort_order',
+            ])
+            ->whereIn('id', $productIds)
+            ->get()
+            ->keyBy('id');
+
+        foreach ($cart->items as $item) {
+            $product = $products->get($item->product_id);
+
+            if (! $product) {
+                continue;
+            }
+
+            $variant = $item->product_variant_id
+                ? $product->variants->firstWhere('id', $item->product_variant_id)
+                : null;
+
+            $coverImage = $this->resolveCoverImageUrl($product, $variant);
+
+            $unitPrice = (float) ($variant?->price ?? $product->price);
+            $nextTotal = $unitPrice * $item->qty;
+
+            if (
+                $item->product_name === $product->name
+                && $item->product_slug === $product->slug
+                && $item->variant_label === $this->resolveVariantLabel($variant)
+                && $item->image_url === $coverImage
+                && (float) $item->unit_price === $unitPrice
+                && (float) $item->total_price === $nextTotal
+            ) {
+                continue;
+            }
+
+            $item->forceFill([
+                'product_name' => $product->name,
+                'product_slug' => $product->slug,
+                'variant_label' => $this->resolveVariantLabel($variant),
+                'image_url' => $coverImage,
+                'unit_price' => $unitPrice,
+                'total_price' => $nextTotal,
+            ])->save();
+        }
+    }
+
     private function serializeCart(Cart $cart): array
     {
         $cart->loadMissing('items');
 
-        $items = $cart->items->map(fn (CartItem $item) => [
-            'id' => $item->id,
-            'product_id' => $item->product_id,
-            'product_variant_id' => $item->product_variant_id,
-            'product_slug' => $item->product_slug,
-            'product_name' => $item->product_name,
-            'variant_label' => $item->variant_label,
-            'image_url' => $item->image_url,
-            'qty' => $item->qty,
-            'unit_price' => (float) $item->unit_price,
-            'total_price' => (float) $item->total_price,
-        ])->values();
+        $productIds = $cart->items->pluck('product_id')->filter()->unique()->all();
+
+        $products = Product::query()
+            ->with('variants:id,product_id,slug,size_label,color_label,price,stock,is_active,sort_order')
+            ->whereIn('id', $productIds)
+            ->get()
+            ->keyBy('id');
+
+        $items = $cart->items->map(function (CartItem $item) use ($products) {
+            $product = $products->get($item->product_id);
+            $variant = $item->product_variant_id && $product
+                ? $product->variants->firstWhere('id', $item->product_variant_id)
+                : null;
+            $availability = $this->resolveItemAvailability($product, $variant, (int) $item->qty);
+
+            return [
+                'id' => $item->id,
+                'product_id' => $item->product_id,
+                'product_variant_id' => $item->product_variant_id,
+                'product_slug' => $item->product_slug,
+                'product_name' => $item->product_name,
+                'variant_label' => $item->variant_label,
+                'image_url' => $item->image_url,
+                'qty' => $item->qty,
+                'unit_price' => (float) $item->unit_price,
+                'total_price' => (float) $item->total_price,
+                'available' => $availability['available'],
+                'available_stock' => $availability['available_stock'],
+                'availability_message' => $availability['message'],
+            ];
+        })->values();
 
         return [
             'id' => $cart->id,
@@ -326,5 +401,80 @@ class CartController extends Controller
         }
 
         return $activeVariants->firstWhere('stock', '>', 0) ?? $activeVariants->first();
+    }
+
+    private function resolveItemAvailability(?Product $product, ?ProductVariant $variant, int $qty): array
+    {
+        if (! $product || ! $product->is_active) {
+            return [
+                'available' => false,
+                'available_stock' => 0,
+                'message' => 'Товар больше недоступен.',
+            ];
+        }
+
+        if ($variant && ! $variant->is_active) {
+            return [
+                'available' => false,
+                'available_stock' => 0,
+                'message' => 'Выбранный вариант товара больше недоступен.',
+            ];
+        }
+
+        $availableStock = max(0, (int) ($variant?->stock ?? $product->stock));
+
+        if ($availableStock <= 0) {
+            return [
+                'available' => false,
+                'available_stock' => 0,
+                'message' => 'Нет в наличии.',
+            ];
+        }
+
+        if ($qty > $availableStock) {
+            return [
+                'available' => false,
+                'available_stock' => $availableStock,
+                'message' => "В наличии осталось только {$availableStock} шт.",
+            ];
+        }
+
+        return [
+            'available' => true,
+            'available_stock' => $availableStock,
+            'message' => null,
+        ];
+    }
+
+    private function resolveVariantLabel(?ProductVariant $variant): ?string
+    {
+        if (! $variant) {
+            return null;
+        }
+
+        if ($variant->color_label && trim($variant->color_label) !== '') {
+            return "{$variant->color_label} · {$variant->size_label}";
+        }
+
+        return $variant->size_label;
+    }
+
+    private function resolveCoverImageUrl(Product $product, ?ProductVariant $variant): ?string
+    {
+        if ($variant && $variant->relationLoaded('images') && $variant->images->isNotEmpty()) {
+            return $variant->images
+                ->sortBy([
+                    ['is_cover', 'desc'],
+                    ['sort_order', 'asc'],
+                ])
+                ->first()?->url;
+        }
+
+        return $product->images
+            ->sortBy([
+                ['is_cover', 'desc'],
+                ['sort_order', 'asc'],
+            ])
+            ->first()?->url;
     }
 }

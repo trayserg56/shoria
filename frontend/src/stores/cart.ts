@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { requestJson } from '@/lib/api'
+import { captureFirstTouchAttribution } from '@/lib/attribution'
 import { getAuthToken } from '@/lib/auth-token'
 import { getAppSessionId } from '@/lib/session'
 
@@ -15,6 +16,9 @@ type CartItem = {
   qty: number
   unit_price: number
   total_price: number
+  available: boolean
+  available_stock: number
+  availability_message: string | null
 }
 
 type CartPayload = {
@@ -188,6 +192,8 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   async function addItemBySlug(productSlug: string, qty = 1, productVariantId?: number) {
+    isLoading.value = true
+
     const payload: Record<string, string | number> = {
       session_id: sessionId,
       product_slug: productSlug,
@@ -198,26 +204,42 @@ export const useCartStore = defineStore('cart', () => {
       payload.product_variant_id = productVariantId
     }
 
-    cart.value = await requestJson<CartPayload>('/api/cart/items', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    })
+    try {
+      cart.value = await requestJson<CartPayload>('/api/cart/items', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+    } finally {
+      isLoading.value = false
+    }
   }
 
   async function updateQty(itemId: number, qty: number) {
-    cart.value = await requestJson<CartPayload>(`/api/cart/items/${itemId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        session_id: sessionId,
-        qty,
-      }),
-    })
+    isLoading.value = true
+
+    try {
+      cart.value = await requestJson<CartPayload>(`/api/cart/items/${itemId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          session_id: sessionId,
+          qty,
+        }),
+      })
+    } finally {
+      isLoading.value = false
+    }
   }
 
   async function removeItem(itemId: number) {
-    cart.value = await requestJson<CartPayload>(`/api/cart/items/${itemId}?session_id=${encodeURIComponent(sessionId)}`, {
-      method: 'DELETE',
-    })
+    isLoading.value = true
+
+    try {
+      cart.value = await requestJson<CartPayload>(`/api/cart/items/${itemId}?session_id=${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
+      })
+    } finally {
+      isLoading.value = false
+    }
   }
 
   async function checkout(payload: CheckoutPayload) {
@@ -225,6 +247,7 @@ export const useCartStore = defineStore('cart', () => {
       method: 'POST',
       body: JSON.stringify({
         session_id: sessionId,
+        attribution: captureFirstTouchAttribution(),
         ...payload,
       }),
     })
@@ -244,6 +267,7 @@ export const useCartStore = defineStore('cart', () => {
       method: 'POST',
       body: JSON.stringify({
         session_id: sessionId,
+        attribution: captureFirstTouchAttribution(),
         ...payload,
       }),
     })

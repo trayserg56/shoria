@@ -9,17 +9,44 @@ use App\Filament\Resources\Products\RelationManagers\VariantsRelationManager;
 use App\Filament\Resources\Products\Schemas\ProductForm;
 use App\Filament\Resources\Products\Tables\ProductsTable;
 use App\Models\Product;
+use App\Support\Admin\AdminAccess;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 
 class ProductResource extends Resource
 {
     protected static ?string $model = Product::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+
+    public static function canViewAny(): bool
+    {
+        return AdminAccess::canManageContentResource('products');
+    }
+
+    public static function canCreate(): bool
+    {
+        return AdminAccess::canManageContentResource('products');
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return AdminAccess::canManageContentResource('products');
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return AdminAccess::canManageContentResource('products');
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return AdminAccess::canManageContentResource('products');
+    }
 
     public static function form(Schema $schema): Schema
     {

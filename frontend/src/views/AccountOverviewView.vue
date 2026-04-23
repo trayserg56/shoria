@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink } from 'vue-router'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 import { useWishlistStore } from '@/stores/wishlist'
@@ -108,7 +109,15 @@ onMounted(async () => {
           <RouterLink :to="{ name: 'account-orders' }">Все заказы</RouterLink>
         </div>
 
-        <p v-if="isLoadingOrders" class="muted">Загружаем историю заказов...</p>
+        <div v-if="isLoadingOrders && !recentOrders.length" class="order-preview-list" aria-hidden="true">
+          <article v-for="index in 3" :key="`overview-order-skeleton-${index}`" class="order-preview-item">
+            <div class="order-preview-item__skeleton">
+              <AppSkeleton width="160px" height="18px" />
+              <AppSkeleton width="132px" height="14px" />
+            </div>
+            <AppSkeleton width="88px" height="20px" />
+          </article>
+        </div>
 
         <div v-else-if="recentOrders.length" class="order-preview-list">
           <RouterLink
@@ -298,6 +307,11 @@ onMounted(async () => {
   background: #fff8f1;
   text-decoration: none;
   color: inherit;
+}
+
+.order-preview-item__skeleton {
+  display: grid;
+  gap: 8px;
 }
 
 .order-preview-item p,

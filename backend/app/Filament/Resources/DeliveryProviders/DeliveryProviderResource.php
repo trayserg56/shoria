@@ -8,11 +8,13 @@ use App\Filament\Resources\DeliveryProviders\Pages\ListDeliveryProviders;
 use App\Filament\Resources\DeliveryProviders\Schemas\DeliveryProviderForm;
 use App\Filament\Resources\DeliveryProviders\Tables\DeliveryProvidersTable;
 use App\Models\DeliveryProvider;
+use App\Support\Admin\AdminAccess;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 use UnitEnum;
 
 class DeliveryProviderResource extends Resource
@@ -26,6 +28,31 @@ class DeliveryProviderResource extends Resource
     protected static string|UnitEnum|null $navigationGroup = 'Интеграции';
 
     protected static ?int $navigationSort = 21;
+
+    public static function canViewAny(): bool
+    {
+        return AdminAccess::canUseAdminOnlyResource();
+    }
+
+    public static function canCreate(): bool
+    {
+        return AdminAccess::canUseAdminOnlyResource();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return AdminAccess::canUseAdminOnlyResource();
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return AdminAccess::canUseAdminOnlyResource();
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return AdminAccess::canUseAdminOnlyResource();
+    }
 
     public static function form(Schema $schema): Schema
     {

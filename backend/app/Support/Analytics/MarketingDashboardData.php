@@ -22,11 +22,11 @@ class MarketingDashboardData
     {
         $events = TrackingEvent::query()
             ->whereBetween('occurred_at', [$start, $end])
-            ->get(['event_name', 'session_id', 'occurred_at']);
+            ->get(['event_name', 'session_id', 'occurred_at', 'first_touch_source']);
 
         $orders = Order::query()
             ->whereBetween('placed_at', [$start, $end])
-            ->get(['id', 'order_number', 'placed_at', 'total']);
+            ->get(['id', 'order_number', 'placed_at', 'total', 'first_touch_source']);
 
         $subscriptions = NewsletterSubscription::query()
             ->where('status', 'subscribed')
@@ -65,7 +65,41 @@ class MarketingDashboardData
                 'checkout_to_purchase_rate' => $this->rate($purchaseSessions, $checkoutSessions),
                 'view_to_purchase_rate' => $this->rate($purchaseSessions, $viewSessions),
             ],
+            'attribution' => $this->buildAttributionBreakdown($events, $orders),
             'daily' => $this->buildDailySeries($start, $end, $events, $orders, $subscriptions),
+        ];
+    }
+
+    private function buildAttributionBreakdown(Collection $events, Collection $orders): array
+    {
+        $sessionGroups = $events
+            ->filter(fn (TrackingEvent $event) => filled($event->session_id))
+            ->groupBy(fn (TrackingEvent $event) => $event->first_touch_source ?: 'direct')
+            ->map(fn (Collection $group) => $group->pluck('session_id')->unique()->count());
+
+        $orderGroups = $orders
+            ->groupBy(fn (Order $order) => $order->first_touch_source ?: 'direct');
+
+        $topSources = $sessionGroups
+            ->keys()
+            ->merge($orderGroups->keys())
+            ->unique()
+            ->values()
+            ->map(fn (string $source) => [
+                'label' => $source,
+                'sessions' => (int) ($sessionGroups[$source] ?? 0),
+                'orders' => $orderGroups->get($source, collect())->count(),
+                'revenue' => round((float) $orderGroups->get($source, collect())->sum(fn (Order $order) => (float) $order->total), 2),
+            ])
+            ->sortByDesc(fn (array $row) => [$row['sessions'], $row['orders'], $row['revenue']])
+            ->take(6)
+            ->values();
+
+        return [
+            'labels' => $topSources->pluck('label')->all(),
+            'sessions' => $topSources->pluck('sessions')->all(),
+            'orders' => $topSources->pluck('orders')->all(),
+            'revenue' => $topSources->pluck('revenue')->all(),
         ];
     }
 

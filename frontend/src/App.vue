@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import AuthModal from '@/components/AuthModal.vue'
+import { captureFirstTouchAttribution } from '@/lib/attribution'
 import { fetchJson } from '@/lib/api'
 import { toProductRoute } from '@/lib/product-route'
 import { useAuthStore } from '@/stores/auth'
@@ -47,6 +48,7 @@ type SearchSuggestResponse = {
 }
 
 onMounted(async () => {
+  captureFirstTouchAttribution()
   wishlistStore.hydrate()
   compareStore.hydrate()
   await authStore.loadMe()

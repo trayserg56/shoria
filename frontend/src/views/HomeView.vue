@@ -2,9 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
+import { captureFirstTouchAttribution } from '@/lib/attribution'
 import { fetchJson, requestJson } from '@/lib/api'
 import { readRecentlyViewed, type RecentlyViewedItem } from '@/lib/recently-viewed'
 import { getAppSessionId } from '@/lib/session'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 
 type Category = {
@@ -258,6 +260,7 @@ async function subscribeToNewsletter() {
       body: JSON.stringify({
         email,
         source: 'home',
+        attribution: captureFirstTouchAttribution(),
       }),
     })
 
@@ -279,6 +282,72 @@ async function subscribeToNewsletter() {
 
 <template>
   <main class="home">
+    <template v-if="isLoading">
+      <section class="hero-block hero-block--skeleton">
+        <AppSkeleton width="100%" height="460px" radius="28px" />
+      </section>
+
+      <section class="trust trust--skeleton">
+        <article v-for="index in 4" :key="`trust-skeleton-${index}`" class="trust-card trust-card--skeleton">
+          <AppSkeleton width="42%" height="18px" />
+          <AppSkeleton width="100%" height="14px" />
+          <AppSkeleton width="82%" height="14px" />
+        </article>
+      </section>
+
+      <section class="section">
+        <header class="section__header">
+          <AppSkeleton width="180px" height="32px" />
+          <AppSkeleton width="320px" height="16px" />
+        </header>
+        <div class="category-grid">
+          <article v-for="index in 4" :key="`category-skeleton-${index}`" class="card category-card category-card--skeleton">
+            <AppSkeleton width="100%" height="180px" radius="22px 22px 0 0" />
+            <div class="card__content">
+              <AppSkeleton width="48%" height="20px" />
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section">
+        <header class="section__header">
+          <AppSkeleton width="140px" height="32px" />
+          <AppSkeleton width="280px" height="16px" />
+        </header>
+        <div class="slider">
+          <article v-for="index in 4" :key="`featured-skeleton-${index}`" class="slider-card slider-card--skeleton">
+            <AppSkeleton width="100%" height="260px" radius="28px 28px 0 0" />
+            <div class="slider-card__skeleton-body">
+              <AppSkeleton width="28%" height="14px" />
+              <AppSkeleton width="56%" height="24px" />
+              <AppSkeleton width="34%" height="24px" />
+              <AppSkeleton width="100%" height="52px" radius="16px" />
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section">
+        <header class="section__header">
+          <AppSkeleton width="220px" height="32px" />
+          <AppSkeleton width="300px" height="16px" />
+        </header>
+        <div class="news-grid">
+          <article v-for="index in 3" :key="`news-skeleton-${index}`" class="card news-card">
+            <AppSkeleton width="100%" height="220px" radius="24px 24px 0 0" />
+            <div class="card__content">
+              <AppSkeleton width="24%" height="14px" />
+              <AppSkeleton width="72%" height="24px" />
+              <AppSkeleton width="100%" height="14px" />
+              <AppSkeleton width="84%" height="14px" />
+            </div>
+          </article>
+        </div>
+      </section>
+    </template>
+
+    <template v-else>
     <section class="hero-block">
       <div class="section__head-actions">
         <button type="button" class="slider-nav" @click="scrollSlider(heroSlider, 'prev')">←</button>
@@ -489,8 +558,8 @@ async function subscribeToNewsletter() {
         </article>
       </div>
     </section>
+    </template>
 
-    <p v-if="isLoading" class="status">Загружаем витрину...</p>
     <p v-if="hasError" class="status status--warn">
       API пока недоступно, показаны демо-данные. Проверь `VITE_API_URL` и backend контейнер.
     </p>
@@ -506,6 +575,10 @@ async function subscribeToNewsletter() {
 
 .hero-block {
   position: relative;
+}
+
+.hero-block--skeleton {
+  margin-bottom: 16px;
 }
 
 .hero {
@@ -613,6 +686,29 @@ async function subscribeToNewsletter() {
 
 .slider > * {
   scroll-snap-align: start;
+}
+
+.slider-card--skeleton {
+  flex: 0 0 clamp(260px, 28vw, 340px);
+  border-radius: 28px;
+  background: #fffdf9;
+  border: 1px solid #efe2d4;
+  overflow: hidden;
+}
+
+.slider-card__skeleton-body {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.trust--skeleton .trust-card--skeleton {
+  display: grid;
+  gap: 10px;
+}
+
+.category-card--skeleton {
+  overflow: hidden;
 }
 
 .section {

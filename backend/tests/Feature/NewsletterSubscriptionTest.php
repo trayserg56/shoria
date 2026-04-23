@@ -14,6 +14,13 @@ class NewsletterSubscriptionTest extends TestCase
         $response = $this->postJson('/api/newsletter/subscribe', [
             'email' => 'buyer@example.com',
             'source' => 'home',
+            'attribution' => [
+                'source' => 'telegram',
+                'medium' => 'social',
+                'campaign' => 'spring-drop',
+                'landing_path' => '/?utm_source=telegram',
+                'referrer_host' => 't.me',
+            ],
         ]);
 
         $response->assertCreated();
@@ -24,6 +31,9 @@ class NewsletterSubscriptionTest extends TestCase
             'email' => 'buyer@example.com',
             'source' => 'home',
             'status' => 'subscribed',
+            'first_touch_source' => 'telegram',
+            'first_touch_medium' => 'social',
+            'first_touch_campaign' => 'spring-drop',
         ]);
     }
 
@@ -60,4 +70,3 @@ class NewsletterSubscriptionTest extends TestCase
         $response->assertJsonValidationErrors(['email']);
     }
 }
-

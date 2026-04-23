@@ -8,17 +8,44 @@ use App\Filament\Resources\Banners\Pages\ListBanners;
 use App\Filament\Resources\Banners\Schemas\BannerForm;
 use App\Filament\Resources\Banners\Tables\BannersTable;
 use App\Models\Banner;
+use App\Support\Admin\AdminAccess;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 
 class BannerResource extends Resource
 {
     protected static ?string $model = Banner::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+
+    public static function canViewAny(): bool
+    {
+        return AdminAccess::canManageContentResource('banners');
+    }
+
+    public static function canCreate(): bool
+    {
+        return AdminAccess::canManageContentResource('banners');
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return AdminAccess::canManageContentResource('banners');
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return AdminAccess::canManageContentResource('banners');
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return AdminAccess::canManageContentResource('banners');
+    }
 
     public static function form(Schema $schema): Schema
     {

@@ -67,7 +67,7 @@ const router = createRouter({
       },
     },
     {
-      path: '/product/:categorySlug/:slug',
+      path: '/product/:categorySlug/:slug/:variantSlug?',
       name: 'product',
       component: ProductView,
       meta: {
@@ -76,7 +76,7 @@ const router = createRouter({
       },
     },
     {
-      path: '/product/:slug',
+      path: '/product/:slug/:variantSlug?',
       name: 'product-legacy',
       component: ProductView,
       meta: {

@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { fetchJson } from '@/lib/api'
 import { setSeoMeta } from '@/lib/seo'
 import { buildNewsListSeoWithType } from '@/lib/seo-templates'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import { NEWS_CONTENT_TYPE_ORDER, resolveNewsTypeMeta, type NewsContentType } from '@/lib/news-types'
 
 type NewsItem = {
@@ -173,7 +174,22 @@ watch(
       </button>
     </section>
 
-    <section v-if="state.data.length" class="news-grid">
+    <section v-if="isLoading && !state.data.length" class="news-grid" aria-hidden="true">
+      <article v-for="index in 6" :key="`news-list-skeleton-${index}`" class="news-card">
+        <AppSkeleton width="100%" height="220px" radius="24px 24px 0 0" />
+        <div class="news-card__content">
+          <div class="news-card__meta">
+            <AppSkeleton width="92px" height="24px" radius="999px" />
+            <AppSkeleton width="74px" height="14px" />
+          </div>
+          <AppSkeleton width="70%" height="24px" />
+          <AppSkeleton width="100%" height="14px" />
+          <AppSkeleton width="84%" height="14px" />
+        </div>
+      </article>
+    </section>
+
+    <section v-else-if="state.data.length" class="news-grid">
       <article v-for="post in state.data" :key="post.id" class="news-card">
         <RouterLink :to="{ name: 'news-post', params: { slug: post.slug } }">
           <img v-if="post.cover_url" :src="post.cover_url" :alt="post.title" loading="lazy" />
@@ -202,7 +218,6 @@ watch(
       <button :disabled="state.current_page >= state.last_page" @click="goToPage(state.current_page + 1)">Дальше</button>
     </footer>
 
-    <p v-if="isLoading" class="status">Загружаем новости...</p>
     <p v-if="hasError" class="status status--warn">Ошибка загрузки новостей.</p>
   </main>
 </template>

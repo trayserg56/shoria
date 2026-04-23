@@ -8,17 +8,44 @@ use App\Filament\Resources\Categories\Pages\ListCategories;
 use App\Filament\Resources\Categories\Schemas\CategoryForm;
 use App\Filament\Resources\Categories\Tables\CategoriesTable;
 use App\Models\Category;
+use App\Support\Admin\AdminAccess;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Model;
 
 class CategoryResource extends Resource
 {
     protected static ?string $model = Category::class;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+
+    public static function canViewAny(): bool
+    {
+        return AdminAccess::canManageContentResource('categories');
+    }
+
+    public static function canCreate(): bool
+    {
+        return AdminAccess::canManageContentResource('categories');
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return AdminAccess::canManageContentResource('categories');
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return AdminAccess::canManageContentResource('categories');
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return AdminAccess::canManageContentResource('categories');
+    }
 
     public static function form(Schema $schema): Schema
     {

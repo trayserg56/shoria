@@ -307,28 +307,73 @@ class ProductController extends Controller
         return $tags;
     }
 
-    public function show(string $slug): JsonResponse
+    public function show(Request $request, string $slug): JsonResponse
     {
+        $selectedVariantSlug = $request->string('variant')->toString();
+
         $product = Product::query()
             ->with([
                 'category:id,name,slug',
                 'images:id,product_id,url,alt,is_cover,sort_order',
-                'variants:id,product_id,size_label,sku,price,stock,is_active,sort_order',
+                'variants:id,product_id,slug,size_label,color_label,sku,price,stock,is_active,sort_order',
+                'variants.images:id,product_variant_id,url,alt,is_cover,sort_order',
             ])
             ->where('is_active', true)
             ->where('slug', $slug)
             ->firstOrFail();
 
-        $variants = $product->variants
+        $activeVariants = $product->variants
             ->where('is_active', true)
             ->sortBy('sort_order')
-            ->values()
+            ->values();
+
+        $selectedVariant = null;
+
+        if ($selectedVariantSlug !== '') {
+            $selectedVariant = $activeVariants->firstWhere('slug', $selectedVariantSlug);
+        }
+
+        if (! $selectedVariant) {
+            $selectedVariant = $activeVariants->firstWhere('stock', '>', 0) ?? $activeVariants->first();
+        }
+
+        $productImages = $product->images
+            ->sortBy([
+                ['is_cover', 'desc'],
+                ['sort_order', 'asc'],
+            ])
+            ->values();
+
+        $activeImages = ($selectedVariant?->images?->isNotEmpty() ?? false)
+            ? $selectedVariant->images
+                ->sortBy([
+                    ['is_cover', 'desc'],
+                    ['sort_order', 'asc'],
+                ])
+                ->values()
+            : $productImages;
+
+        $variants = $activeVariants
             ->map(fn ($variant) => [
                 'id' => $variant->id,
+                'slug' => $variant->slug,
                 'size_label' => $variant->size_label,
+                'color_label' => $variant->color_label,
                 'sku' => $variant->sku,
                 'price' => $variant->price !== null ? (float) $variant->price : null,
                 'stock' => $variant->stock,
+                'images' => $variant->images
+                    ->sortBy([
+                        ['is_cover', 'desc'],
+                        ['sort_order', 'asc'],
+                    ])
+                    ->values()
+                    ->map(fn ($image) => [
+                        'url' => $image->url,
+                        'alt' => $image->alt,
+                        'is_cover' => $image->is_cover,
+                    ]),
+                'has_custom_images' => $variant->images->isNotEmpty(),
             ]);
 
         return response()->json([
@@ -345,16 +390,13 @@ class ProductController extends Controller
             'stock' => $product->stock,
             'tags' => $this->resolveProductTags($product),
             'has_variants' => $variants->isNotEmpty(),
+            'selected_variant_slug' => $selectedVariant?->slug,
             'category' => $product->category ? [
                 'name' => $product->category->name,
                 'slug' => $product->category->slug,
             ] : null,
             'variants' => $variants,
-            'images' => $product->images
-                ->sortBy([
-                    ['is_cover', 'desc'],
-                    ['sort_order', 'asc'],
-                ])
+            'images' => $activeImages
                 ->values()
                 ->map(fn ($image) => [
                     'url' => $image->url,

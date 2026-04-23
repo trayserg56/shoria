@@ -13,6 +13,13 @@ class NewsletterSubscription extends Model
         'email',
         'source',
         'status',
+        'first_touch_source',
+        'first_touch_medium',
+        'first_touch_campaign',
+        'first_touch_content',
+        'first_touch_term',
+        'first_touch_referrer_host',
+        'first_touch_landing_path',
         'subscribed_at',
         'unsubscribed_at',
         'ip_address',
@@ -24,4 +31,3 @@ class NewsletterSubscription extends Model
         'unsubscribed_at' => 'datetime',
     ];
 }
-

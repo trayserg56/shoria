@@ -71,27 +71,65 @@ class ProductForm
                                 Forms\Components\Toggle::make('is_customer_choice')
                                     ->label('Тег: Выбор покупателей')
                                     ->default(false),
+                                Forms\Components\FileUpload::make('images_bulk_upload')
+                                    ->label('Загрузить изображения (массово)')
+                                    ->image()
+                                    ->multiple()
+                                    ->maxSize(2048)
+                                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
+                                    ->imageEditor()
+                                    ->imageResizeMode('contain')
+                                    ->imageResizeTargetWidth(1920)
+                                    ->imageResizeTargetHeight(1920)
+                                    ->imageResizeUpscale(false)
+                                    ->disk('public')
+                                    ->directory('products')
+                                    ->visibility('public')
+                                    ->dehydrated(false)
+                                    ->afterStateUpdated(function ($state, callable $set, callable $get): void {
+                                        $uploads = is_array($state)
+                                            ? array_values(array_filter($state, fn ($value): bool => is_string($value) && trim($value) !== ''))
+                                            : [];
+
+                                        if ($uploads === []) {
+                                            return;
+                                        }
+
+                                        $existing = $get('images');
+                                        $items = is_array($existing) ? $existing : [];
+                                        $currentMaxSort = 0;
+
+                                        foreach ($items as $item) {
+                                            $currentMaxSort = max($currentMaxSort, (int) ($item['sort_order'] ?? 0));
+                                        }
+
+                                        $hasCover = collect($items)->contains(fn ($item): bool => (bool) ($item['is_cover'] ?? false));
+
+                                        foreach ($uploads as $path) {
+                                            $currentMaxSort++;
+                                            $items[] = [
+                                                'url' => $path,
+                                                'alt' => null,
+                                                'is_cover' => ! $hasCover,
+                                                'sort_order' => $currentMaxSort,
+                                            ];
+
+                                            $hasCover = true;
+                                        }
+
+                                        $set('images', $items);
+                                        $set('images_bulk_upload', []);
+                                    })
+                                    ->helperText('Можно выбрать сразу несколько изображений. Лимит: 2MB на файл.'),
                                 Forms\Components\Repeater::make('images')
                                     ->relationship('images')
+                                    ->label('Галерея')
+                                    ->addable(false)
                                     ->schema([
                                         Forms\Components\TextInput::make('url')
                                             ->label('URL изображения')
-                                            ->requiredWithout('image_file')
+                                            ->required()
                                             ->maxLength(2048),
-                                        Forms\Components\FileUpload::make('image_file')
-                                            ->label('Или загрузить изображение')
-                                            ->image()
-                                            ->imageEditor()
-                                            ->disk('public')
-                                            ->directory('products')
-                                            ->visibility('public')
-                                            ->requiredWithout('url')
-                                            ->dehydrated(false)
-                                            ->afterStateUpdated(function ($state, callable $set): void {
-                                                if (is_string($state) && trim($state) !== '') {
-                                                    $set('url', $state);
-                                                }
-                                            }),
                                         Forms\Components\TextInput::make('alt')
                                             ->maxLength(255),
                                         Forms\Components\Toggle::make('is_cover')

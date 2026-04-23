@@ -12,6 +12,7 @@ use App\Models\PromoCode;
 use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
+use App\Models\ProductVariantImage;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 
@@ -576,29 +577,113 @@ class ShopDemoSeeder extends Seeder
                 ],
             );
 
-            if (in_array($item['slug'], ['cloud-step-v2', 'sprint-form-pro'], true)) {
-                $sizes = [
-                    ['label' => 'EU 40', 'stock' => 2, 'sort_order' => 1],
-                    ['label' => 'EU 41', 'stock' => 4, 'sort_order' => 2],
-                    ['label' => 'EU 42', 'stock' => 5, 'sort_order' => 3],
-                    ['label' => 'EU 43', 'stock' => 3, 'sort_order' => 4],
-                ];
+            $variantBlueprints = match ($item['slug']) {
+                'cloud-step-v2' => [
+                    [
+                        'slug' => 'graphite-eu-40',
+                        'color_label' => 'Graphite',
+                        'size_label' => 'EU 40',
+                        'stock' => 2,
+                        'sort_order' => 1,
+                        'image_url' => 'https://images.unsplash.com/photo-1515955656352-a1fa3ffcd111?auto=format&fit=crop&w=1200&q=80',
+                    ],
+                    [
+                        'slug' => 'graphite-eu-41',
+                        'color_label' => 'Graphite',
+                        'size_label' => 'EU 41',
+                        'stock' => 4,
+                        'sort_order' => 2,
+                    ],
+                    [
+                        'slug' => 'sky-eu-42',
+                        'color_label' => 'Sky Blue',
+                        'size_label' => 'EU 42',
+                        'stock' => 5,
+                        'sort_order' => 3,
+                        'image_url' => 'https://images.unsplash.com/photo-1605348532760-6753d2c43329?auto=format&fit=crop&w=1200&q=80',
+                    ],
+                    [
+                        'slug' => 'sky-eu-43',
+                        'color_label' => 'Sky Blue',
+                        'size_label' => 'EU 43',
+                        'stock' => 3,
+                        'sort_order' => 4,
+                    ],
+                ],
+                'sprint-form-pro' => [
+                    [
+                        'slug' => 'sunset-eu-40',
+                        'color_label' => 'Sunset',
+                        'size_label' => 'EU 40',
+                        'stock' => 2,
+                        'sort_order' => 1,
+                        'image_url' => 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80',
+                    ],
+                    [
+                        'slug' => 'sunset-eu-41',
+                        'color_label' => 'Sunset',
+                        'size_label' => 'EU 41',
+                        'stock' => 4,
+                        'sort_order' => 2,
+                    ],
+                    [
+                        'slug' => 'bone-eu-42',
+                        'color_label' => 'Bone',
+                        'size_label' => 'EU 42',
+                        'stock' => 5,
+                        'sort_order' => 3,
+                        'image_url' => 'https://images.unsplash.com/photo-1460353581641-37baddab0fa2?auto=format&fit=crop&w=1200&q=80',
+                    ],
+                    [
+                        'slug' => 'bone-eu-43',
+                        'color_label' => 'Bone',
+                        'size_label' => 'EU 43',
+                        'stock' => 3,
+                        'sort_order' => 4,
+                    ],
+                ],
+                default => [],
+            };
 
-                foreach ($sizes as $size) {
-                    ProductVariant::query()->firstOrCreate(
-                        [
-                            'product_id' => $product->id,
-                            'size_label' => $size['label'],
-                        ],
-                        [
-                            'sku' => $item['sku'] . '-' . str_replace(' ', '', $size['label']),
-                            'price' => null,
-                            'stock' => $size['stock'],
-                            'is_active' => true,
-                            'sort_order' => $size['sort_order'],
-                        ],
-                    );
+            if ($variantBlueprints !== []) {
+                $product->variants()
+                    ->whereNull('color_label')
+                    ->whereIn('size_label', ['EU 40', 'EU 41', 'EU 42', 'EU 43'])
+                    ->delete();
+            }
+
+            foreach ($variantBlueprints as $variantBlueprint) {
+                $variant = ProductVariant::query()->firstOrCreate(
+                    [
+                        'product_id' => $product->id,
+                        'slug' => $variantBlueprint['slug'],
+                    ],
+                    [
+                        'size_label' => $variantBlueprint['size_label'],
+                        'color_label' => $variantBlueprint['color_label'],
+                        'sku' => $item['sku'] . '-' . str_replace(' ', '', $variantBlueprint['size_label']),
+                        'price' => null,
+                        'stock' => $variantBlueprint['stock'],
+                        'is_active' => true,
+                        'sort_order' => $variantBlueprint['sort_order'],
+                    ],
+                );
+
+                if (! isset($variantBlueprint['image_url'])) {
+                    continue;
                 }
+
+                ProductVariantImage::query()->firstOrCreate(
+                    [
+                        'product_variant_id' => $variant->id,
+                        'is_cover' => true,
+                    ],
+                    [
+                        'url' => $variantBlueprint['image_url'],
+                        'alt' => "{$item['name']} {$variantBlueprint['color_label']}",
+                        'sort_order' => 1,
+                    ],
+                );
             }
         }
 

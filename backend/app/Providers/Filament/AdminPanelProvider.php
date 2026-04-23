@@ -4,6 +4,7 @@ namespace App\Providers\Filament;
 
 use App\Filament\Widgets\MarketingFunnelWidget;
 use App\Filament\Widgets\MarketingOverviewWidget;
+use App\Filament\Widgets\MarketingAttributionWidget;
 use App\Filament\Widgets\MarketingTrendsChartWidget;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -44,6 +45,7 @@ class AdminPanelProvider extends PanelProvider
                 MarketingOverviewWidget::class,
                 MarketingFunnelWidget::class,
                 MarketingTrendsChartWidget::class,
+                MarketingAttributionWidget::class,
                 AccountWidget::class,
                 FilamentInfoWidget::class,
             ])

@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
 import { fetchJson } from '@/lib/api'
 import { setSeoMeta } from '@/lib/seo'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 
 type Category = {
@@ -539,7 +540,19 @@ watch(
       </aside>
 
       <div class="catalog-content">
-        <section v-if="products.data.length" class="catalog-grid">
+        <section v-if="isLoading && !products.data.length" class="catalog-grid">
+          <article v-for="index in 6" :key="`catalog-skeleton-${index}`" class="catalog-skeleton-card">
+            <AppSkeleton width="100%" height="250px" radius="28px 28px 0 0" />
+            <div class="catalog-skeleton-card__body">
+              <AppSkeleton width="30%" height="14px" />
+              <AppSkeleton width="58%" height="24px" />
+              <AppSkeleton width="34%" height="24px" />
+              <AppSkeleton width="100%" height="52px" radius="16px" />
+            </div>
+          </article>
+        </section>
+
+        <section v-else-if="products.data.length" class="catalog-grid">
           <UnifiedProductCard
             v-for="product in products.data"
             :key="product.id"
@@ -566,7 +579,6 @@ watch(
       </div>
     </section>
 
-    <p v-if="isLoading" class="status">Загружаем каталог...</p>
     <p v-if="hasError" class="status status--warn">Ошибка загрузки каталога. Проверь backend API.</p>
   </main>
 </template>
@@ -868,6 +880,19 @@ watch(
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
+}
+
+.catalog-skeleton-card {
+  overflow: hidden;
+  border: 1px solid #efe2d4;
+  border-radius: 28px;
+  background: #fffdf9;
+}
+
+.catalog-skeleton-card__body {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
 }
 
 .pagination {

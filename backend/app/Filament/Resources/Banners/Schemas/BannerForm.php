@@ -28,7 +28,13 @@ class BannerForm
                 Forms\Components\FileUpload::make('image_file')
                     ->label('Или загрузить изображение')
                     ->image()
+                    ->maxSize(2048)
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
                     ->imageEditor()
+                    ->imageResizeMode('contain')
+                    ->imageResizeTargetWidth(1920)
+                    ->imageResizeTargetHeight(1920)
+                    ->imageResizeUpscale(false)
                     ->disk('public')
                     ->directory('banners')
                     ->visibility('public')
@@ -38,7 +44,7 @@ class BannerForm
                             $set('image_url', $state);
                         }
                     })
-                    ->helperText('Можно оставить URL выше или загрузить файл с компьютера.'),
+                    ->helperText('Можно оставить URL выше или загрузить файл (до 2MB). Изображение будет оптимизировано.'),
                 Forms\Components\TextInput::make('bg_color')
                     ->maxLength(24),
                 Forms\Components\TextInput::make('sort_order')

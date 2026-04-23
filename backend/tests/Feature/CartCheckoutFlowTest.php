@@ -130,6 +130,88 @@ class CartCheckoutFlowTest extends TestCase
         $removeItemResponse->assertJsonCount(0, 'items');
     }
 
+    public function test_cart_refreshes_item_price_after_product_price_changes(): void
+    {
+        $this->seed(ShopDemoSeeder::class);
+
+        $sessionId = 'test-session-price-refresh';
+
+        $addItemResponse = $this->postJson('/api/cart/items', [
+            'session_id' => $sessionId,
+            'product_slug' => 'aero-pulse-300',
+            'qty' => 1,
+        ]);
+        $addItemResponse->assertOk();
+        $addItemResponse->assertJsonPath('items.0.unit_price', 12990);
+
+        $product = Product::query()->where('slug', 'aero-pulse-300')->firstOrFail();
+        $product->price = 11990;
+        $product->save();
+
+        $cartResponse = $this->getJson("/api/cart?session_id={$sessionId}");
+        $cartResponse->assertOk();
+        $cartResponse->assertJsonPath('items.0.unit_price', 11990);
+        $cartResponse->assertJsonPath('items.0.total_price', 11990);
+        $cartResponse->assertJsonPath('subtotal', 11990);
+        $cartResponse->assertJsonPath('total', 11990);
+    }
+
+    public function test_cart_marks_item_as_unavailable_when_product_goes_out_of_stock(): void
+    {
+        $this->seed(ShopDemoSeeder::class);
+
+        $sessionId = 'test-session-out-of-stock';
+
+        $this->postJson('/api/cart/items', [
+            'session_id' => $sessionId,
+            'product_slug' => 'aero-pulse-300',
+            'qty' => 1,
+        ])->assertOk();
+
+        $product = Product::query()->where('slug', 'aero-pulse-300')->firstOrFail();
+        $product->stock = 0;
+        $product->save();
+
+        $cartResponse = $this->getJson("/api/cart?session_id={$sessionId}");
+        $cartResponse->assertOk();
+        $cartResponse->assertJsonPath('items.0.available', false);
+        $cartResponse->assertJsonPath('items.0.available_stock', 0);
+        $cartResponse->assertJsonPath('items.0.availability_message', 'Нет в наличии.');
+    }
+
+    public function test_checkout_fails_when_cart_contains_unavailable_items(): void
+    {
+        $this->seed(ShopDemoSeeder::class);
+
+        $sessionId = 'test-session-unavailable-checkout';
+
+        $this->postJson('/api/cart/items', [
+            'session_id' => $sessionId,
+            'product_slug' => 'aero-pulse-300',
+            'qty' => 1,
+        ])->assertOk();
+
+        $product = Product::query()->where('slug', 'aero-pulse-300')->firstOrFail();
+        $product->stock = 0;
+        $product->save();
+
+        $checkoutResponse = $this->postJson('/api/checkout', [
+            'session_id' => $sessionId,
+            'customer_name' => 'Buyer',
+            'customer_email' => 'buyer@example.com',
+            'customer_phone' => '+79998887766',
+            'delivery_method' => 'courier',
+            'payment_method' => 'card',
+        ]);
+
+        $checkoutResponse->assertStatus(422);
+        $checkoutResponse->assertJsonValidationErrors(['cart']);
+        $checkoutResponse->assertJsonPath(
+            'errors.cart.0',
+            'Один из товаров в корзине закончился. Удалите его или перенесите в избранное.',
+        );
+    }
+
     public function test_checkout_validates_customer_fields(): void
     {
         $response = $this->postJson('/api/checkout', [
@@ -253,6 +335,9 @@ class CartCheckoutFlowTest extends TestCase
             ->firstOrFail();
 
         $variant = $product->variants->sortBy('sort_order')->firstOrFail();
+        $expectedVariantLabel = $variant->color_label
+            ? "{$variant->color_label} · {$variant->size_label}"
+            : $variant->size_label;
 
         $addItemResponse = $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -263,7 +348,7 @@ class CartCheckoutFlowTest extends TestCase
 
         $addItemResponse->assertOk();
         $addItemResponse->assertJsonPath('items.0.product_variant_id', $variant->id);
-        $addItemResponse->assertJsonPath('items.0.variant_label', $variant->size_label);
+        $addItemResponse->assertJsonPath('items.0.variant_label', $expectedVariantLabel);
 
         $checkoutResponse = $this->postJson('/api/checkout', [
             'session_id' => $sessionId,
@@ -279,7 +364,7 @@ class CartCheckoutFlowTest extends TestCase
 
         $orderDetailsResponse = $this->getJson("/api/orders/{$orderNumber}?session_id={$sessionId}");
         $orderDetailsResponse->assertOk();
-        $orderDetailsResponse->assertJsonPath('items.0.variant_label', $variant->size_label);
+        $orderDetailsResponse->assertJsonPath('items.0.variant_label', $expectedVariantLabel);
     }
 
     public function test_checkout_applies_welcome10_discount_and_delivery_total(): void
@@ -405,6 +490,50 @@ class CartCheckoutFlowTest extends TestCase
         $preview->assertOk();
         $preview->assertJsonPath('promo.code', null);
         $preview->assertJsonPath('promo.is_applied', false);
+    }
+
+    public function test_checkout_stores_first_touch_attribution(): void
+    {
+        $this->seed(ShopDemoSeeder::class);
+
+        $sessionId = 'test-session-attribution';
+
+        $this->postJson('/api/cart/items', [
+            'session_id' => $sessionId,
+            'product_slug' => 'city-frame-one',
+            'qty' => 1,
+        ])->assertOk();
+
+        $checkout = $this->postJson('/api/checkout', [
+            'session_id' => $sessionId,
+            'customer_name' => 'Attribution Buyer',
+            'customer_email' => 'attr@example.com',
+            'customer_phone' => '+79990000199',
+            'delivery_method' => 'courier',
+            'payment_method' => 'card',
+            'attribution' => [
+                'source' => 'google',
+                'medium' => 'cpc',
+                'campaign' => 'brand-search',
+                'content' => 'headline-a',
+                'term' => 'shoria sneakers',
+                'landing_path' => '/catalog?q=shoria',
+                'referrer_host' => 'google.com',
+            ],
+        ]);
+
+        $checkout->assertCreated();
+
+        $this->assertDatabaseHas('orders', [
+            'order_number' => $checkout->json('order_number'),
+            'first_touch_source' => 'google',
+            'first_touch_medium' => 'cpc',
+            'first_touch_campaign' => 'brand-search',
+            'first_touch_content' => 'headline-a',
+            'first_touch_term' => 'shoria sneakers',
+            'first_touch_referrer_host' => 'google.com',
+            'first_touch_landing_path' => '/catalog?q=shoria',
+        ]);
     }
 
     public function test_promo_code_can_be_used_only_once_per_customer_email(): void

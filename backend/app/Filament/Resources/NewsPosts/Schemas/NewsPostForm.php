@@ -51,7 +51,13 @@ class NewsPostForm
                                 Forms\Components\FileUpload::make('cover_file')
                                     ->label('Или загрузить обложку')
                                     ->image()
+                                    ->maxSize(2048)
+                                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
                                     ->imageEditor()
+                                    ->imageResizeMode('contain')
+                                    ->imageResizeTargetWidth(1920)
+                                    ->imageResizeTargetHeight(1920)
+                                    ->imageResizeUpscale(false)
                                     ->disk('public')
                                     ->directory('news-covers')
                                     ->visibility('public')
@@ -61,7 +67,7 @@ class NewsPostForm
                                             $set('cover_url', $state);
                                         }
                                     })
-                                    ->helperText('Можно оставить URL выше или загрузить файл с компьютера.'),
+                                    ->helperText('Можно оставить URL выше или загрузить файл (до 2MB). Изображение будет оптимизировано.'),
                                 Forms\Components\DateTimePicker::make('published_at'),
                                 Forms\Components\Toggle::make('is_published')
                                     ->default(false),
@@ -69,6 +75,7 @@ class NewsPostForm
                                     ->fileAttachmentsDisk('public')
                                     ->fileAttachmentsDirectory('news-content')
                                     ->fileAttachmentsVisibility('public')
+                                    ->fileAttachmentsMaxSize(2048)
                                     ->columnSpanFull(),
                             ])
                             ->columns(2),

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 import { fetchJson } from '@/lib/api'
 import { clearStructuredData, setSeoMeta, setStructuredData } from '@/lib/seo'
@@ -129,7 +130,19 @@ watch(
 
 <template>
   <main class="news-post-page">
-    <p v-if="isLoading" class="status">Загружаем материал...</p>
+    <article v-if="isLoading && !post" class="news-article-skeleton" aria-hidden="true">
+      <AppSkeleton width="32%" height="14px" />
+      <AppSkeleton width="16%" height="14px" />
+      <AppSkeleton width="132px" height="28px" radius="999px" />
+      <AppSkeleton width="72%" height="52px" />
+      <AppSkeleton width="100%" height="18px" />
+      <AppSkeleton width="84%" height="18px" />
+      <AppSkeleton width="100%" height="360px" radius="28px" />
+      <AppSkeleton width="100%" height="16px" />
+      <AppSkeleton width="100%" height="16px" />
+      <AppSkeleton width="92%" height="16px" />
+      <AppSkeleton width="96%" height="16px" />
+    </article>
     <p v-if="hasError" class="status status--warn">Новость не найдена или API недоступно.</p>
 
     <article v-if="post" class="news-article">
@@ -207,6 +220,11 @@ watch(
 
 .status--warn {
   color: #b95b09;
+}
+
+.news-article-skeleton {
+  display: grid;
+  gap: 16px;
 }
 
 .breadcrumbs {

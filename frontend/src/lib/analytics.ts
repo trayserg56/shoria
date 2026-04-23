@@ -1,4 +1,5 @@
 import { getApiBaseUrl } from './api'
+import { captureFirstTouchAttribution } from './attribution'
 import { getAppSessionId } from './session'
 
 export async function trackEvent(eventName: string, payload?: Record<string, unknown>) {
@@ -15,6 +16,7 @@ export async function trackEvent(eventName: string, payload?: Record<string, unk
         referrer: document.referrer || null,
         session_id: getAppSessionId(),
         occurred_at: new Date().toISOString(),
+        attribution: captureFirstTouchAttribution(),
         payload: payload ?? {},
       }),
     })

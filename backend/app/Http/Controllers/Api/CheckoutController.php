@@ -8,9 +8,12 @@ use App\Models\PaymentProvider;
 use App\Models\PaymentTransaction;
 use App\Models\DeliveryMethod;
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\PromoCode;
 use App\Models\PromoCodeUsage;
+use App\Models\ProductVariant;
 use App\Models\User;
+use App\Support\Analytics\AttributionData;
 use App\Support\Delivery\DeliveryGatewayRegistry;
 use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Http\JsonResponse;
@@ -87,6 +90,7 @@ class CheckoutController extends Controller
             'payment_method' => ['required', 'string', Rule::in($this->allowedPaymentMethodCodes())],
             'promo_code' => ['nullable', 'string', 'max:64'],
             'comment' => ['nullable', 'string', 'max:2000'],
+            'attribution' => ['nullable', 'array'],
         ]);
 
         ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity(
@@ -112,6 +116,14 @@ class CheckoutController extends Controller
             ]);
         }
 
+        $unavailableItemMessage = $this->resolveUnavailableCartItemMessage($cart);
+
+        if ($unavailableItemMessage) {
+            throw ValidationException::withMessages([
+                'cart' => $unavailableItemMessage,
+            ]);
+        }
+
         $subtotal = (float) $cart->items->sum(fn ($item) => (float) $item->total_price);
 
         if ((float) $cart->subtotal !== $subtotal || (float) $cart->total !== $subtotal) {
@@ -131,6 +143,7 @@ class CheckoutController extends Controller
         $discountTotal = $promoCode ? $this->calculateDiscount($promoCode, $subtotal) : 0.0;
         $deliveryTotal = $this->resolveDeliveryFee($deliveryMethod, $subtotal);
         $orderTotal = max(0, $subtotal - $discountTotal + $deliveryTotal);
+        $attribution = AttributionData::normalize($validated['attribution'] ?? null);
 
         $order = DB::transaction(function () use (
             $cart,
@@ -145,6 +158,7 @@ class CheckoutController extends Controller
             $discountTotal,
             $deliveryTotal,
             $orderTotal,
+            $attribution,
         ): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
@@ -165,6 +179,7 @@ class CheckoutController extends Controller
                 'customer_name' => $validated['customer_name'],
                 'customer_email' => $validated['customer_email'],
                 'customer_phone' => $validated['customer_phone'],
+                ...$attribution,
                 'comment' => $validated['comment'] ?? null,
                 'promo_code' => $promoCode?->code,
                 'placed_at' => now(),
@@ -333,6 +348,73 @@ class CheckoutController extends Controller
         }
 
         return $deliveryMethod;
+    }
+
+    private function resolveUnavailableCartItemMessage(Cart $cart): ?string
+    {
+        $productIds = $cart->items->pluck('product_id')->filter()->unique()->all();
+
+        if ($productIds === []) {
+            return 'Корзина содержит недоступные товары. Обновите состав заказа.';
+        }
+
+        $products = Product::query()
+            ->with('variants:id,product_id,size_label,price,stock,is_active,sort_order')
+            ->whereIn('id', $productIds)
+            ->get()
+            ->keyBy('id');
+
+        foreach ($cart->items as $item) {
+            $product = $products->get($item->product_id);
+            $variant = $item->product_variant_id && $product
+                ? $product->variants->firstWhere('id', $item->product_variant_id)
+                : null;
+            $availability = $this->resolveItemAvailability($product, $variant, (int) $item->qty);
+
+            if (! $availability['available']) {
+                return $availability['message'] ?? 'Корзина содержит недоступные товары. Обновите состав заказа.';
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveItemAvailability(?Product $product, ?ProductVariant $variant, int $qty): array
+    {
+        if (! $product || ! $product->is_active) {
+            return [
+                'available' => false,
+                'message' => 'Один из товаров в корзине больше недоступен. Обновите состав заказа.',
+            ];
+        }
+
+        if ($variant && ! $variant->is_active) {
+            return [
+                'available' => false,
+                'message' => 'Один из выбранных вариантов товара больше недоступен. Обновите корзину.',
+            ];
+        }
+
+        $availableStock = max(0, (int) ($variant?->stock ?? $product->stock));
+
+        if ($availableStock <= 0) {
+            return [
+                'available' => false,
+                'message' => 'Один из товаров в корзине закончился. Удалите его или перенесите в избранное.',
+            ];
+        }
+
+        if ($qty > $availableStock) {
+            return [
+                'available' => false,
+                'message' => "Количество одного из товаров в корзине превышает остаток ({$availableStock} шт.).",
+            ];
+        }
+
+        return [
+            'available' => true,
+            'message' => null,
+        ];
     }
 
     private function resolvePaymentProvider(string $code): PaymentProvider

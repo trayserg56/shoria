@@ -5,10 +5,12 @@ type ProductRouteCategory = {
 type ProductRouteInput = {
   slug: string
   category?: ProductRouteCategory
+  variant_slug?: string | null
 }
 
 export function toProductRoute(input: ProductRouteInput) {
   const categorySlug = input.category?.slug?.trim()
+  const variantSlug = input.variant_slug?.trim() || undefined
 
   if (categorySlug) {
     return {
@@ -16,6 +18,7 @@ export function toProductRoute(input: ProductRouteInput) {
       params: {
         categorySlug,
         slug: input.slug,
+        ...(variantSlug ? { variantSlug } : {}),
       },
     }
   }
@@ -24,6 +27,7 @@ export function toProductRoute(input: ProductRouteInput) {
     name: 'product-legacy' as const,
     params: {
       slug: input.slug,
+      ...(variantSlug ? { variantSlug } : {}),
     },
   }
 }

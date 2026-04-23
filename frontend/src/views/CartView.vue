@@ -4,12 +4,13 @@ import { RouterLink } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { trackEvent } from '@/lib/analytics'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import { toProductRoute } from '@/lib/product-route'
 import { useCartStore } from '@/stores/cart'
 
 const cartStore = useCartStore()
 const router = useRouter()
-const { items, total, totalItems, lastOrder, orderHistory, checkoutOptions } = storeToRefs(cartStore)
+const { items, total, totalItems, lastOrder, orderHistory, checkoutOptions, isLoading: isCartLoading } = storeToRefs(cartStore)
 
 const customerName = ref('')
 const customerEmail = ref('')
@@ -32,7 +33,22 @@ function formatPrice(value: number) {
   }).format(value)
 }
 
-const canCheckout = computed(() => items.value.length > 0 && !checkoutLoading.value && !!deliveryMethod.value)
+const hasUnavailableItems = computed(() => items.value.some((item) => !item.available))
+const showCartSkeleton = computed(() => isCartLoading.value && items.value.length === 0)
+const showCheckoutSkeleton = computed(
+  () => showCartSkeleton.value || (!checkoutOptions.value && (isCartLoading.value || previewLoading.value)),
+)
+const showCheckoutOverlay = computed(
+  () => !showCheckoutSkeleton.value && (isCartLoading.value || previewLoading.value),
+)
+const unavailableCartMessage = computed(
+  () =>
+    items.value.find((item) => !item.available)?.availability_message
+    ?? 'В корзине есть недоступные товары. Обнови состав заказа.',
+)
+const canCheckout = computed(
+  () => items.value.length > 0 && !checkoutLoading.value && !!deliveryMethod.value && !hasUnavailableItems.value,
+)
 const deliveryMethods = computed(() => checkoutOptions.value?.delivery_methods ?? [])
 const paymentMethods = computed(() => checkoutOptions.value?.payment_methods ?? [])
 const subtotalAmount = ref(0)
@@ -104,6 +120,14 @@ async function removeItem(itemId: number) {
   await cartStore.removeItem(itemId)
 }
 
+function canIncreaseQty(item: (typeof items.value)[number]) {
+  return item.available
+}
+
+function canDecreaseQty(item: (typeof items.value)[number]) {
+  return item.qty > 1 || item.available_stock > 0
+}
+
 async function submitCheckout() {
   checkoutError.value = ''
   checkoutLoading.value = true
@@ -136,7 +160,9 @@ async function submitCheckout() {
     })
   } catch (error) {
     console.error(error)
-    checkoutError.value = 'Не удалось оформить заказ. Проверь данные и повтори попытку.'
+    checkoutError.value = hasUnavailableItems.value
+      ? unavailableCartMessage.value
+      : 'Не удалось оформить заказ. Проверь данные и повтори попытку.'
   } finally {
     checkoutLoading.value = false
   }
@@ -170,9 +196,27 @@ watch(
       Заказ <strong>{{ lastOrder.order_number }}</strong> успешно создан.
     </p>
 
-    <section v-if="items.length > 0" class="cart-layout">
-      <div class="items">
-        <article v-for="item in items" :key="item.id" class="item">
+    <section v-if="showCartSkeleton || items.length > 0" class="cart-layout">
+      <div class="items" :class="{ 'items--busy': isCartLoading && items.length > 0 }">
+        <div v-if="showCartSkeleton" class="items-skeleton">
+          <article v-for="index in 2" :key="`cart-skeleton-${index}`" class="item item--skeleton">
+            <AppSkeleton width="90px" height="90px" radius="16px" />
+            <div class="item__body item__body--skeleton">
+              <AppSkeleton width="48%" height="20px" />
+              <AppSkeleton width="26%" height="14px" />
+              <AppSkeleton width="22%" height="16px" />
+              <div class="qty-row qty-row--skeleton">
+                <AppSkeleton width="40px" height="36px" radius="10px" />
+                <AppSkeleton width="24px" height="20px" radius="8px" />
+                <AppSkeleton width="40px" height="36px" radius="10px" />
+                <AppSkeleton width="92px" height="36px" radius="10px" />
+              </div>
+            </div>
+            <AppSkeleton width="96px" height="24px" />
+          </article>
+        </div>
+
+        <article v-for="item in items" :key="item.id" class="item" :class="{ 'item--unavailable': !item.available }">
           <img v-if="item.image_url" :src="item.image_url" :alt="item.product_name" />
           <div class="item__body">
             <RouterLink :to="toProductRoute({ slug: item.product_slug })">
@@ -180,70 +224,156 @@ watch(
             </RouterLink>
             <p v-if="item.variant_label" class="variant">Размер: {{ item.variant_label }}</p>
             <p>{{ formatPrice(item.unit_price) }}</p>
+            <p v-if="!item.available" class="availability availability--bad">
+              {{ item.availability_message ?? 'Нет в наличии.' }}
+            </p>
             <div class="qty-row">
-              <button @click="decreaseQty(item.id, item.qty)">-</button>
+              <button :disabled="!canDecreaseQty(item)" @click="decreaseQty(item.id, item.qty)">-</button>
               <span>{{ item.qty }}</span>
-              <button @click="increaseQty(item.id, item.qty)">+</button>
+              <button :disabled="!canIncreaseQty(item)" @click="increaseQty(item.id, item.qty)">+</button>
               <button class="remove" @click="removeItem(item.id)">Удалить</button>
             </div>
           </div>
           <strong>{{ formatPrice(item.total_price) }}</strong>
         </article>
+
+        <div v-if="isCartLoading && items.length > 0" class="items-overlay" aria-hidden="true">
+          <article v-for="index in Math.min(items.length, 2)" :key="`cart-overlay-${index}`" class="item item--skeleton">
+            <AppSkeleton width="90px" height="90px" radius="16px" />
+            <div class="item__body item__body--skeleton">
+              <AppSkeleton width="44%" height="20px" />
+              <AppSkeleton width="24%" height="14px" />
+              <AppSkeleton width="18%" height="16px" />
+              <div class="qty-row qty-row--skeleton">
+                <AppSkeleton width="40px" height="36px" radius="10px" />
+                <AppSkeleton width="24px" height="20px" radius="8px" />
+                <AppSkeleton width="40px" height="36px" radius="10px" />
+              </div>
+            </div>
+            <AppSkeleton width="96px" height="24px" />
+          </article>
+        </div>
       </div>
 
-      <form class="checkout" @submit.prevent="submitCheckout">
-        <h2>Оформление</h2>
-        <label>
-          Имя
-          <input v-model="customerName" type="text" required />
-        </label>
-        <label>
-          Email
-          <input v-model="customerEmail" type="email" required />
-        </label>
-        <label>
-          Телефон
-          <input v-model="customerPhone" type="text" required />
-        </label>
-        <label>
-          Доставка
-          <select v-model="deliveryMethod" required>
-            <option v-for="method in deliveryMethods" :key="method.code" :value="method.code">
-              {{ method.name }}{{ method.is_test_mode ? ' · тест' : '' }} ({{ formatPrice(method.fee) }})
-            </option>
-          </select>
-        </label>
-        <label>
-          Оплата
-          <select v-model="paymentMethod" required>
-            <option v-for="method in paymentMethods" :key="method.code" :value="method.code">
-              {{ method.name }}{{ method.is_test_mode ? ' · тест' : '' }}
-            </option>
-          </select>
-        </label>
-        <label>
-          Промокод
-          <input v-model="promoCode" type="text" placeholder="Например, WELCOME10" />
-        </label>
-        <p v-if="promoStatusMessage" class="promo-status" :class="{ 'promo-status--ok': promoStatusApplied }">
-          {{ promoStatusMessage }}
-        </p>
-        <label>
-          Комментарий
-          <textarea v-model="comment" rows="3" />
-        </label>
-        <div class="summary summary--stack">
-          <span>Товаров: {{ totalItems }}</span>
-          <span>Подытог: {{ formatPrice(displayedSubtotal) }}</span>
-          <span>Скидка: -{{ formatPrice(displayedDiscount) }}</span>
-          <span>Доставка: {{ formatPrice(displayedDelivery) }}</span>
-          <strong>Итого: {{ formatPrice(displayedTotal) }}</strong>
-          <span v-if="previewLoading" class="preview-loading">Пересчитываем...</span>
+      <form class="checkout" :class="{ 'checkout--busy': showCheckoutOverlay }" @submit.prevent="submitCheckout">
+        <template v-if="showCheckoutSkeleton">
+          <div class="checkout-skeleton" aria-hidden="true">
+            <AppSkeleton width="180px" height="34px" />
+            <div class="checkout-skeleton__field">
+              <AppSkeleton width="72px" height="14px" />
+              <AppSkeleton width="100%" height="48px" radius="10px" />
+            </div>
+            <div class="checkout-skeleton__field">
+              <AppSkeleton width="80px" height="14px" />
+              <AppSkeleton width="100%" height="48px" radius="10px" />
+            </div>
+            <div class="checkout-skeleton__field">
+              <AppSkeleton width="92px" height="14px" />
+              <AppSkeleton width="100%" height="48px" radius="10px" />
+            </div>
+            <div class="checkout-skeleton__field">
+              <AppSkeleton width="94px" height="14px" />
+              <AppSkeleton width="100%" height="48px" radius="10px" />
+            </div>
+            <div class="checkout-skeleton__field">
+              <AppSkeleton width="78px" height="14px" />
+              <AppSkeleton width="100%" height="48px" radius="10px" />
+            </div>
+            <div class="checkout-skeleton__field">
+              <AppSkeleton width="94px" height="14px" />
+              <AppSkeleton width="100%" height="48px" radius="10px" />
+            </div>
+            <div class="checkout-skeleton__field">
+              <AppSkeleton width="112px" height="14px" />
+              <AppSkeleton width="100%" height="112px" radius="10px" />
+            </div>
+            <div class="summary summary--stack checkout-skeleton__summary">
+              <AppSkeleton width="34%" height="16px" />
+              <AppSkeleton width="40%" height="16px" />
+              <AppSkeleton width="36%" height="16px" />
+              <AppSkeleton width="38%" height="16px" />
+              <AppSkeleton width="44%" height="22px" />
+            </div>
+            <AppSkeleton width="100%" height="46px" radius="10px" />
+          </div>
+        </template>
+
+        <template v-else>
+          <h2>Оформление</h2>
+          <label>
+            Имя
+            <input v-model="customerName" type="text" required />
+          </label>
+          <label>
+            Email
+            <input v-model="customerEmail" type="email" required />
+          </label>
+          <label>
+            Телефон
+            <input v-model="customerPhone" type="text" required />
+          </label>
+          <label>
+            Доставка
+            <select v-model="deliveryMethod" required>
+              <option v-for="method in deliveryMethods" :key="method.code" :value="method.code">
+                {{ method.name }}{{ method.is_test_mode ? ' · тест' : '' }} ({{ formatPrice(method.fee) }})
+              </option>
+            </select>
+          </label>
+          <label>
+            Оплата
+            <select v-model="paymentMethod" required>
+              <option v-for="method in paymentMethods" :key="method.code" :value="method.code">
+                {{ method.name }}{{ method.is_test_mode ? ' · тест' : '' }}
+              </option>
+            </select>
+          </label>
+          <label>
+            Промокод
+            <input v-model="promoCode" type="text" placeholder="Например, WELCOME10" />
+          </label>
+          <p v-if="promoStatusMessage" class="promo-status" :class="{ 'promo-status--ok': promoStatusApplied }">
+            {{ promoStatusMessage }}
+          </p>
+          <label>
+            Комментарий
+            <textarea v-model="comment" rows="3" />
+          </label>
+          <div class="summary summary--stack">
+            <span>Товаров: {{ totalItems }}</span>
+            <span>Подытог: {{ formatPrice(displayedSubtotal) }}</span>
+            <span>Скидка: -{{ formatPrice(displayedDiscount) }}</span>
+            <span>Доставка: {{ formatPrice(displayedDelivery) }}</span>
+            <strong>Итого: {{ formatPrice(displayedTotal) }}</strong>
+            <span v-if="previewLoading" class="preview-loading">Пересчитываем...</span>
+          </div>
+          <p v-if="hasUnavailableItems" class="error error--soft">
+            {{ unavailableCartMessage }}
+          </p>
+          <button type="submit" :disabled="!canCheckout">
+            {{
+              checkoutLoading
+                ? 'Оформляем...'
+                : hasUnavailableItems
+                  ? 'Недоступные товары в корзине'
+                  : 'Оформить заказ'
+            }}
+          </button>
+          <p v-if="checkoutError" class="error">{{ checkoutError }}</p>
+        </template>
+
+        <div v-if="showCheckoutOverlay" class="checkout-overlay" aria-hidden="true">
+          <div class="checkout-overlay__bar">
+            <AppSkeleton width="100%" height="6px" radius="999px" />
+          </div>
+          <div class="checkout-overlay__summary">
+            <AppSkeleton width="34%" height="14px" />
+            <AppSkeleton width="42%" height="14px" />
+            <AppSkeleton width="38%" height="14px" />
+            <AppSkeleton width="48%" height="20px" />
+            <AppSkeleton width="100%" height="42px" radius="10px" />
+          </div>
         </div>
-        <button type="submit" :disabled="!canCheckout">
-          {{ checkoutLoading ? 'Оформляем...' : 'Оформить заказ' }}
-        </button>
-        <p v-if="checkoutError" class="error">{{ checkoutError }}</p>
       </form>
     </section>
 
@@ -298,6 +428,7 @@ watch(
 }
 
 .items {
+  position: relative;
   display: grid;
   gap: 12px;
   align-content: start;
@@ -317,6 +448,20 @@ watch(
   padding: 16px;
   background: #fffdf9;
   border: 1px solid #efe2d4;
+}
+
+.item--skeleton {
+  align-items: center;
+}
+
+.item--unavailable {
+  border-color: #efb39a;
+  background: #fff8f3;
+}
+
+.item__body--skeleton {
+  display: grid;
+  gap: 10px;
 }
 
 .item img {
@@ -342,11 +487,25 @@ watch(
   font-size: 13px;
 }
 
+.availability {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.availability--bad {
+  color: #a83a0f;
+  font-weight: 600;
+}
+
 .qty-row {
   margin-top: 8px;
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.qty-row--skeleton {
+  margin-top: 2px;
 }
 
 .qty-row button {
@@ -363,10 +522,29 @@ watch(
 }
 
 .checkout {
+  position: relative;
   border-radius: 28px;
   padding: 20px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 18px 40px rgb(16 24 40 / 8%);
+}
+
+.checkout--busy > *:not(.checkout-overlay) {
+  opacity: 0.64;
+}
+
+.checkout-skeleton {
+  display: grid;
+  gap: 12px;
+}
+
+.checkout-skeleton__field {
+  display: grid;
+  gap: 6px;
+}
+
+.checkout-skeleton__summary {
+  margin-top: 4px;
 }
 
 .checkout h2 {
@@ -438,6 +616,53 @@ watch(
   margin-top: 8px;
   color: #a83a0f;
   font-size: 14px;
+}
+
+.error--soft {
+  margin-top: 10px;
+}
+
+.checkout-overlay {
+  position: absolute;
+  inset: 20px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.checkout-overlay__bar {
+  padding-top: 4px;
+}
+
+.checkout-overlay__summary {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 66%), rgb(255 248 240 / 78%));
+  backdrop-filter: blur(3px);
+}
+
+.items-skeleton {
+  display: grid;
+  gap: 12px;
+}
+
+.items-overlay {
+  position: absolute;
+  inset: 14px;
+  display: grid;
+  gap: 12px;
+  pointer-events: none;
+  padding: 6px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 28%), rgb(255 250 243 / 16%));
+  backdrop-filter: blur(2px);
+  border-radius: 22px;
+}
+
+.items--busy > .item {
+  opacity: 0.58;
 }
 
 .empty {

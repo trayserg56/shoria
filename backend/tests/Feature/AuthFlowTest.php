@@ -27,6 +27,7 @@ class AuthFlowTest extends TestCase
 
         $registerResponse->assertCreated();
         $registerResponse->assertJsonPath('user.email', 'sergei.auth@example.com');
+        $registerResponse->assertJsonPath('user.role', User::ROLE_CUSTOMER);
 
         $token = $registerResponse->json('token');
         $this->assertIsString($token);
@@ -42,6 +43,7 @@ class AuthFlowTest extends TestCase
         ]);
         $meResponse->assertOk();
         $meResponse->assertJsonPath('user.email', 'sergei.auth@example.com');
+        $meResponse->assertJsonPath('user.role', User::ROLE_CUSTOMER);
 
         $logoutResponse = $this->postJson('/api/auth/logout', [], [
             'Authorization' => "Bearer {$token}",
@@ -55,6 +57,7 @@ class AuthFlowTest extends TestCase
         ]);
         $loginResponse->assertOk();
         $loginResponse->assertJsonPath('user.email', 'sergei.auth@example.com');
+        $loginResponse->assertJsonPath('user.role', User::ROLE_CUSTOMER);
         $this->assertNotSame($token, $loginResponse->json('token'));
     }
 
