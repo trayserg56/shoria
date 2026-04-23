@@ -256,6 +256,43 @@ DOCKER_GID=1000
 5. После этого уже отдельно настраиваем staging/production deploy.
 - чеклист handover (доступы, webhooks, SMTP, домен, мониторинг).
 
+## Прод-деплой на сервер (обновлено: 24 апреля 2026)
+
+Минимум, что должно быть на сервере:
+
+- Ubuntu 22.04/24.04 LTS
+- Docker Engine + Docker Compose v2
+- Git
+- открытые порты `22`, `80` (и позже `443` под SSL)
+
+Рабочая схема деплоя (проверена):
+
+1. `git clone` проекта в `/opt/shoria`.
+2. Заполнить корневой `.env` и `backend/.env` под production (`APP_ENV=production`, `APP_DEBUG=false`, корректные `APP_URL/FRONTEND_URL`).
+3. Поднять контейнеры:
+   `docker compose up -d --build`.
+4. Инициализировать backend:
+   `docker compose exec app composer install --no-dev --optimize-autoloader --no-interaction`
+   `docker compose exec app php artisan key:generate --force`
+   `docker compose exec app php artisan migrate --force`
+   `docker compose exec app php artisan db:seed --class=ShopDemoSeeder --force`
+   `docker compose exec app php artisan storage:link`
+5. Выдать права на каталоги Laravel:
+   `docker compose exec app chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache`
+   `docker compose exec app chmod -R ug+rwX /var/www/html/storage /var/www/html/bootstrap/cache`
+6. Проверить доступность:
+   `curl -I http://127.0.0.1/`
+   `curl -I http://127.0.0.1/admin/login`
+   `curl -I http://127.0.0.1/api/categories`
+
+Если при сборке встретили Docker Hub rate limit (`toomanyrequests`), временно используйте зеркала `public.ecr.aws/docker/library/*` для базовых образов (`php`, `nginx`, `postgres`, `redis`, `composer`, `node`) в `docker-compose.yml` и `docker/php/Dockerfile`.
+
+Важно по безопасности:
+
+- после первичной настройки обязательно сменить root-пароль;
+- перейти на SSH-ключи и отключить вход по паролю;
+- включить HTTPS после привязки домена.
+
 ## Платежи РФ: модульный контур (эквайринг/банки)
 
 Чтобы безболезненно подключать разные банки у разных клиентов, делаем **платежный слой через адаптеры**:
