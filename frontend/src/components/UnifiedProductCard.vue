@@ -11,6 +11,7 @@ import { useCompareStore, type CompareItem } from '@/stores/compare'
 type ProductCardData = {
   id: number
   name: string
+  brand?: string | null
   slug: string
   price: number
   old_price: number | null
@@ -221,6 +222,7 @@ async function decreaseCartQty() {
       <img v-if="product.image_url" :src="product.image_url" :alt="product.name" loading="lazy" />
       <div class="product-card__content">
         <p class="product-card__category">{{ product.category?.name ?? 'Sneakers' }}</p>
+        <p v-if="product.brand" class="product-card__brand">{{ product.brand }}</p>
         <div v-if="product.tags?.length" class="product-card__tags">
           <span v-for="tag in product.tags" :key="`${product.id}-${tag.code}`" class="tag-badge">
             {{ tag.label }}
@@ -307,6 +309,12 @@ async function decreaseCartQty() {
 .product-card__category {
   font-size: 12px;
   color: #7f8ca8;
+}
+
+.product-card__brand {
+  margin: 0;
+  font-size: 13px;
+  color: #4f5a74;
 }
 
 .product-card h3 {

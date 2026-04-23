@@ -14,7 +14,9 @@ class Product extends Model
 
     protected $fillable = [
         'category_id',
+        'brand_id',
         'name',
+        'brand',
         'slug',
         'sku',
         'description',
@@ -47,6 +49,17 @@ class Product extends Model
         return $this->belongsTo(Category::class);
     }
 
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(Category::class)
+            ->withTimestamps();
+    }
+
+    public function brandEntity(): BelongsTo
+    {
+        return $this->belongsTo(Brand::class, 'brand_id');
+    }
+
     public function images(): HasMany
     {
         return $this->hasMany(ProductImage::class);
@@ -60,5 +73,21 @@ class Product extends Model
     public function newsPosts(): BelongsToMany
     {
         return $this->belongsToMany(NewsPost::class);
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (self $product): void {
+            if (! $product->brand_id) {
+                return;
+            }
+
+            $brandName = $product->brandEntity?->name
+                ?? Brand::query()->whereKey($product->brand_id)->value('name');
+
+            if (is_string($brandName) && trim($brandName) !== '') {
+                $product->brand = $brandName;
+            }
+        });
     }
 }

@@ -81,6 +81,7 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
 
         return in_array($resourceKey, [
             'products',
+            'brands',
             'categories',
             'news_posts',
             'banners',

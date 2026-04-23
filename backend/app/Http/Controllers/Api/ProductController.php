@@ -6,102 +6,43 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\OrderItem;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\TrackingEvent;
-use Illuminate\Support\Collection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $searchTerm = trim($request->string('q')->toString());
-        $sort = $request->string('sort')->toString();
-        $priceMin = $request->query('price_min');
-        $priceMax = $request->query('price_max');
-        $inStock = filter_var($request->query('in_stock', false), FILTER_VALIDATE_BOOLEAN);
-        $tags = $this->parseTagFilters($request);
+        $filters = $this->collectCatalogFilters($request);
 
-        $query = Product::query()
-            ->with(['category:id,name,slug', 'images:id,product_id,url,alt,is_cover,sort_order'])
-            ->where('is_active', true);
+        $query = $this->catalogQuery($filters)
+            ->with([
+                'category:id,name,slug',
+                'categories:id,name,slug',
+                'brandEntity:id,name,slug',
+                'images:id,product_id,url,alt,is_cover,sort_order',
+            ]);
 
-        if ($request->filled('category')) {
-            $categorySlug = $request->string('category')->toString();
-            $categoryIds = Category::query()
-                ->where('slug', $categorySlug)
-                ->orWhereHas('parent', fn (Builder $parentQuery) => $parentQuery->where('slug', $categorySlug))
-                ->pluck('id');
-
-            $query->whereIn('category_id', $categoryIds);
-        }
-
-        if ($searchTerm !== '') {
-            $searchVariants = $this->buildSearchVariants($searchTerm);
-
-            $query->where(function ($searchQuery) use ($searchVariants): void {
-                foreach ($searchVariants as $index => $variant) {
-                    $needle = '%' . $variant . '%';
-
-                    $method = $index === 0 ? 'where' : 'orWhere';
-
-                    $searchQuery->{$method}(function ($variantQuery) use ($needle): void {
-                        $variantQuery
-                            ->whereRaw('LOWER(name) LIKE ?', [$needle])
-                            ->orWhereRaw('LOWER(sku) LIKE ?', [$needle])
-                            ->orWhereHas('category', function ($categoryQuery) use ($needle): void {
-                                $categoryQuery->whereRaw('LOWER(name) LIKE ?', [$needle]);
-                            });
-                    });
-                }
-            });
-        }
-
-        if (is_numeric($priceMin)) {
-            $query->where('price', '>=', (float) $priceMin);
-        }
-
-        if (is_numeric($priceMax)) {
-            $query->where('price', '<=', (float) $priceMax);
-        }
-
-        if ($inStock) {
-            $query->where('stock', '>', 0);
-        }
-
-        if ($tags !== []) {
-            $query->where(function (Builder $tagQuery) use ($tags): void {
-                foreach ($tags as $index => $tag) {
-                    $column = $this->tagToColumn($tag);
-
-                    if ($column === null) {
-                        continue;
-                    }
-
-                    $method = $index === 0 ? 'where' : 'orWhere';
-                    $tagQuery->{$method}($column, true);
-                }
-            });
-        }
-
-        $this->applySort($query, $sort);
+        $this->applySort($query, $filters['sort']);
 
         $products = $query
             ->paginate(12)
             ->through(fn (Product $product) => [
                 'id' => $product->id,
                 'name' => $product->name,
+                'brand' => $this->resolveBrandName($product),
                 'slug' => $product->slug,
                 'price' => (float) $product->price,
                 'old_price' => $product->old_price !== null ? (float) $product->old_price : null,
                 'currency' => $product->currency,
                 'stock' => $product->stock,
                 'tags' => $this->resolveProductTags($product),
-                'category' => $product->category ? [
-                    'name' => $product->category->name,
-                    'slug' => $product->category->slug,
-                ] : null,
+                'category' => $this->resolvePrimaryCategoryPayload($product),
                 'image_url' => $product->images
                     ->sortBy([
                         ['is_cover', 'desc'],
@@ -110,17 +51,344 @@ class ProductController extends Controller
                     ->first()?->url,
             ]);
 
-        return response()->json($products);
+        $products->appends($request->query());
+
+        return response()->json([
+            ...$products->toArray(),
+            'filters' => $this->resolveCatalogFacets($filters),
+        ]);
+    }
+
+    /**
+     * @return array{
+     *     category: string,
+     *     q: string,
+     *     sort: string,
+     *     price_min: float|null,
+     *     price_max: float|null,
+     *     in_stock: bool,
+     *     on_sale: bool,
+     *     tags: array<int, string>,
+     *     brands: array<int, string>,
+     *     colors: array<int, string>,
+     *     sizes: array<int, string>
+     * }
+     */
+    private function collectCatalogFilters(Request $request): array
+    {
+        return [
+            'category' => trim($request->string('category')->toString()),
+            'q' => trim($request->string('q')->toString()),
+            'sort' => $request->string('sort')->toString(),
+            'price_min' => is_numeric($request->query('price_min')) ? (float) $request->query('price_min') : null,
+            'price_max' => is_numeric($request->query('price_max')) ? (float) $request->query('price_max') : null,
+            'in_stock' => filter_var($request->query('in_stock', false), FILTER_VALIDATE_BOOLEAN),
+            'on_sale' => filter_var($request->query('on_sale', false), FILTER_VALIDATE_BOOLEAN),
+            'tags' => $this->parseTagFilters($request),
+            'brands' => $this->parseStringListFilter($request->query('brands')),
+            'colors' => $this->parseStringListFilter($request->query('colors')),
+            'sizes' => $this->parseStringListFilter($request->query('sizes')),
+        ];
+    }
+
+    /**
+     * @param array{
+     *     category: string,
+     *     q: string,
+     *     sort: string,
+     *     price_min: float|null,
+     *     price_max: float|null,
+     *     in_stock: bool,
+     *     on_sale: bool,
+     *     tags: array<int, string>,
+     *     brands: array<int, string>,
+     *     colors: array<int, string>,
+     *     sizes: array<int, string>
+     * } $filters
+     * @param array<int, string> $exclude
+     */
+    private function catalogQuery(array $filters, array $exclude = []): Builder
+    {
+        $excludeMap = array_fill_keys($exclude, true);
+        $query = Product::query()->where('products.is_active', true);
+
+        if (! isset($excludeMap['category']) && $filters['category'] !== '') {
+            $categoryIds = Category::query()
+                ->where('slug', $filters['category'])
+                ->orWhereHas('parent', fn (Builder $parentQuery) => $parentQuery->where('slug', $filters['category']))
+                ->pluck('id');
+
+            $query->where(function (Builder $categoryQuery) use ($categoryIds): void {
+                $categoryQuery
+                    ->whereIn('category_id', $categoryIds)
+                    ->orWhereHas('categories', fn (Builder $linkedQuery) => $linkedQuery->whereIn('categories.id', $categoryIds));
+            });
+        }
+
+        if (! isset($excludeMap['q']) && $filters['q'] !== '') {
+            $searchVariants = $this->buildSearchVariants($filters['q']);
+
+            $query->where(function ($searchQuery) use ($searchVariants): void {
+                foreach ($searchVariants as $index => $variant) {
+                    $needle = '%' . $variant . '%';
+                    $method = $index === 0 ? 'where' : 'orWhere';
+
+                    $searchQuery->{$method}(function ($variantQuery) use ($needle): void {
+                        $variantQuery
+                            ->whereRaw('LOWER(products.name) LIKE ?', [$needle])
+                            ->orWhereRaw('LOWER(products.brand) LIKE ?', [$needle])
+                            ->orWhereRaw('LOWER(products.sku) LIKE ?', [$needle])
+                            ->orWhereHas('category', function ($categoryQuery) use ($needle): void {
+                                $categoryQuery->whereRaw('LOWER(name) LIKE ?', [$needle]);
+                            })
+                            ->orWhereHas('categories', function ($categoryQuery) use ($needle): void {
+                                $categoryQuery->whereRaw('LOWER(name) LIKE ?', [$needle]);
+                            });
+                    });
+                }
+            });
+        }
+
+        if (! isset($excludeMap['price']) && $filters['price_min'] !== null) {
+            $query->where('products.price', '>=', $filters['price_min']);
+        }
+
+        if (! isset($excludeMap['price']) && $filters['price_max'] !== null) {
+            $query->where('products.price', '<=', $filters['price_max']);
+        }
+
+        if (! isset($excludeMap['in_stock']) && $filters['in_stock']) {
+            $query->where('products.stock', '>', 0);
+        }
+
+        if (! isset($excludeMap['on_sale']) && $filters['on_sale']) {
+            $query->whereNotNull('products.old_price')
+                ->whereColumn('products.old_price', '>', 'products.price');
+        }
+
+        if (! isset($excludeMap['tags']) && $filters['tags'] !== []) {
+            $query->where(function (Builder $tagQuery) use ($filters): void {
+                foreach ($filters['tags'] as $index => $tag) {
+                    $column = $this->tagToColumn($tag);
+
+                    if ($column === null) {
+                        continue;
+                    }
+
+                    $method = $index === 0 ? 'where' : 'orWhere';
+                    $tagQuery->{$method}("products.{$column}", true);
+                }
+            });
+        }
+
+        if (! isset($excludeMap['brands']) && $filters['brands'] !== []) {
+            $query->where(function (Builder $brandQuery) use ($filters): void {
+                foreach ($filters['brands'] as $index => $brand) {
+                    $needle = mb_strtolower($brand);
+                    $method = $index === 0 ? 'where' : 'orWhere';
+
+                    $brandQuery->{$method}(function (Builder $singleBrandQuery) use ($needle): void {
+                        $singleBrandQuery
+                            ->whereRaw('LOWER(brand) = ?', [$needle])
+                            ->orWhereHas('brandEntity', fn (Builder $brandEntityQuery) => $brandEntityQuery->whereRaw('LOWER(name) = ?', [$needle]));
+                    });
+                }
+            });
+        }
+
+        if (! isset($excludeMap['colors']) && $filters['colors'] !== []) {
+            $query->whereHas('variants', function (Builder $variantQuery) use ($filters): void {
+                $variantQuery
+                    ->where('is_active', true)
+                    ->where(function (Builder $colorQuery) use ($filters): void {
+                        foreach ($filters['colors'] as $index => $color) {
+                            $needle = mb_strtolower($color);
+                            $method = $index === 0 ? 'whereRaw' : 'orWhereRaw';
+                            $colorQuery->{$method}('LOWER(color_label) = ?', [$needle]);
+                        }
+                    });
+            });
+        }
+
+        if (! isset($excludeMap['sizes']) && $filters['sizes'] !== []) {
+            $query->whereHas('variants', function (Builder $variantQuery) use ($filters): void {
+                $variantQuery
+                    ->where('is_active', true)
+                    ->where(function (Builder $sizeQuery) use ($filters): void {
+                        foreach ($filters['sizes'] as $index => $size) {
+                            $needle = mb_strtolower($size);
+                            $method = $index === 0 ? 'whereRaw' : 'orWhereRaw';
+                            $sizeQuery->{$method}('LOWER(size_label) = ?', [$needle]);
+                        }
+                    });
+            });
+        }
+
+        return $query;
+    }
+
+    /**
+     * @param array{
+     *     category: string,
+     *     q: string,
+     *     sort: string,
+     *     price_min: float|null,
+     *     price_max: float|null,
+     *     in_stock: bool,
+     *     on_sale: bool,
+     *     tags: array<int, string>,
+     *     brands: array<int, string>,
+     *     colors: array<int, string>,
+     *     sizes: array<int, string>
+     * } $filters
+     * @return array{
+     *     categories: array<int, array{slug: string, count: int}>,
+     *     tags: array<int, array{code: string, label: string, count: int}>,
+     *     brands: array<int, array{value: string, count: int}>,
+     *     colors: array<int, array{value: string, count: int}>,
+     *     sizes: array<int, array{value: string, count: int}>,
+     *     on_sale: array{count: int}
+     * }
+     */
+    private function resolveCatalogFacets(array $filters): array
+    {
+        $categoryFacetBase = $this->catalogQuery($filters, ['category']);
+        $categoryBaseSql = (clone $categoryFacetBase)
+            ->select('products.id')
+            ->toBase();
+
+        $primaryCategorySql = DB::table('products')
+            ->selectRaw('products.id as product_id, products.category_id as category_id')
+            ->whereNotNull('products.category_id');
+
+        $linkedCategorySql = DB::table('category_product')
+            ->selectRaw('category_product.product_id as product_id, category_product.category_id as category_id');
+
+        $unionCategorySql = $primaryCategorySql->union($linkedCategorySql);
+
+        $categoryCountsRows = DB::query()
+            ->fromSub($categoryBaseSql, 'base_products')
+            ->joinSub($unionCategorySql, 'product_categories', function ($join): void {
+                $join->on('product_categories.product_id', '=', 'base_products.id');
+            })
+            ->selectRaw('product_categories.category_id as category_id, COUNT(DISTINCT base_products.id) as aggregate')
+            ->groupBy('product_categories.category_id')
+            ->get();
+
+        $categoryCounts = $categoryCountsRows
+            ->pluck('aggregate', 'category_id')
+            ->map(fn ($count): int => (int) $count);
+
+        $categories = Category::query()->pluck('slug', 'id');
+
+        $tagFacetBase = $this->catalogQuery($filters, ['tags']);
+        $tagBlueprints = [
+            ['code' => 'hit', 'label' => 'Хит', 'column' => 'is_hit'],
+            ['code' => 'new', 'label' => 'Новинка', 'column' => 'is_new'],
+            ['code' => 'customer_choice', 'label' => 'Выбор покупателей', 'column' => 'is_customer_choice'],
+        ];
+
+        $tags = collect($tagBlueprints)
+            ->map(function (array $tag) use ($tagFacetBase): array {
+                $count = (clone $tagFacetBase)->where($tag['column'], true)->count();
+
+                return [
+                    'code' => $tag['code'],
+                    'label' => $tag['label'],
+                    'count' => $count,
+                ];
+            })
+            ->filter(fn (array $tag): bool => $tag['count'] > 0 || in_array($tag['code'], $filters['tags'], true))
+            ->values();
+
+        $brandFacetBase = $this->catalogQuery($filters, ['brands']);
+        $brands = (clone $brandFacetBase)
+            ->leftJoin('brands', 'brands.id', '=', 'products.brand_id')
+            ->selectRaw('COALESCE(brands.name, products.brand) as value, COUNT(*) as count')
+            ->whereRaw("COALESCE(brands.name, products.brand) IS NOT NULL")
+            ->whereRaw("COALESCE(brands.name, products.brand) != ''")
+            ->groupByRaw('COALESCE(brands.name, products.brand)')
+            ->orderByRaw('COALESCE(brands.name, products.brand)')
+            ->get()
+            ->map(fn ($row): array => [
+                'value' => (string) $row->value,
+                'count' => (int) $row->count,
+            ])
+            ->values();
+
+        $colorFacetBase = $this->catalogQuery($filters, ['colors']);
+        $colors = ProductVariant::query()
+            ->selectRaw('product_variants.color_label as value, COUNT(DISTINCT product_variants.product_id) as count')
+            ->where('product_variants.is_active', true)
+            ->whereNotNull('product_variants.color_label')
+            ->where('product_variants.color_label', '!=', '')
+            ->whereIn('product_variants.product_id', (clone $colorFacetBase)->select('products.id'))
+            ->groupBy('product_variants.color_label')
+            ->orderBy('product_variants.color_label')
+            ->get()
+            ->map(fn ($row): array => [
+                'value' => (string) $row->value,
+                'count' => (int) $row->count,
+            ])
+            ->values();
+
+        $sizeFacetBase = $this->catalogQuery($filters, ['sizes']);
+        $sizes = ProductVariant::query()
+            ->selectRaw('product_variants.size_label as value, COUNT(DISTINCT product_variants.product_id) as count')
+            ->where('product_variants.is_active', true)
+            ->whereNotNull('product_variants.size_label')
+            ->where('product_variants.size_label', '!=', '')
+            ->whereIn('product_variants.product_id', (clone $sizeFacetBase)->select('products.id'))
+            ->groupBy('product_variants.size_label')
+            ->orderBy('product_variants.size_label')
+            ->get()
+            ->map(fn ($row): array => [
+                'value' => (string) $row->value,
+                'count' => (int) $row->count,
+            ])
+            ->values();
+
+        $saleFacetBase = $this->catalogQuery($filters, ['on_sale']);
+        $onSaleCount = (clone $saleFacetBase)
+            ->whereNotNull('products.old_price')
+            ->whereColumn('products.old_price', '>', 'products.price')
+            ->count();
+
+        return [
+            'categories' => $categoryCounts
+                ->map(function ($count, $categoryId) use ($categories): ?array {
+                    $slug = $categories[(int) $categoryId] ?? null;
+
+                    if (! $slug) {
+                        return null;
+                    }
+
+                    return [
+                        'slug' => $slug,
+                        'count' => (int) $count,
+                    ];
+                })
+                ->filter()
+                ->values()
+                ->all(),
+            'tags' => $tags->all(),
+            'brands' => $brands->all(),
+            'colors' => $colors->all(),
+            'sizes' => $sizes->all(),
+            'on_sale' => [
+                'count' => $onSaleCount,
+            ],
+        ];
     }
 
     private function applySort(Builder $query, string $sort): void
     {
         match ($sort) {
-            'price_asc' => $query->orderBy('price')->orderBy('sort_order'),
-            'price_desc' => $query->orderByDesc('price')->orderBy('sort_order'),
-            'name_asc' => $query->orderBy('name')->orderBy('sort_order'),
-            'name_desc' => $query->orderByDesc('name')->orderBy('sort_order'),
-            default => $query->orderByDesc('is_featured')->orderBy('sort_order'),
+            'price_asc' => $query->orderBy('products.price')->orderBy('products.sort_order'),
+            'price_desc' => $query->orderByDesc('products.price')->orderBy('products.sort_order'),
+            'name_asc' => $query->orderBy('products.name')->orderBy('products.sort_order'),
+            'name_desc' => $query->orderByDesc('products.name')->orderBy('products.sort_order'),
+            default => $query->orderByDesc('products.is_featured')->orderBy('products.sort_order'),
         };
     }
 
@@ -143,7 +411,12 @@ class ProductController extends Controller
         );
 
         $products = Product::query()
-            ->with(['category:id,name,slug', 'images:id,product_id,url,alt,is_cover,sort_order'])
+            ->with([
+                'category:id,name,slug',
+                'categories:id,name,slug',
+                'brandEntity:id,name,slug',
+                'images:id,product_id,url,alt,is_cover,sort_order',
+            ])
             ->where('is_active', true)
             ->where(function ($searchQuery) use ($searchVariants): void {
                 foreach ($searchVariants as $index => $variant) {
@@ -153,9 +426,13 @@ class ProductController extends Controller
 
                     $searchQuery->{$method}(function ($variantQuery) use ($needle): void {
                         $variantQuery
-                            ->whereRaw('LOWER(name) LIKE ?', [$needle])
-                            ->orWhereRaw('LOWER(sku) LIKE ?', [$needle])
+                            ->whereRaw('LOWER(products.name) LIKE ?', [$needle])
+                            ->orWhereRaw('LOWER(products.brand) LIKE ?', [$needle])
+                            ->orWhereRaw('LOWER(products.sku) LIKE ?', [$needle])
                             ->orWhereHas('category', function ($categoryQuery) use ($needle): void {
+                                $categoryQuery->whereRaw('LOWER(name) LIKE ?', [$needle]);
+                            })
+                            ->orWhereHas('categories', function ($categoryQuery) use ($needle): void {
                                 $categoryQuery->whereRaw('LOWER(name) LIKE ?', [$needle]);
                             });
                     });
@@ -175,14 +452,12 @@ class ProductController extends Controller
             'suggestions' => $products->map(fn (Product $product) => [
                 'id' => $product->id,
                 'name' => $product->name,
+                'brand' => $this->resolveBrandName($product),
                 'slug' => $product->slug,
                 'price' => (float) $product->price,
                 'currency' => $product->currency,
                 'tags' => $this->resolveProductTags($product),
-                'category' => $product->category ? [
-                    'name' => $product->category->name,
-                    'slug' => $product->category->slug,
-                ] : null,
+                'category' => $this->resolvePrimaryCategoryPayload($product),
                 'image_url' => $product->images
                     ->sortBy([
                         ['is_cover', 'desc'],
@@ -253,15 +528,7 @@ class ProductController extends Controller
      */
     private function parseTagFilters(Request $request): array
     {
-        $rawTags = $request->query('tags');
-
-        if (is_string($rawTags)) {
-            $items = explode(',', $rawTags);
-        } elseif (is_array($rawTags)) {
-            $items = $rawTags;
-        } else {
-            $items = [];
-        }
+        $items = $this->parseStringListFilter($request->query('tags'));
 
         $normalized = array_map(
             static fn (mixed $value): string => mb_strtolower(trim((string) $value)),
@@ -273,6 +540,26 @@ class ProductController extends Controller
             'new',
             'customer_choice',
         ], true)));
+    }
+
+    /**
+     * @param mixed $rawValues
+     * @return array<int, string>
+     */
+    private function parseStringListFilter(mixed $rawValues): array
+    {
+        if (is_string($rawValues)) {
+            $items = explode(',', $rawValues);
+        } elseif (is_array($rawValues)) {
+            $items = $rawValues;
+        } else {
+            $items = [];
+        }
+
+        return array_values(array_filter(array_unique(array_map(
+            static fn (mixed $value): string => trim((string) $value),
+            $items,
+        ))));
     }
 
     private function tagToColumn(string $tag): ?string
@@ -314,6 +601,8 @@ class ProductController extends Controller
         $product = Product::query()
             ->with([
                 'category:id,name,slug',
+                'categories:id,name,slug',
+                'brandEntity:id,name,slug',
                 'images:id,product_id,url,alt,is_cover,sort_order',
                 'variants:id,product_id,slug,size_label,color_label,sku,price,stock,is_active,sort_order',
                 'variants.images:id,product_variant_id,url,alt,is_cover,sort_order',
@@ -379,6 +668,7 @@ class ProductController extends Controller
         return response()->json([
             'id' => $product->id,
             'name' => $product->name,
+            'brand' => $this->resolveBrandName($product),
             'slug' => $product->slug,
             'sku' => $product->sku,
             'description' => $product->description,
@@ -391,10 +681,13 @@ class ProductController extends Controller
             'tags' => $this->resolveProductTags($product),
             'has_variants' => $variants->isNotEmpty(),
             'selected_variant_slug' => $selectedVariant?->slug,
-            'category' => $product->category ? [
-                'name' => $product->category->name,
-                'slug' => $product->category->slug,
-            ] : null,
+            'category' => $this->resolvePrimaryCategoryPayload($product),
+            'categories' => $product->categories
+                ->map(fn (Category $category): array => [
+                    'name' => $category->name,
+                    'slug' => $category->slug,
+                ])
+                ->values(),
             'variants' => $variants,
             'images' => $activeImages
                 ->values()
@@ -440,7 +733,12 @@ class ProductController extends Controller
 
         if ($coPurchaseProductIds->isNotEmpty()) {
             $coPurchaseProducts = Product::query()
-                ->with(['category:id,name,slug', 'images:id,product_id,url,alt,is_cover,sort_order'])
+                ->with([
+                    'category:id,name,slug',
+                    'categories:id,name,slug',
+                    'brandEntity:id,name,slug',
+                    'images:id,product_id,url,alt,is_cover,sort_order',
+                ])
                 ->where('is_active', true)
                 ->whereIn('id', $coPurchaseProductIds)
                 ->get()
@@ -490,7 +788,12 @@ class ProductController extends Controller
 
         if ($recommendedSlugs->isEmpty()) {
             $fallbackProducts = Product::query()
-                ->with(['category:id,name,slug', 'images:id,product_id,url,alt,is_cover,sort_order'])
+                ->with([
+                    'category:id,name,slug',
+                    'categories:id,name,slug',
+                    'brandEntity:id,name,slug',
+                    'images:id,product_id,url,alt,is_cover,sort_order',
+                ])
                 ->where('is_active', true)
                 ->where('id', '!=', $currentProduct->id)
                 ->orderByDesc('is_featured')
@@ -505,7 +808,12 @@ class ProductController extends Controller
         }
 
         $recommendedProducts = Product::query()
-            ->with(['category:id,name,slug', 'images:id,product_id,url,alt,is_cover,sort_order'])
+            ->with([
+                'category:id,name,slug',
+                'categories:id,name,slug',
+                'brandEntity:id,name,slug',
+                'images:id,product_id,url,alt,is_cover,sort_order',
+            ])
             ->where('is_active', true)
             ->whereIn('slug', $recommendedSlugs)
             ->get()
@@ -617,7 +925,12 @@ class ProductController extends Controller
             ->values();
 
         $baseQuery = Product::query()
-            ->with(['category:id,name,slug', 'images:id,product_id,url,alt,is_cover,sort_order'])
+            ->with([
+                'category:id,name,slug',
+                'categories:id,name,slug',
+                'brandEntity:id,name,slug',
+                'images:id,product_id,url,alt,is_cover,sort_order',
+            ])
             ->where('is_active', true)
             ->whereNotIn('id', $seedIds);
 
@@ -652,7 +965,12 @@ class ProductController extends Controller
     private function fallbackRecommendations(?Collection $excludeProductIds = null, int $limit = 12): Collection
     {
         $query = Product::query()
-            ->with(['category:id,name,slug', 'images:id,product_id,url,alt,is_cover,sort_order'])
+            ->with([
+                'category:id,name,slug',
+                'categories:id,name,slug',
+                'brandEntity:id,name,slug',
+                'images:id,product_id,url,alt,is_cover,sort_order',
+            ])
             ->where('is_active', true)
             ->orderByDesc('is_featured')
             ->orderBy('sort_order')
@@ -669,6 +987,7 @@ class ProductController extends Controller
      * @return array{
      *     id: int,
      *     name: string,
+     *     brand: string|null,
      *     slug: string,
      *     price: float,
      *     old_price: float|null,
@@ -684,22 +1003,43 @@ class ProductController extends Controller
         return [
             'id' => $product->id,
             'name' => $product->name,
+            'brand' => $this->resolveBrandName($product),
             'slug' => $product->slug,
             'price' => (float) $product->price,
             'old_price' => $product->old_price !== null ? (float) $product->old_price : null,
             'currency' => $product->currency,
             'stock' => $product->stock,
             'tags' => $this->resolveProductTags($product),
-            'category' => $product->category ? [
-                'name' => $product->category->name,
-                'slug' => $product->category->slug,
-            ] : null,
+            'category' => $this->resolvePrimaryCategoryPayload($product),
             'image_url' => $product->images
                 ->sortBy([
                     ['is_cover', 'desc'],
                     ['sort_order', 'asc'],
                 ])
                 ->first()?->url,
+        ];
+    }
+
+    private function resolveBrandName(Product $product): ?string
+    {
+        return $product->brandEntity?->name
+            ?? ($product->brand !== null && trim($product->brand) !== '' ? $product->brand : null);
+    }
+
+    /**
+     * @return array{name: string, slug: string}|null
+     */
+    private function resolvePrimaryCategoryPayload(Product $product): ?array
+    {
+        $category = $product->category ?? $product->categories->sortBy('name')->first();
+
+        if (! $category) {
+            return null;
+        }
+
+        return [
+            'name' => $category->name,
+            'slug' => $category->slug,
         ];
     }
 }

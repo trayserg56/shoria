@@ -134,7 +134,45 @@ class ProductSearchTest extends TestCase
 
         $response->assertOk();
         $response->assertJsonFragment(['slug' => 'road-tempo-elite']);
+        $response->assertJsonFragment(['slug' => 'aero-pulse-300']);
         $response->assertJsonMissing(['slug' => 'trail-ridge-gtx']);
+    }
+
+    public function test_products_index_supports_brand_filter(): void
+    {
+        $this->seed(ShopDemoSeeder::class);
+
+        $response = $this->getJson('/api/products?brands=Puma');
+
+        $response->assertOk();
+        $response->assertJsonFragment(['slug' => 'neon-track-x']);
         $response->assertJsonMissing(['slug' => 'aero-pulse-300']);
+    }
+
+    public function test_products_index_supports_variant_color_and_size_filters(): void
+    {
+        $this->seed(ShopDemoSeeder::class);
+
+        $response = $this->getJson('/api/products?colors=Sunset&sizes=EU 40');
+
+        $response->assertOk();
+        $response->assertJsonFragment(['slug' => 'sprint-form-pro']);
+        $response->assertJsonMissing(['slug' => 'cloud-step-v2']);
+        $response->assertJsonMissing(['slug' => 'city-frame-one']);
+    }
+
+    public function test_products_index_returns_dynamic_facets_for_active_filters(): void
+    {
+        $this->seed(ShopDemoSeeder::class);
+
+        $response = $this->getJson('/api/products?colors=Sunset');
+
+        $response->assertOk();
+        $response->assertJsonPath('total', 1);
+        $response->assertJsonPath('data.0.slug', 'sprint-form-pro');
+        $response->assertJsonFragment(['value' => 'Sunset']);
+        $response->assertJsonFragment(['value' => 'Nike']);
+        $response->assertJsonMissing(['value' => 'Puma']);
+        $response->assertJsonFragment(['code' => 'customer_choice']);
     }
 }

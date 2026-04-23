@@ -44,7 +44,12 @@ class NewsController extends Controller
             ->limit(3)
             ->get(['id', 'title', 'slug', 'content_type', 'excerpt', 'cover_url', 'published_at']);
         $manualProducts = $post->products()
-            ->with(['category:id,name,slug', 'images:id,product_id,url,alt,is_cover,sort_order'])
+            ->with([
+                'category:id,name,slug',
+                'categories:id,name,slug',
+                'brandEntity:id,name,slug',
+                'images:id,product_id,url,alt,is_cover,sort_order',
+            ])
             ->where('products.is_active', true)
             ->get();
         $spotlightProducts = $manualProducts->isNotEmpty()
@@ -70,14 +75,25 @@ class NewsController extends Controller
     private function resolveSpotlightProducts(string $contentType): Collection
     {
         $query = Product::query()
-            ->with(['category:id,name,slug', 'images:id,product_id,url,alt,is_cover,sort_order'])
+            ->with([
+                'category:id,name,slug',
+                'categories:id,name,slug',
+                'brandEntity:id,name,slug',
+                'images:id,product_id,url,alt,is_cover,sort_order',
+            ])
             ->where('is_active', true)
             ->where('stock', '>', 0);
 
         match ($contentType) {
             'guide' => $query
-                ->whereHas('category', function (Builder $categoryQuery): void {
-                    $categoryQuery->whereIn('slug', ['running', 'road-running', 'trail-running']);
+                ->where(function (Builder $productQuery): void {
+                    $productQuery
+                        ->whereHas('category', function (Builder $categoryQuery): void {
+                            $categoryQuery->whereIn('slug', ['running', 'road-running', 'trail-running']);
+                        })
+                        ->orWhereHas('categories', function (Builder $categoryQuery): void {
+                            $categoryQuery->whereIn('slug', ['running', 'road-running', 'trail-running']);
+                        });
                 })
                 ->orderByDesc('is_featured')
                 ->orderByDesc('is_customer_choice')
@@ -85,8 +101,8 @@ class NewsController extends Controller
                 ->orderByDesc('is_new')
                 ->orderBy('sort_order'),
             'collection' => $query
-                ->whereHas('category', function (Builder $categoryQuery): void {
-                    $categoryQuery->whereIn('slug', [
+                ->where(function (Builder $productQuery): void {
+                    $collectionSlugs = [
                         'lifestyle',
                         'classic-daily',
                         'urban-comfort',
@@ -94,7 +110,15 @@ class NewsController extends Controller
                         'bold-street',
                         'premium',
                         'limited-edition',
-                    ]);
+                    ];
+
+                    $productQuery
+                        ->whereHas('category', function (Builder $categoryQuery) use ($collectionSlugs): void {
+                            $categoryQuery->whereIn('slug', $collectionSlugs);
+                        })
+                        ->orWhereHas('categories', function (Builder $categoryQuery) use ($collectionSlugs): void {
+                            $categoryQuery->whereIn('slug', $collectionSlugs);
+                        });
                 })
                 ->orderByDesc('is_new')
                 ->orderByDesc('is_featured')
@@ -121,9 +145,13 @@ class NewsController extends Controller
 
     private function mapProductCard(Product $product): array
     {
+        $primaryCategory = $product->category ?? $product->categories->sortBy('name')->first();
+
         return [
             'id' => $product->id,
             'name' => $product->name,
+            'brand' => $product->brandEntity?->name
+                ?? ($product->brand !== null && trim($product->brand) !== '' ? $product->brand : null),
             'slug' => $product->slug,
             'price' => (float) $product->price,
             'old_price' => $product->old_price !== null ? (float) $product->old_price : null,
@@ -134,9 +162,9 @@ class NewsController extends Controller
                     ['sort_order', 'asc'],
                 ])
                 ->first()?->url,
-            'category' => $product->category ? [
-                'name' => $product->category->name,
-                'slug' => $product->category->slug,
+            'category' => $primaryCategory ? [
+                'name' => $primaryCategory->name,
+                'slug' => $primaryCategory->slug,
             ] : null,
         ];
     }

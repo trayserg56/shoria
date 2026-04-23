@@ -85,10 +85,24 @@ class LoadTestCatalogSeeder extends Seeder
             'Choice',
         ];
 
+        $brands = [
+            'Shoria',
+            'Nike',
+            'Adidas',
+            'Puma',
+            'ASICS',
+            'New Balance',
+            'Reebok',
+            'Converse',
+            'Under Armour',
+            'Salomon',
+        ];
+
         for ($i = 1; $i <= 200; $i++) {
             $category = $categories[($i - 1) % count($categories)];
             $prefix = $prefixes[$i % count($prefixes)];
             $suffix = $suffixes[$i % count($suffixes)];
+            $brand = $brands[$i % count($brands)];
             $name = sprintf('%s Product %03d %s', $prefix, $i, $suffix);
 
             $product = Product::query()->updateOrCreate(
@@ -96,6 +110,7 @@ class LoadTestCatalogSeeder extends Seeder
                 [
                     'category_id' => $category->id,
                     'name' => $name,
+                    'brand' => $brand,
                     'sku' => sprintf('LDT-%03d', $i),
                     'description' => sprintf(
                         'Тестовый товар #%03d для проверки производительности витрины и пагинации каталога.',

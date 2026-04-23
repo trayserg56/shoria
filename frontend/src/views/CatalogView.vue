@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
 import { fetchJson } from '@/lib/api'
@@ -19,6 +19,7 @@ type Category = {
 type Product = {
   id: number
   name: string
+  brand?: string | null
   slug: string
   price: number
   old_price: number | null
@@ -35,10 +36,38 @@ type Product = {
   } | null
 }
 
+type FacetOption = {
+  value: string
+  count: number
+}
+
+type TagFacetOption = {
+  code: string
+  label: string
+  count: number
+}
+
+type CategoryFacetOption = {
+  slug: string
+  count: number
+}
+
+type CatalogFacets = {
+  categories: CategoryFacetOption[]
+  tags: TagFacetOption[]
+  brands: FacetOption[]
+  colors: FacetOption[]
+  sizes: FacetOption[]
+  on_sale: {
+    count: number
+  }
+}
+
 type PaginatedProducts = {
   current_page: number
   last_page: number
   data: Product[]
+  filters: CatalogFacets
 }
 
 const route = useRoute()
@@ -50,11 +79,22 @@ const products = ref<PaginatedProducts>({
   current_page: 1,
   last_page: 1,
   data: [],
+  filters: {
+    categories: [],
+    tags: [],
+    brands: [],
+    colors: [],
+    sizes: [],
+    on_sale: {
+      count: 0,
+    },
+  },
 })
 const isLoading = ref(false)
 const hasError = ref(false)
 const priceMinInput = ref((route.query.price_min as string | undefined) ?? '')
 const priceMaxInput = ref((route.query.price_max as string | undefined) ?? '')
+let priceApplyTimeout: ReturnType<typeof setTimeout> | null = null
 
 const activeCategory = computed(() => (route.query.category as string | undefined) ?? '')
 const activeQuery = computed(() => (route.query.q as string | undefined) ?? '')
@@ -62,6 +102,7 @@ const activeSort = computed(() => (route.query.sort as string | undefined) ?? ''
 const activePriceMin = computed(() => (route.query.price_min as string | undefined) ?? '')
 const activePriceMax = computed(() => (route.query.price_max as string | undefined) ?? '')
 const activeInStock = computed(() => (route.query.in_stock as string | undefined) === '1')
+const activeOnSale = computed(() => (route.query.on_sale as string | undefined) === '1')
 const activeTags = computed(() => {
   const raw = (route.query.tags as string | undefined) ?? ''
 
@@ -74,6 +115,42 @@ const activeTags = computed(() => {
     .map((tag) => tag.trim())
     .filter(Boolean)
 })
+const activeBrands = computed(() => {
+  const raw = (route.query.brands as string | undefined) ?? ''
+
+  if (!raw) {
+    return []
+  }
+
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+})
+const activeColors = computed(() => {
+  const raw = (route.query.colors as string | undefined) ?? ''
+
+  if (!raw) {
+    return []
+  }
+
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+})
+const activeSizes = computed(() => {
+  const raw = (route.query.sizes as string | undefined) ?? ''
+
+  if (!raw) {
+    return []
+  }
+
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+})
 const page = computed(() => Number(route.query.page ?? '1'))
 const hasActiveFilters = computed(
   () =>
@@ -83,7 +160,11 @@ const hasActiveFilters = computed(
     Boolean(activePriceMin.value) ||
     Boolean(activePriceMax.value) ||
     activeInStock.value ||
-    activeTags.value.length > 0,
+    activeOnSale.value ||
+    activeTags.value.length > 0 ||
+    activeBrands.value.length > 0 ||
+    activeColors.value.length > 0 ||
+    activeSizes.value.length > 0,
 )
 const activeCategoryLabel = computed(() => {
   for (const category of categories.value) {
@@ -114,10 +195,56 @@ const tagOptions = [
   { code: 'new', label: 'Новинка' },
   { code: 'customer_choice', label: 'Выбор покупателей' },
 ]
+
+const fallbackTagFacetOptions = tagOptions.map((item) => ({
+  ...item,
+  count: 0,
+}))
+
+const availableTagOptions = computed(() => {
+  if (products.value.filters.tags.length) {
+    return products.value.filters.tags
+  }
+
+  return fallbackTagFacetOptions
+})
+
+function withActiveFacetValues(options: FacetOption[], activeValues: string[]): FacetOption[] {
+  const map = new Map(options.map((item) => [item.value, item] as const))
+
+  for (const value of activeValues) {
+    if (!map.has(value)) {
+      map.set(value, { value, count: 0 })
+    }
+  }
+
+  return [...map.values()]
+}
+
+const availableBrandOptions = computed(() =>
+  withActiveFacetValues(products.value.filters.brands, activeBrands.value),
+)
+const availableColorOptions = computed(() =>
+  withActiveFacetValues(products.value.filters.colors, activeColors.value),
+)
+const availableSizeOptions = computed(() =>
+  withActiveFacetValues(products.value.filters.sizes, activeSizes.value),
+)
+const availableCategoryCounts = computed(() => {
+  return products.value.filters.categories.reduce<Record<string, number>>((acc, item) => {
+    acc[item.slug] = item.count
+
+    return acc
+  }, {})
+})
+
 const filterSections = ref({
   sort: true,
   price: true,
-  tags: false,
+  tags: true,
+  brands: true,
+  colors: false,
+  sizes: false,
   categories: true,
 })
 
@@ -167,8 +294,24 @@ async function loadProducts() {
     query.set('in_stock', '1')
   }
 
+  if (activeOnSale.value) {
+    query.set('on_sale', '1')
+  }
+
   if (activeTags.value.length) {
     query.set('tags', activeTags.value.join(','))
+  }
+
+  if (activeBrands.value.length) {
+    query.set('brands', activeBrands.value.join(','))
+  }
+
+  if (activeColors.value.length) {
+    query.set('colors', activeColors.value.join(','))
+  }
+
+  if (activeSizes.value.length) {
+    query.set('sizes', activeSizes.value.join(','))
   }
 
   const suffix = query.toString() ? `?${query.toString()}` : ''
@@ -182,7 +325,11 @@ async function loadProducts() {
       products_count: products.value.data.length,
       sort: activeSort.value || 'default',
       in_stock: activeInStock.value,
+      on_sale: activeOnSale.value,
       tags: activeTags.value.join(',') || 'none',
+      brands: activeBrands.value.join(',') || 'none',
+      colors: activeColors.value.join(',') || 'none',
+      sizes: activeSizes.value.join(',') || 'none',
     })
   } catch (error) {
     console.error(error)
@@ -200,7 +347,11 @@ function buildBaseCatalogQuery() {
     ...(activePriceMin.value ? { price_min: activePriceMin.value } : {}),
     ...(activePriceMax.value ? { price_max: activePriceMax.value } : {}),
     ...(activeInStock.value ? { in_stock: '1' } : {}),
+    ...(activeOnSale.value ? { on_sale: '1' } : {}),
     ...(activeTags.value.length ? { tags: activeTags.value.join(',') } : {}),
+    ...(activeBrands.value.length ? { brands: activeBrands.value.join(',') } : {}),
+    ...(activeColors.value.length ? { colors: activeColors.value.join(',') } : {}),
+    ...(activeSizes.value.length ? { sizes: activeSizes.value.join(',') } : {}),
   }
 }
 
@@ -240,6 +391,23 @@ function applyFilterControls() {
   })
 }
 
+function schedulePriceApply() {
+  if (priceApplyTimeout) {
+    clearTimeout(priceApplyTimeout)
+  }
+
+  priceApplyTimeout = setTimeout(() => {
+    const normalizedMin = normalizeInputValue(priceMinInput.value)
+    const normalizedMax = normalizeInputValue(priceMaxInput.value)
+
+    if (normalizedMin === activePriceMin.value && normalizedMax === activePriceMax.value) {
+      return
+    }
+
+    applyFilterControls()
+  }, 350)
+}
+
 function onSortChange(event: Event) {
   const target = event.target as HTMLSelectElement
   const value = target.value
@@ -265,22 +433,64 @@ function toggleInStock() {
   })
 }
 
+function toggleOnSale() {
+  void router.push({
+    path: '/catalog',
+    query: {
+      ...buildBaseCatalogQuery(),
+      ...(activeOnSale.value ? { on_sale: undefined } : { on_sale: '1' }),
+      page: undefined,
+    },
+  })
+}
+
 function toggleTagFilter(tagCode: string) {
-  const current = new Set(activeTags.value)
-
-  if (current.has(tagCode)) {
-    current.delete(tagCode)
-  } else {
-    current.add(tagCode)
-  }
-
-  const nextTags = [...current]
+  const nextTags = toggleMultiValue(activeTags.value, tagCode)
 
   void router.push({
     path: '/catalog',
     query: {
       ...buildBaseCatalogQuery(),
       ...(nextTags.length ? { tags: nextTags.join(',') } : { tags: undefined }),
+      page: undefined,
+    },
+  })
+}
+
+function toggleBrandFilter(brand: string) {
+  const nextBrands = toggleMultiValue(activeBrands.value, brand)
+
+  void router.push({
+    path: '/catalog',
+    query: {
+      ...buildBaseCatalogQuery(),
+      ...(nextBrands.length ? { brands: nextBrands.join(',') } : { brands: undefined }),
+      page: undefined,
+    },
+  })
+}
+
+function toggleColorFilter(color: string) {
+  const nextColors = toggleMultiValue(activeColors.value, color)
+
+  void router.push({
+    path: '/catalog',
+    query: {
+      ...buildBaseCatalogQuery(),
+      ...(nextColors.length ? { colors: nextColors.join(',') } : { colors: undefined }),
+      page: undefined,
+    },
+  })
+}
+
+function toggleSizeFilter(size: string) {
+  const nextSizes = toggleMultiValue(activeSizes.value, size)
+
+  void router.push({
+    path: '/catalog',
+    query: {
+      ...buildBaseCatalogQuery(),
+      ...(nextSizes.length ? { sizes: nextSizes.join(',') } : { sizes: undefined }),
       page: undefined,
     },
   })
@@ -295,6 +505,53 @@ function resetCatalogFilters() {
 
 function toggleFilterSection(section: keyof typeof filterSections.value) {
   filterSections.value[section] = !filterSections.value[section]
+}
+
+function toggleMultiValue(currentValues: string[], value: string) {
+  const current = new Set(currentValues)
+
+  if (current.has(value)) {
+    current.delete(value)
+  } else {
+    current.add(value)
+  }
+
+  return [...current]
+}
+
+function isFacetValueVisible(count: number, isActive: boolean) {
+  return count > 0 || isActive
+}
+
+function categoryCountBySlug(slug: string): number {
+  return availableCategoryCounts.value[slug] ?? 0
+}
+
+function categoryDisplayCount(category: Category): number {
+  const own = categoryCountBySlug(category.slug)
+  const children = category.subcategories?.reduce((sum, item) => sum + categoryCountBySlug(item.slug), 0) ?? 0
+
+  return own + children
+}
+
+function shouldShowCategory(category: Category): boolean {
+  if (activeCategory.value === category.slug) {
+    return true
+  }
+
+  if (categoryDisplayCount(category) > 0) {
+    return true
+  }
+
+  return category.subcategories?.some((item) => shouldShowSubcategory(item)) ?? false
+}
+
+function shouldShowSubcategory(category: Category): boolean {
+  if (activeCategory.value === category.slug) {
+    return true
+  }
+
+  return categoryCountBySlug(category.slug) > 0
 }
 
 function hasActiveSubcategory(category: Category): boolean {
@@ -394,6 +651,15 @@ watch(
     await loadProducts()
   },
 )
+
+watch(priceMinInput, schedulePriceApply)
+watch(priceMaxInput, schedulePriceApply)
+
+onBeforeUnmount(() => {
+  if (priceApplyTimeout) {
+    clearTimeout(priceApplyTimeout)
+  }
+})
 </script>
 
 <template>
@@ -429,6 +695,22 @@ watch(
                   </option>
                 </select>
               </label>
+              <div class="toolbar__quick-toggles">
+                <button
+                  class="toolbar__stock"
+                  :class="{ 'toolbar__stock--active': activeInStock }"
+                  @click="toggleInStock"
+                >
+                  Только в наличии
+                </button>
+                <button
+                  class="toolbar__stock"
+                  :class="{ 'toolbar__stock--active': activeOnSale }"
+                  @click="toggleOnSale"
+                >
+                  Только со скидкой <span class="chip-count">{{ products.filters.on_sale.count }}</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -438,21 +720,12 @@ watch(
               <span class="sidebar-section__chevron">{{ filterSections.price ? '−' : '+' }}</span>
             </button>
             <div v-if="filterSections.price" class="sidebar-section__body">
-              <form class="toolbar__price" @submit.prevent="applyFilterControls">
+              <div class="toolbar__price">
                 <div class="toolbar__price-fields">
                   <input v-model="priceMinInput" type="number" min="0" placeholder="от" />
                   <input v-model="priceMaxInput" type="number" min="0" placeholder="до" />
                 </div>
-                <button type="submit">Применить</button>
-              </form>
-
-              <button
-                class="toolbar__stock"
-                :class="{ 'toolbar__stock--active': activeInStock }"
-                @click="toggleInStock"
-              >
-                Только в наличии
-              </button>
+              </div>
             </div>
           </div>
 
@@ -464,13 +737,77 @@ watch(
             <div v-if="filterSections.tags" class="sidebar-section__body">
               <div class="tag-filters">
                 <button
-                  v-for="tag in tagOptions"
+                  v-for="tag in availableTagOptions"
                   :key="tag.code"
                   class="tag-chip"
                   :class="{ 'tag-chip--active': activeTags.includes(tag.code) }"
+                  :disabled="!isFacetValueVisible(tag.count, activeTags.includes(tag.code))"
                   @click="toggleTagFilter(tag.code)"
                 >
-                  {{ tag.label }}
+                  {{ tag.label }} <span class="chip-count">{{ tag.count }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('brands')">
+              <span>Бренды</span>
+              <span class="sidebar-section__chevron">{{ filterSections.brands ? '−' : '+' }}</span>
+            </button>
+            <div v-if="filterSections.brands" class="sidebar-section__body">
+              <div class="tag-filters">
+                <button
+                  v-for="brand in availableBrandOptions"
+                  v-show="isFacetValueVisible(brand.count, activeBrands.includes(brand.value))"
+                  :key="brand.value"
+                  class="tag-chip"
+                  :class="{ 'tag-chip--active': activeBrands.includes(brand.value) }"
+                  @click="toggleBrandFilter(brand.value)"
+                >
+                  {{ brand.value }} <span class="chip-count">{{ brand.count }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('colors')">
+              <span>Цвета</span>
+              <span class="sidebar-section__chevron">{{ filterSections.colors ? '−' : '+' }}</span>
+            </button>
+            <div v-if="filterSections.colors" class="sidebar-section__body">
+              <div class="tag-filters">
+                <button
+                  v-for="color in availableColorOptions"
+                  v-show="isFacetValueVisible(color.count, activeColors.includes(color.value))"
+                  :key="color.value"
+                  class="tag-chip"
+                  :class="{ 'tag-chip--active': activeColors.includes(color.value) }"
+                  @click="toggleColorFilter(color.value)"
+                >
+                  {{ color.value }} <span class="chip-count">{{ color.count }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('sizes')">
+              <span>Размеры</span>
+              <span class="sidebar-section__chevron">{{ filterSections.sizes ? '−' : '+' }}</span>
+            </button>
+            <div v-if="filterSections.sizes" class="sidebar-section__body">
+              <div class="tag-filters">
+                <button
+                  v-for="size in availableSizeOptions"
+                  v-show="isFacetValueVisible(size.count, activeSizes.includes(size.value))"
+                  :key="size.value"
+                  class="tag-chip"
+                  :class="{ 'tag-chip--active': activeSizes.includes(size.value) }"
+                  @click="toggleSizeFilter(size.value)"
+                >
+                  {{ size.value }} <span class="chip-count">{{ size.count }}</span>
                 </button>
               </div>
             </div>
@@ -489,7 +826,12 @@ watch(
               </div>
 
               <div class="category-groups">
-                <div v-for="category in categories" :key="category.id" class="category-group">
+                <div
+                  v-for="category in categories"
+                  v-show="shouldShowCategory(category)"
+                  :key="category.id"
+                  class="category-group"
+                >
                   <div class="category-group__row">
                     <button
                       type="button"
@@ -501,6 +843,7 @@ watch(
                       @click="selectCategory(category.slug)"
                     >
                       {{ category.name }}
+                      <span class="chip-count">{{ categoryDisplayCount(category) }}</span>
                     </button>
                     <button
                       v-if="category.subcategories?.length"
@@ -519,6 +862,7 @@ watch(
                   >
                     <button
                       v-for="subcategory in category.subcategories"
+                      v-show="shouldShowSubcategory(subcategory)"
                       :key="subcategory.id"
                       type="button"
                       class="chip chip--subcategory"
@@ -526,6 +870,7 @@ watch(
                       @click="selectCategory(subcategory.slug)"
                     >
                       {{ subcategory.name }}
+                      <span class="chip-count">{{ categoryCountBySlug(subcategory.slug) }}</span>
                     </button>
                   </div>
                 </div>
@@ -689,6 +1034,12 @@ watch(
   font: inherit;
 }
 
+.toolbar__quick-toggles {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
 .toolbar__price {
   display: grid;
   gap: 10px;
@@ -707,15 +1058,6 @@ watch(
   border-radius: 10px;
   background: #fff;
   font: inherit;
-}
-
-.toolbar__price button {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid #d6d3cc;
-  border-radius: 10px;
-  background: #fff;
-  cursor: pointer;
 }
 
 .toolbar__stock {
@@ -751,10 +1093,25 @@ watch(
     transform 0.2s ease;
 }
 
+.tag-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .tag-chip--active {
   border-color: #1f2233;
   background: #1f2233;
   color: #fff;
+}
+
+.chip-count {
+  margin-left: 6px;
+  font-size: 12px;
+  color: #7c879f;
+}
+
+.tag-chip--active .chip-count {
+  color: rgb(255 255 255 / 86%);
 }
 
 .filters {
@@ -789,6 +1146,10 @@ watch(
 
 .chip--parent {
   flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   text-align: left;
   border: 0;
   background: transparent;
@@ -799,6 +1160,9 @@ watch(
 }
 
 .chip--subcategory {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 9px 13px;
   background: #fffdf9;
   font-size: 14px;

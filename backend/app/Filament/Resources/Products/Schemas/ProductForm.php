@@ -18,12 +18,36 @@ class ProductForm
                         Tab::make('Основное')
                             ->schema([
                                 Forms\Components\Select::make('category_id')
+                                    ->label('Основная категория')
                                     ->relationship('category', 'name')
                                     ->searchable()
-                                    ->preload(),
+                                    ->preload()
+                                    ->required(),
+                                Forms\Components\Select::make('categories')
+                                    ->label('Дополнительные категории и подкатегории')
+                                    ->relationship('categories', 'name')
+                                    ->multiple()
+                                    ->searchable()
+                                    ->preload()
+                                    ->helperText('Товар может принадлежать сразу нескольким категориям.'),
                                 Forms\Components\TextInput::make('name')
                                     ->required()
                                     ->maxLength(255),
+                                Forms\Components\Select::make('brand_id')
+                                    ->label('Бренд')
+                                    ->relationship('brandEntity', 'name')
+                                    ->searchable()
+                                    ->preload()
+                                    ->required()
+                                    ->createOptionForm([
+                                        Forms\Components\TextInput::make('name')
+                                            ->label('Название бренда')
+                                            ->required()
+                                            ->maxLength(120),
+                                        Forms\Components\TextInput::make('slug')
+                                            ->label('Slug')
+                                            ->maxLength(140),
+                                    ]),
                                 Forms\Components\TextInput::make('slug')
                                     ->required()
                                     ->maxLength(255)

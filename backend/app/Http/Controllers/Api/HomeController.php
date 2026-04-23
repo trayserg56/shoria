@@ -37,30 +37,41 @@ class HomeController extends Controller
             ->get(['id', 'name', 'slug', 'image_url']);
 
         $products = Product::query()
-            ->with(['category:id,name,slug', 'images:id,product_id,url,is_cover,sort_order'])
+            ->with([
+                'category:id,name,slug',
+                'categories:id,name,slug',
+                'brandEntity:id,name,slug',
+                'images:id,product_id,url,is_cover,sort_order',
+            ])
             ->where('is_active', true)
             ->orderByDesc('is_featured')
             ->orderBy('sort_order')
             ->limit(8)
             ->get()
-            ->map(fn (Product $product) => [
-                'id' => $product->id,
-                'name' => $product->name,
-                'slug' => $product->slug,
-                'price' => (float) $product->price,
-                'old_price' => $product->old_price !== null ? (float) $product->old_price : null,
-                'currency' => $product->currency,
-                'category' => $product->category ? [
-                    'name' => $product->category->name,
-                    'slug' => $product->category->slug,
-                ] : null,
-                'image_url' => $product->images
-                    ->sortBy([
-                        ['is_cover', 'desc'],
-                        ['sort_order', 'asc'],
-                    ])
-                    ->first()?->url,
-            ]);
+            ->map(function (Product $product): array {
+                $primaryCategory = $product->category ?? $product->categories->sortBy('name')->first();
+
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'brand' => $product->brandEntity?->name
+                        ?? ($product->brand !== null && trim($product->brand) !== '' ? $product->brand : null),
+                    'slug' => $product->slug,
+                    'price' => (float) $product->price,
+                    'old_price' => $product->old_price !== null ? (float) $product->old_price : null,
+                    'currency' => $product->currency,
+                    'category' => $primaryCategory ? [
+                        'name' => $primaryCategory->name,
+                        'slug' => $primaryCategory->slug,
+                    ] : null,
+                    'image_url' => $product->images
+                        ->sortBy([
+                            ['is_cover', 'desc'],
+                            ['sort_order', 'asc'],
+                        ])
+                        ->first()?->url,
+                ];
+            });
 
         $news = NewsPost::query()
             ->where('is_published', true)

@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Banner;
+use App\Models\Brand;
 use App\Models\Category;
 use App\Models\DeliveryProvider;
 use App\Models\DeliveryMethod;
@@ -328,6 +329,7 @@ class ShopDemoSeeder extends Seeder
         $products = [
             [
                 'name' => 'Aero Pulse 300',
+                'brand' => 'Nike',
                 'slug' => 'aero-pulse-300',
                 'sku' => 'SH-AERO-300',
                 'category_slug' => 'running',
@@ -342,9 +344,11 @@ class ShopDemoSeeder extends Seeder
                 'is_customer_choice' => true,
                 'sort_order' => 1,
                 'image_url' => 'https://images.unsplash.com/photo-1543508282-6319a3e2621f?auto=format&fit=crop&w=1200&q=80',
+                'additional_category_slugs' => ['road-running'],
             ],
             [
                 'name' => 'City Frame One',
+                'brand' => 'Nike',
                 'slug' => 'city-frame-one',
                 'sku' => 'SH-CITY-001',
                 'category_slug' => 'lifestyle',
@@ -364,6 +368,7 @@ class ShopDemoSeeder extends Seeder
             ],
             [
                 'name' => 'Neon Track X',
+                'brand' => 'Puma',
                 'slug' => 'neon-track-x',
                 'sku' => 'SH-NEON-X',
                 'category_slug' => 'street',
@@ -381,6 +386,7 @@ class ShopDemoSeeder extends Seeder
             ],
             [
                 'name' => 'Vault Signature',
+                'brand' => 'Balenciaga',
                 'slug' => 'vault-signature',
                 'sku' => 'SH-VAULT-S',
                 'category_slug' => 'premium',
@@ -400,6 +406,7 @@ class ShopDemoSeeder extends Seeder
             ],
             [
                 'name' => 'Cloud Step V2',
+                'brand' => 'ASICS',
                 'slug' => 'cloud-step-v2',
                 'sku' => 'SH-CLOUD-V2',
                 'category_slug' => 'lifestyle',
@@ -417,6 +424,7 @@ class ShopDemoSeeder extends Seeder
             ],
             [
                 'name' => 'Sprint Form Pro',
+                'brand' => 'Nike',
                 'slug' => 'sprint-form-pro',
                 'sku' => 'SH-SPRINT-P',
                 'category_slug' => 'running',
@@ -434,6 +442,7 @@ class ShopDemoSeeder extends Seeder
             ],
             [
                 'name' => 'Metro Glide',
+                'brand' => 'New Balance',
                 'slug' => 'metro-glide',
                 'sku' => 'SH-METRO-GLIDE',
                 'category_slug' => 'urban-comfort',
@@ -451,6 +460,7 @@ class ShopDemoSeeder extends Seeder
             ],
             [
                 'name' => 'Daily Ease',
+                'brand' => 'Adidas',
                 'slug' => 'daily-ease',
                 'sku' => 'SH-DAILY-EASE',
                 'category_slug' => 'classic-daily',
@@ -468,6 +478,7 @@ class ShopDemoSeeder extends Seeder
             ],
             [
                 'name' => 'Road Tempo Elite',
+                'brand' => 'Nike',
                 'slug' => 'road-tempo-elite',
                 'sku' => 'SH-ROAD-TEMPO',
                 'category_slug' => 'road-running',
@@ -487,6 +498,7 @@ class ShopDemoSeeder extends Seeder
             ],
             [
                 'name' => 'Trail Ridge GTX',
+                'brand' => 'Salomon',
                 'slug' => 'trail-ridge-gtx',
                 'sku' => 'SH-TRAIL-RIDGE',
                 'category_slug' => 'trail-running',
@@ -504,6 +516,7 @@ class ShopDemoSeeder extends Seeder
             ],
             [
                 'name' => 'Block Tone High',
+                'brand' => 'Converse',
                 'slug' => 'block-tone-high',
                 'sku' => 'SH-BLOCK-TONE',
                 'category_slug' => 'bold-street',
@@ -521,6 +534,7 @@ class ShopDemoSeeder extends Seeder
             ],
             [
                 'name' => 'Archive Reserve',
+                'brand' => 'Converse',
                 'slug' => 'archive-reserve',
                 'sku' => 'SH-ARCHIVE-RESERVE',
                 'category_slug' => 'limited-edition',
@@ -535,15 +549,36 @@ class ShopDemoSeeder extends Seeder
                 'is_customer_choice' => false,
                 'sort_order' => 12,
                 'image_url' => 'https://images.unsplash.com/photo-1607522370275-f14206abe5d3?auto=format&fit=crop&w=1200&q=80',
+                'additional_category_slugs' => ['premium'],
             ],
         ];
 
+        $brands = collect();
+
+        foreach (collect($products)->pluck('brand')->unique()->values() as $brandName) {
+            $brand = Brand::query()->firstOrCreate(
+                ['name' => $brandName],
+                [
+                    'slug' => \Illuminate\Support\Str::slug($brandName),
+                    'is_active' => true,
+                    'sort_order' => 0,
+                ],
+            );
+
+            $brands->put($brand->name, $brand);
+        }
+
         foreach ($products as $item) {
+            $brandName = trim((string) ($item['brand'] ?? 'Shoria'));
+            $brand = $brands->get($brandName);
+
             $product = Product::query()->firstOrCreate(
                 ['slug' => $item['slug']],
                 [
                     'category_id' => $categories[$item['category_slug']]->id,
+                    'brand_id' => $brand?->id,
                     'name' => $item['name'],
+                    'brand' => $item['brand'],
                     'sku' => $item['sku'],
                     'description' => $item['description'],
                     'price' => $item['price'],
@@ -560,10 +595,29 @@ class ShopDemoSeeder extends Seeder
             );
 
             $product->fill([
+                'brand_id' => $product->brand_id ?: $brand?->id,
+                'brand' => $product->brand ?: ($item['brand'] ?? 'Shoria'),
                 'seo_title' => $product->seo_title ?: ($item['seo_title'] ?? null),
                 'seo_description' => $product->seo_description ?: ($item['seo_description'] ?? null),
             ]);
             $product->save();
+
+            $categorySlugs = collect([
+                $item['category_slug'] ?? null,
+                ...($item['additional_category_slugs'] ?? []),
+            ])
+                ->filter(fn ($value): bool => is_string($value) && trim($value) !== '')
+                ->map(fn (string $value): string => trim($value))
+                ->unique()
+                ->values();
+
+            $categoryIds = $categories
+                ->only($categorySlugs->all())
+                ->map(fn (Category $category): int => $category->id)
+                ->values()
+                ->all();
+
+            $product->categories()->sync($categoryIds);
 
             ProductImage::query()->firstOrCreate(
                 [

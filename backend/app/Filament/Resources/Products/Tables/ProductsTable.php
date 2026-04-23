@@ -18,9 +18,19 @@ class ProductsTable
                 Tables\Columns\TextColumn::make('name')
                     ->searchable()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('category.name')
-                    ->label('Category')
+                Tables\Columns\TextColumn::make('brandEntity.name')
+                    ->label('Бренд')
+                    ->searchable()
                     ->sortable(),
+                Tables\Columns\TextColumn::make('category.name')
+                    ->label('Основная категория')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('categories.name')
+                    ->label('Категории')
+                    ->badge()
+                    ->separator(', ')
+                    ->limitList(3)
+                    ->expandableLimitedList(),
                 Tables\Columns\TextColumn::make('price')
                     ->formatStateUsing(fn ($state, $record) => number_format((float) $state, 0, '.', ' ') . ' ' . $record->currency)
                     ->sortable(),

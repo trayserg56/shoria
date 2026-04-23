@@ -38,6 +38,7 @@ type ProductVariantPayload = {
 type ProductPayload = {
   id: number
   name: string
+  brand: string | null
   slug: string
   sku: string | null
   description: string | null
@@ -64,6 +65,7 @@ type ProductPayload = {
 type RecommendedProduct = {
   id: number
   name: string
+  brand?: string | null
   slug: string
   price: number
   old_price: number | null
@@ -630,6 +632,12 @@ watch(
       <article class="details">
         <p class="details__category">{{ product.category?.name ?? 'Sneakers' }}</p>
         <h1>{{ product.name }}</h1>
+        <p v-if="product.brand" class="details__brand">Бренд: {{ product.brand }}</p>
+        <div v-if="product.tags.length" class="details__tags">
+          <span v-for="tag in product.tags" :key="`details-tag-${tag.code}`" class="details__tag">
+            {{ tag.label }}
+          </span>
+        </div>
         <p class="details__sku">SKU: {{ product.sku ?? 'N/A' }}</p>
 
         <div class="price-row">
@@ -862,6 +870,28 @@ watch(
   margin-top: 6px;
   color: #5c6477;
   font-size: 14px;
+}
+
+.details__brand {
+  margin-top: 6px;
+  color: #3d4760;
+  font-size: 14px;
+}
+
+.details__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.details__tag {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f7ecdf;
+  color: #c74803;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .price-row {
