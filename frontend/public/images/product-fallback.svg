@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" fill="none">
+  <rect width="1200" height="900" fill="#ECEAE6"/>
+  <rect x="420" y="300" width="360" height="240" rx="24" fill="#DCD9D2"/>
+  <path d="M470 500L560 400L640 470L700 430L730 500H470Z" fill="#B8B4AA"/>
+  <circle cx="525" cy="365" r="22" fill="#B8B4AA"/>
+  <text x="600" y="620" text-anchor="middle" fill="#6E7893" font-family="Arial, sans-serif" font-size="46" font-weight="600">
+    Shoria Product
+  </text>
+</svg>

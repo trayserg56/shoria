@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
@@ -43,10 +43,25 @@ const { items: cartItems } = storeToRefs(cartStore)
 const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
 const isCartBusy = ref(false)
+const isImageBroken = ref(false)
+const productImageFallback = '/images/product-fallback.svg'
 
 const isWishlisted = computed(() => wishlistStore.has(props.product.id))
 const isCompared = computed(() => compareStore.has(props.product.id))
 const isOutOfStock = computed(() => props.product.stock <= 0)
+const productImageUrl = computed(() => {
+  if (isImageBroken.value) {
+    return productImageFallback
+  }
+
+  const rawUrl = props.product.image_url?.trim()
+
+  if (!rawUrl) {
+    return productImageFallback
+  }
+
+  return rawUrl
+})
 const currentCartQty = computed(() =>
   cartItems.value
     .filter((item) => item.product_id === props.product.id)
@@ -187,6 +202,17 @@ async function decreaseCartQty() {
     isCartBusy.value = false
   }
 }
+
+function onProductImageError() {
+  isImageBroken.value = true
+}
+
+watch(
+  () => props.product.image_url,
+  () => {
+    isImageBroken.value = false
+  },
+)
 </script>
 
 <template>
@@ -219,7 +245,7 @@ async function decreaseCartQty() {
     </button>
 
     <RouterLink class="product-link" :to="toProductRoute(product)" @click="onProductClick">
-      <img v-if="product.image_url" :src="product.image_url" :alt="product.name" loading="lazy" />
+      <img :src="productImageUrl" :alt="product.name" loading="lazy" @error="onProductImageError" />
       <div class="product-card__content">
         <p class="product-card__category">{{ product.category?.name ?? 'Sneakers' }}</p>
         <p v-if="product.brand" class="product-card__brand">{{ product.brand }}</p>
