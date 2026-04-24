@@ -1,7 +1,24 @@
 import { getAuthToken } from './auth-token'
 
 export function getApiBaseUrl() {
-  return (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '')
+  const configured = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/$/, '')
+
+  if (!configured) {
+    return ''
+  }
+
+  if (typeof window !== 'undefined') {
+    const currentHost = window.location.hostname
+    const isCurrentHostLocal = currentHost === 'localhost' || currentHost === '127.0.0.1'
+    const isConfiguredLocalApi = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(configured)
+
+    // Safety net for production: ignore accidental localhost API target.
+    if (!isCurrentHostLocal && isConfiguredLocalApi) {
+      return ''
+    }
+  }
+
+  return configured
 }
 
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
