@@ -34,4 +34,5 @@ jobs:
             docker compose run --rm -T node npm run build
             rm -rf backend/public/assets
             cp -a frontend/dist/. backend/public/
+            cp frontend/dist/index.html backend/public/spa-index.html
             docker compose restart nginx
