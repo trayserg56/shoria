@@ -14,7 +14,6 @@ jobs:
   deploy:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    if: ${{ secrets.SSH_HOST != '' && secrets.SSH_USER != '' && secrets.SSH_PRIVATE_KEY != '' && secrets.DEPLOY_PATH != '' }}
 
     steps:
       - name: Deploy over SSH
@@ -31,6 +30,6 @@ jobs:
             cd "${{ secrets.DEPLOY_PATH }}"
             git checkout main
             git pull --ff-only origin main
-            docker compose exec app php artisan migrate --force
-            docker compose run --rm node npm run build
+            docker compose exec -T app php artisan migrate --force
+            docker compose run --rm -T node npm run build
             docker compose restart nginx
