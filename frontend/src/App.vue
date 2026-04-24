@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import AuthModal from '@/components/AuthModal.vue'
@@ -24,6 +24,7 @@ const router = useRouter()
 const authModalOpen = ref(false)
 const currentYear = new Date().getFullYear()
 const headerSearchInput = ref((route.query.q as string | undefined) ?? '')
+const categoryMenuRef = ref<HTMLDetailsElement | null>(null)
 const searchSuggestions = ref<SearchSuggestion[]>([])
 const isSearchFocused = ref(false)
 let suggestDebounce: number | null = null
@@ -47,11 +48,60 @@ type SearchSuggestResponse = {
   suggestions: SearchSuggestion[]
 }
 
+type NavigationMenuItem = {
+  id: number
+  label: string
+  path: string
+  is_external: boolean
+  open_in_new_tab: boolean
+}
+
+type NavigationResponse = {
+  header: NavigationMenuItem[]
+  footer: {
+    customers: NavigationMenuItem[]
+    account: NavigationMenuItem[]
+  }
+}
+
+type HeaderCategory = {
+  id: number
+  name: string
+  slug: string
+  subcategories?: HeaderCategory[]
+}
+
+const defaultNavigation: NavigationResponse = {
+  header: [
+    { id: -1, label: 'Главная', path: '/', is_external: false, open_in_new_tab: false },
+    { id: -2, label: 'Каталог', path: '/catalog', is_external: false, open_in_new_tab: false },
+    { id: -3, label: 'Новости', path: '/news', is_external: false, open_in_new_tab: false },
+  ],
+  footer: {
+    customers: [
+      { id: -4, label: 'Каталог', path: '/catalog', is_external: false, open_in_new_tab: false },
+      { id: -5, label: 'Новости', path: '/news', is_external: false, open_in_new_tab: false },
+      { id: -6, label: 'Избранное', path: '/wishlist', is_external: false, open_in_new_tab: false },
+      { id: -7, label: 'Корзина', path: '/cart', is_external: false, open_in_new_tab: false },
+    ],
+    account: [
+      { id: -8, label: 'Профиль', path: '/account', is_external: false, open_in_new_tab: false },
+      { id: -9, label: 'Сравнение', path: '/compare', is_external: false, open_in_new_tab: false },
+    ],
+  },
+}
+
+const navigationMenu = ref<NavigationResponse>(defaultNavigation)
+const headerMenuItems = computed(() => navigationMenu.value.header)
+const footerCustomersMenuItems = computed(() => navigationMenu.value.footer.customers)
+const footerAccountMenuItems = computed(() => navigationMenu.value.footer.account)
+const headerCategories = ref<HeaderCategory[]>([])
+
 onMounted(async () => {
   captureFirstTouchAttribution()
   wishlistStore.hydrate()
   compareStore.hydrate()
-  await authStore.loadMe()
+  await Promise.all([authStore.loadMe(), loadNavigationMenu(), loadHeaderCategories()])
   await cartStore.loadCart()
 })
 
@@ -92,6 +142,27 @@ async function submitHeaderSearch() {
     path: '/catalog',
     query: query ? { q: query } : {},
   })
+}
+
+async function loadNavigationMenu() {
+  try {
+    const payload = await fetchJson<NavigationResponse>('/api/navigation')
+
+    navigationMenu.value = payload
+  } catch (error) {
+    console.error(error)
+    navigationMenu.value = defaultNavigation
+  }
+}
+
+async function loadHeaderCategories() {
+  try {
+    const payload = await fetchJson<HeaderCategory[]>('/api/categories')
+    headerCategories.value = payload
+  } catch (error) {
+    console.error(error)
+    headerCategories.value = []
+  }
 }
 
 async function loadSuggestions(query: string) {
@@ -142,6 +213,9 @@ watch(
   () => {
     headerSearchInput.value = (route.query.q as string | undefined) ?? ''
     searchSuggestions.value = []
+    if (categoryMenuRef.value?.open) {
+      categoryMenuRef.value.open = false
+    }
   },
 )
 
@@ -161,9 +235,37 @@ watch(headerSearchInput, (value) => {
     <header class="topbar">
       <RouterLink to="/" class="brand">Shoria</RouterLink>
       <nav class="topbar__nav">
-        <RouterLink to="/">Главная</RouterLink>
-        <RouterLink to="/catalog">Каталог</RouterLink>
-        <RouterLink to="/news">Новости</RouterLink>
+        <details v-if="headerCategories.length" ref="categoryMenuRef" class="topbar__categories">
+          <summary class="topbar__categories-summary">Категории</summary>
+          <div class="topbar__categories-dropdown">
+            <div v-for="category in headerCategories" :key="`header-category-${category.id}`" class="topbar__category-group">
+              <RouterLink :to="{ path: '/catalog', query: { category: category.slug } }" class="topbar__category-parent">
+                {{ category.name }}
+              </RouterLink>
+              <div v-if="category.subcategories?.length" class="topbar__subcategory-list">
+                <RouterLink
+                  v-for="subcategory in category.subcategories"
+                  :key="`header-subcategory-${subcategory.id}`"
+                  :to="{ path: '/catalog', query: { category: subcategory.slug } }"
+                  class="topbar__subcategory-item"
+                >
+                  {{ subcategory.name }}
+                </RouterLink>
+              </div>
+            </div>
+          </div>
+        </details>
+        <template v-for="item in headerMenuItems" :key="`header-${item.id}`">
+          <a
+            v-if="item.is_external"
+            :href="item.path"
+            :target="item.open_in_new_tab ? '_blank' : undefined"
+            :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
+          >
+            {{ item.label }}
+          </a>
+          <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
+        </template>
         <RouterLink v-if="isAuthenticated" to="/account">Профиль</RouterLink>
         <button v-else type="button" class="auth-btn" @click="authModalOpen = true">Вход / Регистрация</button>
       </nav>
@@ -220,18 +322,33 @@ watch(headerSearchInput, (value) => {
         <div>
           <p class="footer__title">Покупателям</p>
           <nav class="footer__links">
-            <RouterLink to="/catalog">Каталог</RouterLink>
-            <RouterLink to="/news">Новости</RouterLink>
-            <RouterLink to="/wishlist">Избранное</RouterLink>
-            <RouterLink to="/cart">Корзина</RouterLink>
+            <template v-for="item in footerCustomersMenuItems" :key="`footer-customers-${item.id}`">
+              <a
+                v-if="item.is_external"
+                :href="item.path"
+                :target="item.open_in_new_tab ? '_blank' : undefined"
+                :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
+              >
+                {{ item.label }}
+              </a>
+              <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
+            </template>
           </nav>
         </div>
         <div>
           <p class="footer__title">Аккаунт</p>
           <nav class="footer__links">
-            <RouterLink v-if="isAuthenticated" to="/account">Профиль</RouterLink>
-            <button v-else type="button" class="footer__link-btn" @click="authModalOpen = true">Вход / Регистрация</button>
-            <RouterLink to="/compare">Сравнение</RouterLink>
+            <template v-for="item in footerAccountMenuItems" :key="`footer-account-${item.id}`">
+              <a
+                v-if="item.is_external"
+                :href="item.path"
+                :target="item.open_in_new_tab ? '_blank' : undefined"
+                :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
+              >
+                {{ item.label }}
+              </a>
+              <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
+            </template>
           </nav>
         </div>
         <div>
@@ -287,6 +404,81 @@ watch(headerSearchInput, (value) => {
   border-radius: 999px;
   color: #1f2233;
   text-decoration: none;
+}
+
+.topbar__categories {
+  position: relative;
+}
+
+.topbar__categories-summary {
+  list-style: none;
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: #1f2233;
+  cursor: pointer;
+  user-select: none;
+}
+
+.topbar__categories-summary::-webkit-details-marker {
+  display: none;
+}
+
+.topbar__categories[open] .topbar__categories-summary {
+  background: #1f2233;
+  color: #fff;
+}
+
+.topbar__categories-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  min-width: min(760px, 86vw);
+  max-height: min(68vh, 520px);
+  overflow: auto;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid #e0ddd6;
+  background: #fff;
+  box-shadow: 0 24px 44px rgb(16 24 40 / 16%);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.topbar__category-group {
+  display: grid;
+  gap: 7px;
+}
+
+.topbar__category-parent {
+  padding: 6px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  text-decoration: none;
+  color: #1f2233;
+}
+
+.topbar__category-parent:hover {
+  background: #f6f3ed;
+}
+
+.topbar__subcategory-list {
+  display: grid;
+  gap: 4px;
+}
+
+.topbar__subcategory-item {
+  padding: 5px 8px;
+  border-radius: 9px;
+  color: #4b5773;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.topbar__subcategory-item:hover {
+  background: #fff2e8;
+  color: #1f2233;
 }
 
 .auth-btn {
@@ -551,6 +743,11 @@ watch(headerSearchInput, (value) => {
   .topbar__search {
     width: 100%;
     justify-self: stretch;
+  }
+
+  .topbar__categories-dropdown {
+    min-width: min(560px, 92vw);
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
   }
 
   .footer__grid {

@@ -22,11 +22,13 @@ class Category extends Model
         'seo_title',
         'seo_description',
         'is_featured',
+        'is_active',
         'sort_order',
     ];
 
     protected $casts = [
         'is_featured' => 'boolean',
+        'is_active' => 'boolean',
     ];
 
     public function products(): HasMany

@@ -27,6 +27,9 @@ class CategoriesTable
                 Tables\Columns\IconColumn::make('is_featured')
                     ->boolean()
                     ->label('Featured'),
+                Tables\Columns\IconColumn::make('is_active')
+                    ->boolean()
+                    ->label('Активна'),
                 Tables\Columns\TextColumn::make('sort_order')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('updated_at')
@@ -36,6 +39,8 @@ class CategoriesTable
             ->filters([
                 Tables\Filters\TernaryFilter::make('is_featured')
                     ->label('Featured'),
+                Tables\Filters\TernaryFilter::make('is_active')
+                    ->label('Активна'),
             ])
             ->recordActions([
                 EditAction::make(),

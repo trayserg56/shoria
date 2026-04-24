@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\NewsletterSubscriptionController;
+use App\Http\Controllers\Api\NavigationController;
 use App\Http\Controllers\Api\NewsController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PaymentWebhookController;
@@ -14,6 +15,7 @@ use App\Http\Controllers\Api\ProductController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/home', HomeController::class);
+Route::get('/navigation', NavigationController::class);
 Route::get('/categories', [CategoryController::class, 'index']);
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/search/suggest', [ProductController::class, 'suggest']);

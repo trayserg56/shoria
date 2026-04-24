@@ -36,6 +36,7 @@ class NewsPostsTable
                 Tables\Columns\TextColumn::make('slug')
                     ->searchable(),
                 Tables\Columns\IconColumn::make('is_published')
+                    ->label('Активна')
                     ->boolean(),
                 Tables\Columns\TextColumn::make('published_at')
                     ->dateTime('d.m.Y H:i')

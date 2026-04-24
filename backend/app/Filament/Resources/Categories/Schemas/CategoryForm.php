@@ -65,6 +65,9 @@ class CategoryForm
                                     ->helperText('Можно оставить URL выше или загрузить файл (до 2MB). Изображение будет оптимизировано.'),
                                 Forms\Components\Toggle::make('is_featured')
                                     ->default(false),
+                                Forms\Components\Toggle::make('is_active')
+                                    ->label('Активна на витрине')
+                                    ->default(true),
                                 Forms\Components\TextInput::make('sort_order')
                                     ->numeric()
                                     ->default(0)

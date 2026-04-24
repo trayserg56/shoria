@@ -274,7 +274,7 @@ async function openVariant(variant: ProductVariantPayload) {
     return
   }
 
-  await router.push(
+  await router.replace(
     toProductRoute({
       slug: product.value.slug,
       category: product.value.category,

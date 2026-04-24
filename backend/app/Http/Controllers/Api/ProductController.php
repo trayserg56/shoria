@@ -114,8 +114,12 @@ class ProductController extends Controller
 
         if (! isset($excludeMap['category']) && $filters['category'] !== '') {
             $categoryIds = Category::query()
-                ->where('slug', $filters['category'])
-                ->orWhereHas('parent', fn (Builder $parentQuery) => $parentQuery->where('slug', $filters['category']))
+                ->where('is_active', true)
+                ->where(function (Builder $categoryQuery) use ($filters): void {
+                    $categoryQuery
+                        ->where('slug', $filters['category'])
+                        ->orWhereHas('parent', fn (Builder $parentQuery) => $parentQuery->where('slug', $filters['category']));
+                })
                 ->pluck('id');
 
             $query->where(function (Builder $categoryQuery) use ($categoryIds): void {
@@ -279,7 +283,9 @@ class ProductController extends Controller
             ->pluck('aggregate', 'category_id')
             ->map(fn ($count): int => (int) $count);
 
-        $categories = Category::query()->pluck('slug', 'id');
+        $categories = Category::query()
+            ->where('is_active', true)
+            ->pluck('slug', 'id');
 
         $tagFacetBase = $this->catalogQuery($filters, ['tags']);
         $tagBlueprints = [

@@ -355,24 +355,31 @@ function buildBaseCatalogQuery() {
   }
 }
 
-function selectCategory(slug = '') {
-  void router.push({
+function navigateCatalog(query: Record<string, string | undefined>) {
+  const keepScrollTop = window.scrollY
+
+  void router.replace({
     path: '/catalog',
-    query: {
-      ...buildBaseCatalogQuery(),
-      category: slug || undefined,
-      page: undefined,
-    },
+    query,
+  })
+
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: keepScrollTop, left: 0, behavior: 'auto' })
+  })
+}
+
+function selectCategory(slug = '') {
+  navigateCatalog({
+    ...buildBaseCatalogQuery(),
+    category: slug || undefined,
+    page: undefined,
   })
 }
 
 function goToPage(nextPage: number) {
-  void router.push({
-    path: '/catalog',
-    query: {
-      ...buildBaseCatalogQuery(),
-      ...(nextPage > 1 ? { page: String(nextPage) } : {}),
-    },
+  navigateCatalog({
+    ...buildBaseCatalogQuery(),
+    ...(nextPage > 1 ? { page: String(nextPage) } : {}),
   })
 }
 
@@ -380,14 +387,11 @@ function applyFilterControls() {
   const normalizedMin = normalizeInputValue(priceMinInput.value)
   const normalizedMax = normalizeInputValue(priceMaxInput.value)
 
-  void router.push({
-    path: '/catalog',
-    query: {
-      ...buildBaseCatalogQuery(),
-      ...(normalizedMin ? { price_min: normalizedMin } : { price_min: undefined }),
-      ...(normalizedMax ? { price_max: normalizedMax } : { price_max: undefined }),
-      page: undefined,
-    },
+  navigateCatalog({
+    ...buildBaseCatalogQuery(),
+    ...(normalizedMin ? { price_min: normalizedMin } : { price_min: undefined }),
+    ...(normalizedMax ? { price_max: normalizedMax } : { price_max: undefined }),
+    page: undefined,
   })
 }
 
@@ -412,95 +416,71 @@ function onSortChange(event: Event) {
   const target = event.target as HTMLSelectElement
   const value = target.value
 
-  void router.push({
-    path: '/catalog',
-    query: {
-      ...buildBaseCatalogQuery(),
-      ...(value ? { sort: value } : { sort: undefined }),
-      page: undefined,
-    },
+  navigateCatalog({
+    ...buildBaseCatalogQuery(),
+    ...(value ? { sort: value } : { sort: undefined }),
+    page: undefined,
   })
 }
 
 function toggleInStock() {
-  void router.push({
-    path: '/catalog',
-    query: {
-      ...buildBaseCatalogQuery(),
-      ...(activeInStock.value ? { in_stock: undefined } : { in_stock: '1' }),
-      page: undefined,
-    },
+  navigateCatalog({
+    ...buildBaseCatalogQuery(),
+    ...(activeInStock.value ? { in_stock: undefined } : { in_stock: '1' }),
+    page: undefined,
   })
 }
 
 function toggleOnSale() {
-  void router.push({
-    path: '/catalog',
-    query: {
-      ...buildBaseCatalogQuery(),
-      ...(activeOnSale.value ? { on_sale: undefined } : { on_sale: '1' }),
-      page: undefined,
-    },
+  navigateCatalog({
+    ...buildBaseCatalogQuery(),
+    ...(activeOnSale.value ? { on_sale: undefined } : { on_sale: '1' }),
+    page: undefined,
   })
 }
 
 function toggleTagFilter(tagCode: string) {
   const nextTags = toggleMultiValue(activeTags.value, tagCode)
 
-  void router.push({
-    path: '/catalog',
-    query: {
-      ...buildBaseCatalogQuery(),
-      ...(nextTags.length ? { tags: nextTags.join(',') } : { tags: undefined }),
-      page: undefined,
-    },
+  navigateCatalog({
+    ...buildBaseCatalogQuery(),
+    ...(nextTags.length ? { tags: nextTags.join(',') } : { tags: undefined }),
+    page: undefined,
   })
 }
 
 function toggleBrandFilter(brand: string) {
   const nextBrands = toggleMultiValue(activeBrands.value, brand)
 
-  void router.push({
-    path: '/catalog',
-    query: {
-      ...buildBaseCatalogQuery(),
-      ...(nextBrands.length ? { brands: nextBrands.join(',') } : { brands: undefined }),
-      page: undefined,
-    },
+  navigateCatalog({
+    ...buildBaseCatalogQuery(),
+    ...(nextBrands.length ? { brands: nextBrands.join(',') } : { brands: undefined }),
+    page: undefined,
   })
 }
 
 function toggleColorFilter(color: string) {
   const nextColors = toggleMultiValue(activeColors.value, color)
 
-  void router.push({
-    path: '/catalog',
-    query: {
-      ...buildBaseCatalogQuery(),
-      ...(nextColors.length ? { colors: nextColors.join(',') } : { colors: undefined }),
-      page: undefined,
-    },
+  navigateCatalog({
+    ...buildBaseCatalogQuery(),
+    ...(nextColors.length ? { colors: nextColors.join(',') } : { colors: undefined }),
+    page: undefined,
   })
 }
 
 function toggleSizeFilter(size: string) {
   const nextSizes = toggleMultiValue(activeSizes.value, size)
 
-  void router.push({
-    path: '/catalog',
-    query: {
-      ...buildBaseCatalogQuery(),
-      ...(nextSizes.length ? { sizes: nextSizes.join(',') } : { sizes: undefined }),
-      page: undefined,
-    },
+  navigateCatalog({
+    ...buildBaseCatalogQuery(),
+    ...(nextSizes.length ? { sizes: nextSizes.join(',') } : { sizes: undefined }),
+    page: undefined,
   })
 }
 
 function resetCatalogFilters() {
-  void router.push({
-    path: '/catalog',
-    query: {},
-  })
+  navigateCatalog({})
 }
 
 function toggleFilterSection(section: keyof typeof filterSections.value) {

@@ -70,6 +70,7 @@ class NewsPostForm
                                     ->helperText('Можно оставить URL выше или загрузить файл (до 2MB). Изображение будет оптимизировано.'),
                                 Forms\Components\DateTimePicker::make('published_at'),
                                 Forms\Components\Toggle::make('is_published')
+                                    ->label('Показывать на витрине')
                                     ->default(false),
                                 Forms\Components\RichEditor::make('content')
                                     ->fileAttachmentsDisk('public')

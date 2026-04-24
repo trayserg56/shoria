@@ -19,8 +19,28 @@ import WishlistView from '../views/WishlistView.vue'
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   scrollBehavior(to, from, savedPosition) {
+    const isCatalogRoute = to.name === 'catalog' && from.name === 'catalog'
+    const isProductRoute =
+      (to.name === 'product' || to.name === 'product-legacy')
+      && (from.name === 'product' || from.name === 'product-legacy')
+    const isSameProductSlug =
+      String(to.params.slug ?? '') !== ''
+      && String(to.params.slug ?? '') === String(from.params.slug ?? '')
+    const isVariantSwitchWithinProduct = isProductRoute && isSameProductSlug
+
     if (savedPosition) {
       return savedPosition
+    }
+
+    // Keep scroll position when catalog query params change (filters/sort/pagination).
+    // Using route name is safer than path matching and avoids rare edge-cases with URL normalization.
+    if (isCatalogRoute) {
+      return false
+    }
+
+    // Keep scroll position only when switching variants inside the same product card.
+    if (isVariantSwitchWithinProduct) {
+      return false
     }
 
     if (to.hash) {

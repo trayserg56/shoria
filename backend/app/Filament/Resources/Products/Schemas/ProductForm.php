@@ -83,6 +83,7 @@ class ProductForm
                                     ->numeric()
                                     ->default(0),
                                 Forms\Components\Toggle::make('is_active')
+                                    ->label('Активен на витрине')
                                     ->default(true),
                                 Forms\Components\Toggle::make('is_featured')
                                     ->default(false),

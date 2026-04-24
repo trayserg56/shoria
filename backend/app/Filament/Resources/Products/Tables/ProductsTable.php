@@ -37,6 +37,7 @@ class ProductsTable
                 Tables\Columns\TextColumn::make('stock')
                     ->sortable(),
                 Tables\Columns\IconColumn::make('is_active')
+                    ->label('Активен')
                     ->boolean(),
                 Tables\Columns\IconColumn::make('is_featured')
                     ->boolean(),
