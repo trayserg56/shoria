@@ -574,6 +574,34 @@ function syncCategoryAccordions() {
   categoryAccordions.value = nextState
 }
 
+function isKnownCategorySlug(slug: string): boolean {
+  if (!slug) {
+    return true
+  }
+
+  return categories.value.some(
+    (category) =>
+      category.slug === slug || category.subcategories?.some((subcategory) => subcategory.slug === slug),
+  )
+}
+
+function ensureValidCategoryFilter(): boolean {
+  if (!activeCategory.value || isKnownCategorySlug(activeCategory.value)) {
+    return false
+  }
+
+  void router.replace({
+    path: '/catalog',
+    query: {
+      ...route.query,
+      category: undefined,
+      page: undefined,
+    },
+  })
+
+  return true
+}
+
 function toggleCategoryAccordion(slug: string) {
   categoryAccordions.value = {
     ...categoryAccordions.value,
@@ -618,8 +646,11 @@ onMounted(async () => {
   priceMinInput.value = activePriceMin.value
   priceMaxInput.value = activePriceMax.value
   await loadCategories()
+  const fixedInvalidCategory = ensureValidCategoryFilter()
   syncCatalogSeo()
-  await loadProducts()
+  if (!fixedInvalidCategory) {
+    await loadProducts()
+  }
 })
 
 watch(
@@ -639,6 +670,7 @@ watch(
 watch(
   [categories, activeCategory],
   () => {
+    ensureValidCategoryFilter()
     syncCategoryAccordions()
     syncCatalogSeo()
   },
