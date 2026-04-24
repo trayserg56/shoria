@@ -32,4 +32,6 @@ jobs:
             git pull --ff-only origin main
             docker compose exec -T app php artisan migrate --force
             docker compose run --rm -T node npm run build
+            rm -rf backend/public/assets
+            cp -a frontend/dist/. backend/public/
             docker compose restart nginx
