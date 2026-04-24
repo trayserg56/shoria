@@ -1060,6 +1060,10 @@ docker compose exec app php artisan make:filament-user
   - исправлен `GitHub Actions` workflow `.github/workflows/cd.yml`: удалена невалидная проверка `if` с `secrets` на уровне `job` (из-за неё workflow падал на парсинге с ошибкой `Unrecognized named-value: 'secrets'`)
   - команды деплоя в Docker переведены на неинтерактивный режим (`docker compose exec -T`, `docker compose run --rm -T`), чтобы не падать в CI без TTY
   - после фикса деплой подтверждён на сервере: `/opt/shoria` обновился до коммита `33b4063`.
+- CD/frontend deploy hotfix:
+  - найден и исправлен рассинхрон прод-витрины: Laravel-роуты отдают `public/spa-index.html`, а CD ранее обновлял только `public/assets`
+  - в CD добавлена явная публикация свежего SPA-индекса: `cp frontend/dist/index.html backend/public/spa-index.html`
+  - дополнительно оставлено копирование `frontend/dist` в `backend/public`, чтобы `assets/*` всегда были консистентны с текущим `spa-index.html`.
 
 ## Бэклог улучшений (чтобы не забыть)
 
