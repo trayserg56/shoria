@@ -11,6 +11,9 @@ use App\Support\Payments\Gateways\ManualCashPaymentGateway;
 use App\Support\Payments\Gateways\SberPaymentGateway;
 use App\Support\Payments\Gateways\TBankPaymentGateway;
 use App\Support\Payments\PaymentGatewayRegistry;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -44,6 +47,55 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        RateLimiter::for('public-api', function (Request $request): Limit {
+            return Limit::perMinute((int) env('RATE_LIMIT_PUBLIC_API', 180))
+                ->by($request->user()?->id ? 'user:'.$request->user()->id : 'ip:'.$request->ip());
+        });
+
+        RateLimiter::for('auth-login', function (Request $request): Limit {
+            $email = mb_strtolower((string) $request->input('email'));
+
+            return Limit::perMinute((int) env('RATE_LIMIT_AUTH_LOGIN', 10))
+                ->by($request->ip().'|'.$email);
+        });
+
+        RateLimiter::for('auth-register', function (Request $request): Limit {
+            return Limit::perMinute((int) env('RATE_LIMIT_AUTH_REGISTER', 5))
+                ->by($request->ip());
+        });
+
+        RateLimiter::for('auth-recovery', function (Request $request): Limit {
+            $email = mb_strtolower((string) $request->input('email'));
+
+            return Limit::perMinute((int) env('RATE_LIMIT_AUTH_RECOVERY', 6))
+                ->by($request->ip().'|'.$email);
+        });
+
+        RateLimiter::for('events', function (Request $request): Limit {
+            return Limit::perMinute((int) env('RATE_LIMIT_EVENTS', 240))
+                ->by($request->ip().'|'.(string) $request->header('X-Session-Id', 'na'));
+        });
+
+        RateLimiter::for('newsletter', function (Request $request): Limit {
+            return Limit::perMinute((int) env('RATE_LIMIT_NEWSLETTER', 12))
+                ->by($request->ip());
+        });
+
+        RateLimiter::for('cart-write', function (Request $request): Limit {
+            return Limit::perMinute((int) env('RATE_LIMIT_CART_WRITE', 120))
+                ->by($request->ip().'|'.(string) $request->input('session_id', 'na'));
+        });
+
+        RateLimiter::for('checkout-write', function (Request $request): Limit {
+            return Limit::perMinute((int) env('RATE_LIMIT_CHECKOUT_WRITE', 30))
+                ->by($request->ip().'|'.(string) $request->input('customer_email', 'na'));
+        });
+
+        RateLimiter::for('webhooks', function (Request $request): Limit {
+            $providerCode = (string) $request->route('providerCode', 'unknown');
+
+            return Limit::perMinute((int) env('RATE_LIMIT_WEBHOOKS', 240))
+                ->by($request->ip().'|'.$providerCode);
+        });
     }
 }

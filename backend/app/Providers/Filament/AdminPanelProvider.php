@@ -6,6 +6,7 @@ use App\Filament\Widgets\MarketingFunnelWidget;
 use App\Filament\Widgets\MarketingOverviewWidget;
 use App\Filament\Widgets\MarketingAttributionWidget;
 use App\Filament\Widgets\MarketingTrendsChartWidget;
+use App\Http\Middleware\LogAdminActivity;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -62,6 +63,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
+                LogAdminActivity::class,
             ]);
     }
 }
