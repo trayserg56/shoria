@@ -39,8 +39,25 @@ class NewsletterSubscriptionForm
                     ->rows(3)
                     ->disabled()
                     ->columnSpanFull(),
+                \Filament\Schemas\Components\Section::make('Служебное')
+                    ->schema([
+                        Forms\Components\Placeholder::make('created_by_info')
+                            ->label('Создал')
+                            ->content(fn ($record): string => $record?->createdBy?->email ?? '—'),
+                        Forms\Components\Placeholder::make('updated_by_info')
+                            ->label('Изменил')
+                            ->content(fn ($record): string => $record?->updatedBy?->email ?? '—'),
+                        Forms\Components\Placeholder::make('created_at_info')
+                            ->label('Дата создания')
+                            ->content(fn ($record): string => $record?->created_at?->format('d.m.Y H:i') ?? '—'),
+                        Forms\Components\Placeholder::make('updated_at_info')
+                            ->label('Дата изменения')
+                            ->content(fn ($record): string => $record?->updated_at?->format('d.m.Y H:i') ?? '—'),
+                    ])
+                    ->columns(2)
+                    ->columnSpanFull()
+                    ->visible(fn ($record): bool => $record !== null),
             ])
             ->columns(2);
     }
 }
-

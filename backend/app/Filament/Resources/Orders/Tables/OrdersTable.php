@@ -37,8 +37,7 @@ class OrdersTable
                         'paid' => 'success',
                         'cancelled' => 'danger',
                         default => 'warning',
-                    })
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    }),
                 Tables\Columns\TextColumn::make('order_status')
                     ->label('Заказ')
                     ->badge()
@@ -109,6 +108,20 @@ class OrdersTable
                     ->sortable(),
                 Tables\Columns\TextColumn::make('placed_at')
                     ->label('Оформлен')
+                    ->dateTime('d.m.Y H:i')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('createdBy.email')
+                    ->label('Создал')
+                    ->placeholder('—'),
+                Tables\Columns\TextColumn::make('updatedBy.email')
+                    ->label('Изменил')
+                    ->placeholder('—'),
+                Tables\Columns\TextColumn::make('created_at')
+                    ->label('Создан')
+                    ->dateTime('d.m.Y H:i')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('updated_at')
+                    ->label('Обновлен')
                     ->dateTime('d.m.Y H:i')
                     ->sortable(),
             ])

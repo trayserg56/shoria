@@ -6,11 +6,14 @@ import { storeToRefs } from 'pinia'
 import { trackEvent } from '@/lib/analytics'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import { toProductRoute } from '@/lib/product-route'
+import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 
+const authStore = useAuthStore()
 const cartStore = useCartStore()
 const router = useRouter()
 const { items, total, totalItems, lastOrder, orderHistory, checkoutOptions, isLoading: isCartLoading } = storeToRefs(cartStore)
+const { user } = storeToRefs(authStore)
 
 const customerName = ref('')
 const customerEmail = ref('')
@@ -24,6 +27,25 @@ const promoStatusApplied = ref(false)
 const checkoutError = ref('')
 const checkoutLoading = ref(false)
 const previewLoading = ref(false)
+
+function prefillCheckoutCustomerFields() {
+  const profile = user.value
+  if (!profile) {
+    return
+  }
+
+  if (!customerName.value.trim() && profile.name) {
+    customerName.value = profile.name
+  }
+
+  if (!customerEmail.value.trim() && profile.email) {
+    customerEmail.value = profile.email
+  }
+
+  if (!customerPhone.value.trim() && profile.phone) {
+    customerPhone.value = profile.phone
+  }
+}
 
 function formatPrice(value: number) {
   return new Intl.NumberFormat('ru-RU', {
@@ -169,6 +191,10 @@ async function submitCheckout() {
 }
 
 onMounted(async () => {
+  if (!user.value) {
+    await authStore.loadMe()
+  }
+  prefillCheckoutCustomerFields()
   await cartStore.loadCheckoutOptions()
   deliveryMethod.value = deliveryMethods.value[0]?.code ?? ''
   paymentMethod.value = paymentMethods.value[0]?.code ?? ''
@@ -182,6 +208,14 @@ watch(
   async () => {
     await refreshCheckoutPreview()
   },
+)
+
+watch(
+  () => user.value,
+  () => {
+    prefillCheckoutCustomerFields()
+  },
+  { immediate: true },
 )
 </script>
 

@@ -50,7 +50,16 @@ class ProductsTable
                 Tables\Columns\IconColumn::make('is_customer_choice')
                     ->label('Выбор')
                     ->boolean(),
+                Tables\Columns\TextColumn::make('createdBy.email')
+                    ->label('Создал'),
+                Tables\Columns\TextColumn::make('updatedBy.email')
+                    ->label('Изменил'),
+                Tables\Columns\TextColumn::make('created_at')
+                    ->label('Создан')
+                    ->dateTime('d.m.Y H:i')
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('updated_at')
+                    ->label('Обновлен')
                     ->dateTime('d.m.Y H:i')
                     ->sortable(),
             ])

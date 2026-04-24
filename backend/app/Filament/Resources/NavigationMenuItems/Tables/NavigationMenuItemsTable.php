@@ -43,6 +43,20 @@ class NavigationMenuItemsTable
                 Tables\Columns\IconColumn::make('is_active')
                     ->label('Активен')
                     ->boolean(),
+                Tables\Columns\TextColumn::make('createdBy.email')
+                    ->label('Создал')
+                    ->placeholder('—'),
+                Tables\Columns\TextColumn::make('updatedBy.email')
+                    ->label('Изменил')
+                    ->placeholder('—'),
+                Tables\Columns\TextColumn::make('created_at')
+                    ->label('Создан')
+                    ->dateTime('d.m.Y H:i')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('updated_at')
+                    ->label('Обновлен')
+                    ->dateTime('d.m.Y H:i')
+                    ->sortable(),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('location')
@@ -63,4 +77,3 @@ class NavigationMenuItemsTable
             ->defaultSort('sort_order');
     }
 }
-

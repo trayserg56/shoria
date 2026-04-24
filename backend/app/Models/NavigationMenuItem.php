@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasAuthorship;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class NavigationMenuItem extends Model
 {
-    use HasFactory;
+    use HasAuthorship, HasFactory;
 
     public const LOCATION_HEADER = 'header';
 
@@ -41,4 +42,3 @@ class NavigationMenuItem extends Model
         ];
     }
 }
-

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasAuthorship;
 use App\Support\MediaUrl;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ProductVariantImage extends Model
 {
-    use HasFactory;
+    use HasAuthorship, HasFactory;
 
     protected $fillable = [
         'product_variant_id',
@@ -35,4 +36,3 @@ class ProductVariantImage extends Model
         );
     }
 }
-

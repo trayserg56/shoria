@@ -3,6 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Product;
+use App\Models\PromoCode;
+use App\Models\User;
+use App\Models\Order;
 use Database\Seeders\ShopDemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -578,5 +581,152 @@ class CartCheckoutFlowTest extends TestCase
         $secondCheckout->assertStatus(422);
         $secondCheckout->assertJsonValidationErrors(['promo_code']);
         $secondCheckout->assertJsonPath('errors.promo_code.0', 'Промокод уже использован для этого email.');
+    }
+
+    public function test_item_scoped_promo_applies_only_to_selected_products(): void
+    {
+        $this->seed(ShopDemoSeeder::class);
+
+        $sessionId = 'test-session-item-scoped-promo';
+
+        $cityFrameOne = Product::query()->where('slug', 'city-frame-one')->firstOrFail();
+
+        PromoCode::query()
+            ->where('code', 'WELCOME10')
+            ->update([
+                'discount_type' => 'fixed_percent',
+                'discount_value' => 30,
+                'applies_to' => 'items',
+                'items_match_mode' => 'any',
+                'included_product_ids' => [$cityFrameOne->id],
+            ]);
+
+        $this->postJson('/api/cart/items', [
+            'session_id' => $sessionId,
+            'product_slug' => 'city-frame-one',
+            'qty' => 1,
+        ])->assertOk();
+
+        $this->postJson('/api/cart/items', [
+            'session_id' => $sessionId,
+            'product_slug' => 'aero-pulse-300',
+            'qty' => 1,
+        ])->assertOk();
+
+        $preview = $this->postJson('/api/checkout/preview', [
+            'session_id' => $sessionId,
+            'delivery_method' => 'courier',
+            'promo_code' => 'WELCOME10',
+        ]);
+
+        $preview->assertOk();
+        $preview->assertJsonPath('subtotal', 22980);
+        $preview->assertJsonPath('discount_total', 2997);
+        $preview->assertJsonPath('promo.is_applied', true);
+    }
+
+    public function test_promo_can_enable_free_delivery(): void
+    {
+        $this->seed(ShopDemoSeeder::class);
+
+        PromoCode::query()
+            ->where('code', 'WELCOME10')
+            ->update([
+                'discount_type' => 'fixed_percent',
+                'discount_value' => 10,
+                'free_delivery' => true,
+            ]);
+
+        $sessionId = 'test-session-free-delivery-promo';
+
+        $this->postJson('/api/cart/items', [
+            'session_id' => $sessionId,
+            'product_slug' => 'city-frame-one',
+            'qty' => 1,
+        ])->assertOk();
+
+        $checkout = $this->postJson('/api/checkout', [
+            'session_id' => $sessionId,
+            'customer_name' => 'Free Delivery Buyer',
+            'customer_email' => 'free-delivery@example.com',
+            'customer_phone' => '+79990000144',
+            'delivery_method' => 'courier',
+            'payment_method' => 'card',
+            'promo_code' => 'WELCOME10',
+        ]);
+
+        $checkout->assertCreated();
+        $checkout->assertJsonPath('subtotal', 9990);
+        $checkout->assertJsonPath('discount_total', 999);
+        $checkout->assertJsonPath('delivery_total', 0);
+        $checkout->assertJsonPath('total', 8991);
+    }
+
+    public function test_first_order_only_promo_is_rejected_for_repeat_customer(): void
+    {
+        $this->seed(ShopDemoSeeder::class);
+
+        $user = User::factory()->create([
+            'email' => 'repeat@example.com',
+        ]);
+
+        Order::query()->create([
+            'user_id' => $user->id,
+            'order_number' => 'SH-TEST-REPEAT-001',
+            'session_id' => 'repeat-order-session',
+            'status' => 'new',
+            'order_status' => 'placed',
+            'payment_status' => 'paid',
+            'fulfillment_status' => 'delivered',
+            'refund_status' => 'none',
+            'delivery_method' => 'courier',
+            'payment_method' => 'card',
+            'currency' => 'RUB',
+            'subtotal' => 1000,
+            'discount_total' => 0,
+            'delivery_total' => 0,
+            'total' => 1000,
+            'customer_name' => 'Repeat Buyer',
+            'customer_email' => 'repeat@example.com',
+            'customer_phone' => '+79990000000',
+            'placed_at' => now(),
+        ]);
+
+        $this->assertDatabaseHas('orders', [
+            'order_number' => 'SH-TEST-REPEAT-001',
+        ]);
+
+        PromoCode::query()
+            ->where('code', 'WELCOME10')
+            ->update([
+                'first_order_only' => true,
+            ]);
+
+        $sessionId = 'test-session-first-order-only';
+        $token = $user->createToken('test')->plainTextToken;
+
+        $this->postJson('/api/cart/items', [
+            'session_id' => $sessionId,
+            'product_slug' => 'city-frame-one',
+            'qty' => 1,
+        ], [
+            'Authorization' => 'Bearer ' . $token,
+        ])->assertOk();
+
+        $checkout = $this->postJson('/api/checkout', [
+            'session_id' => $sessionId,
+            'customer_name' => 'Repeat Buyer',
+            'customer_email' => 'repeat@example.com',
+            'customer_phone' => '+79990000155',
+            'delivery_method' => 'courier',
+            'payment_method' => 'card',
+            'promo_code' => 'WELCOME10',
+        ], [
+            'Authorization' => 'Bearer ' . $token,
+        ]);
+
+        $checkout->assertStatus(422);
+        $checkout->assertJsonValidationErrors(['promo_code']);
+        $checkout->assertJsonPath('errors.promo_code.0', 'Промокод доступен только для первого заказа.');
     }
 }

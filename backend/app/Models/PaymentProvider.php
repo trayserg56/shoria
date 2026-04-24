@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasAuthorship;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class PaymentProvider extends Model
 {
-    use HasFactory;
+    use HasAuthorship, HasFactory;
 
     protected $fillable = [
         'code',

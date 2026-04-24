@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Products\Schemas;
 
+use App\Models\Product;
 use Filament\Forms;
 use Filament\Schemas\Components\Tabs;
 use Filament\Schemas\Components\Tabs\Tab;
@@ -180,6 +181,23 @@ class ProductForm
                                     ->columnSpanFull(),
                             ])
                             ->columns(2),
+                        Tab::make('Служебное')
+                            ->schema([
+                                Forms\Components\Placeholder::make('created_by_info')
+                                    ->label('Создал')
+                                    ->content(fn (?Product $record): string => $record?->createdBy?->email ?? '—'),
+                                Forms\Components\Placeholder::make('updated_by_info')
+                                    ->label('Изменил')
+                                    ->content(fn (?Product $record): string => $record?->updatedBy?->email ?? '—'),
+                                Forms\Components\Placeholder::make('created_at_info')
+                                    ->label('Дата создания')
+                                    ->content(fn (?Product $record): string => $record?->created_at?->format('d.m.Y H:i') ?? '—'),
+                                Forms\Components\Placeholder::make('updated_at_info')
+                                    ->label('Дата изменения')
+                                    ->content(fn (?Product $record): string => $record?->updated_at?->format('d.m.Y H:i') ?? '—'),
+                            ])
+                            ->columns(2)
+                            ->visible(fn (?Product $record): bool => $record !== null),
                     ])
                     ->columnSpanFull(),
             ])

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cart;
+use App\Models\Category;
 use App\Models\PaymentProvider;
 use App\Models\PaymentTransaction;
 use App\Models\DeliveryMethod;
@@ -68,7 +69,11 @@ class CheckoutController extends Controller
                 'name' => $promo->name,
                 'discount_type' => $promo->discount_type,
                 'discount_value' => (float) $promo->discount_value,
+                'applies_to' => $promo->applies_to,
                 'min_subtotal' => $promo->min_subtotal !== null ? (float) $promo->min_subtotal : null,
+                'min_items_count' => $promo->min_items_count,
+                'max_discount_amount' => $promo->max_discount_amount !== null ? (float) $promo->max_discount_amount : null,
+                'free_delivery' => (bool) $promo->free_delivery,
             ])
             ->values();
 
@@ -137,11 +142,16 @@ class CheckoutController extends Controller
         $paymentGateway = $this->paymentGateways->for($paymentProvider);
         $promoCode = $this->resolvePromoCode(
             $validated['promo_code'] ?? null,
+            $cart,
             $subtotal,
             $validated['customer_email'],
+            $user,
         );
-        $discountTotal = $promoCode ? $this->calculateDiscount($promoCode, $subtotal) : 0.0;
+        $discountTotal = $promoCode ? $this->calculateDiscount($promoCode, $cart, $subtotal) : 0.0;
         $deliveryTotal = $this->resolveDeliveryFee($deliveryMethod, $subtotal);
+        if ($promoCode?->free_delivery) {
+            $deliveryTotal = 0.0;
+        }
         $orderTotal = max(0, $subtotal - $discountTotal + $deliveryTotal);
         $attribution = AttributionData::normalize($validated['attribution'] ?? null);
 
@@ -304,8 +314,10 @@ class CheckoutController extends Controller
         try {
             $promoCode = $this->resolvePromoCode(
                 $validated['promo_code'] ?? null,
+                $cart,
                 $subtotal,
                 $validated['customer_email'] ?? null,
+                $user,
             );
             if ($promoCode) {
                 $promoApplied = true;
@@ -315,8 +327,11 @@ class CheckoutController extends Controller
             $promoMessage = (string) collect($exception->errors())->flatten()->first();
         }
 
-        $discountTotal = $promoCode ? $this->calculateDiscount($promoCode, $subtotal) : 0.0;
+        $discountTotal = $promoCode && $cart ? $this->calculateDiscount($promoCode, $cart, $subtotal) : 0.0;
         $deliveryTotal = $this->resolveDeliveryFee($deliveryMethod, $subtotal);
+        if ($promoCode?->free_delivery) {
+            $deliveryTotal = 0.0;
+        }
         $total = max(0, $subtotal - $discountTotal + $deliveryTotal);
 
         return response()->json([
@@ -486,7 +501,13 @@ class CheckoutController extends Controller
         return $provider->driver === 'manual_cash' ? 'cash' : 'card';
     }
 
-    private function resolvePromoCode(?string $code, float $subtotal, ?string $customerEmail = null): ?PromoCode
+    private function resolvePromoCode(
+        ?string $code,
+        ?Cart $cart,
+        float $subtotal,
+        ?string $customerEmail = null,
+        ?User $user = null,
+    ): ?PromoCode
     {
         if (! $code) {
             return null;
@@ -531,6 +552,21 @@ class CheckoutController extends Controller
             ]);
         }
 
+        if ($promo->min_items_count !== null && $cart) {
+            $itemsCount = (int) $cart->items->sum('qty');
+            if ($itemsCount < (int) $promo->min_items_count) {
+                throw ValidationException::withMessages([
+                    'promo_code' => 'Недостаточное количество товаров для этого промокода.',
+                ]);
+            }
+        }
+
+        if ($promo->first_order_only && ! $this->isFirstOrder($user, $customerEmail)) {
+            throw ValidationException::withMessages([
+                'promo_code' => 'Промокод доступен только для первого заказа.',
+            ]);
+        }
+
         return $promo;
     }
 
@@ -559,15 +595,157 @@ class CheckoutController extends Controller
         return true;
     }
 
-    private function calculateDiscount(PromoCode $promo, float $subtotal): float
+    private function calculateDiscount(PromoCode $promo, Cart $cart, float $subtotal): float
     {
+        $discountBase = $subtotal;
+
+        if ($promo->applies_to === 'items') {
+            $discountBase = $this->calculateEligibleItemsSubtotal($promo, $cart);
+        }
+
         $discount = match ($promo->discount_type) {
-            'fixed_percent' => $subtotal * ((float) $promo->discount_value / 100),
+            'fixed_percent' => $discountBase * ((float) $promo->discount_value / 100),
             'fixed_amount' => (float) $promo->discount_value,
             default => 0.0,
         };
 
-        return round(min($subtotal, max(0, $discount)), 2);
+        if ($promo->max_discount_amount !== null) {
+            $discount = min($discount, (float) $promo->max_discount_amount);
+        }
+
+        return round(min($discountBase, max(0, $discount)), 2);
+    }
+
+    private function calculateEligibleItemsSubtotal(PromoCode $promo, Cart $cart): float
+    {
+        $includedProductIds = $this->normalizeIntArray($promo->included_product_ids);
+        $includedCategoryIds = $this->resolveCategoryIdsWithDescendants(
+            $this->normalizeIntArray($promo->included_category_ids),
+        );
+        $includedBrandIds = $this->normalizeIntArray($promo->included_brand_ids);
+
+        $hasProductFilter = $includedProductIds !== [];
+        $hasCategoryFilter = $includedCategoryIds !== [];
+        $hasBrandFilter = $includedBrandIds !== [];
+
+        if (! $hasProductFilter && ! $hasCategoryFilter && ! $hasBrandFilter) {
+            return (float) $cart->items->sum(fn ($item) => (float) $item->total_price);
+        }
+
+        $products = Product::query()
+            ->with('categories:id')
+            ->whereIn('id', $cart->items->pluck('product_id')->filter()->unique()->all())
+            ->get()
+            ->keyBy('id');
+
+        $isAllMode = $promo->items_match_mode === 'all';
+        $eligibleSubtotal = 0.0;
+
+        foreach ($cart->items as $item) {
+            $product = $products->get($item->product_id);
+            if (! $product) {
+                continue;
+            }
+
+            $productCategoryIds = array_unique([
+                (int) $product->category_id,
+                ...$product->categories->pluck('id')->map(fn ($id): int => (int) $id)->all(),
+            ]);
+
+            $matches = [];
+
+            if ($hasProductFilter) {
+                $matches[] = in_array((int) $product->id, $includedProductIds, true);
+            }
+
+            if ($hasCategoryFilter) {
+                $matches[] = count(array_intersect($productCategoryIds, $includedCategoryIds)) > 0;
+            }
+
+            if ($hasBrandFilter) {
+                $matches[] = in_array((int) $product->brand_id, $includedBrandIds, true);
+            }
+
+            if ($matches === []) {
+                $matchesItem = true;
+            } elseif ($isAllMode) {
+                $matchesItem = ! in_array(false, $matches, true);
+            } else {
+                $matchesItem = in_array(true, $matches, true);
+            }
+
+            if ($matchesItem) {
+                $eligibleSubtotal += (float) $item->total_price;
+            }
+        }
+
+        return round($eligibleSubtotal, 2);
+    }
+
+    private function resolveCategoryIdsWithDescendants(array $categoryIds): array
+    {
+        if ($categoryIds === []) {
+            return [];
+        }
+
+        $resolved = array_values(array_unique($categoryIds));
+        $frontier = $resolved;
+
+        while ($frontier !== []) {
+            $children = Category::query()
+                ->whereIn('parent_id', $frontier)
+                ->pluck('id')
+                ->map(fn ($id): int => (int) $id)
+                ->all();
+
+            $newChildren = array_values(array_diff($children, $resolved));
+            if ($newChildren === []) {
+                break;
+            }
+
+            $resolved = array_values(array_unique([...$resolved, ...$newChildren]));
+            $frontier = $newChildren;
+        }
+
+        return $resolved;
+    }
+
+    private function normalizeIntArray(mixed $value): array
+    {
+        if (! is_array($value)) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(array_map(function ($item): ?int {
+            if (is_int($item)) {
+                return $item;
+            }
+
+            if (is_string($item) && is_numeric($item)) {
+                return (int) $item;
+            }
+
+            return null;
+        }, $value))));
+    }
+
+    private function isFirstOrder(?User $user, ?string $customerEmail): bool
+    {
+        $query = Order::query()->where('order_status', '!=', 'cancelled');
+
+        if ($user) {
+            return ! (clone $query)->where('user_id', $user->id)->exists();
+        }
+
+        if (! $customerEmail) {
+            return true;
+        }
+
+        $normalizedEmail = strtolower(trim($customerEmail));
+
+        return ! (clone $query)
+            ->where('customer_email', $normalizedEmail)
+            ->exists();
     }
 
     private function resolveIdentity(Request $request, ?string $sessionFromPayload = null): array

@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasAuthorship;
 use App\Support\MediaUrl;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Banner extends Model
 {
-    use HasFactory;
+    use HasAuthorship, HasFactory;
 
     protected $fillable = [
         'title',
