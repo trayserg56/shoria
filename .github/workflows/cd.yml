@@ -36,3 +36,22 @@ jobs:
             cp -a frontend/dist/. backend/public/
             cp frontend/dist/index.html backend/public/spa-index.html
             docker compose restart nginx
+            sleep 3
+
+            EXPECTED_JS=$(sed -n 's@.*src="/assets/\([^"]*\.js\)".*@\1@p' frontend/dist/index.html | head -n 1)
+            EXPECTED_CSS=$(sed -n 's@.*href="/assets/\([^"]*\.css\)".*@\1@p' frontend/dist/index.html | head -n 1)
+            test -n "$EXPECTED_JS"
+            test -n "$EXPECTED_CSS"
+
+            # Smoke 1: fallback SPA index must reference freshly built assets.
+            grep -q "$EXPECTED_JS" backend/public/spa-index.html
+            grep -q "$EXPECTED_CSS" backend/public/spa-index.html
+
+            # Smoke 2: nginx root should return HTML with the same assets.
+            RENDERED_HTML=$(docker compose exec -T nginx wget -qO- http://127.0.0.1/)
+            echo "$RENDERED_HTML" | grep -q "$EXPECTED_JS"
+            echo "$RENDERED_HTML" | grep -q "$EXPECTED_CSS"
+
+            # Smoke 3: API must be reachable through nginx after deploy.
+            API_PRODUCTS=$(docker compose exec -T nginx wget -qO- http://127.0.0.1/api/products)
+            echo "$API_PRODUCTS" | grep -Eq '\[|\{'

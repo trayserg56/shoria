@@ -1064,6 +1064,12 @@ docker compose exec app php artisan make:filament-user
   - найден и исправлен рассинхрон прод-витрины: Laravel-роуты отдают `public/spa-index.html`, а CD ранее обновлял только `public/assets`
   - в CD добавлена явная публикация свежего SPA-индекса: `cp frontend/dist/index.html backend/public/spa-index.html`
   - дополнительно оставлено копирование `frontend/dist` в `backend/public`, чтобы `assets/*` всегда были консистентны с текущим `spa-index.html`.
+- CD smoke-check (post-deploy):
+  - после деплоя workflow автоматически проверяет, что:
+    - `backend/public/spa-index.html` ссылается на свежие `index-*.js` и `index-*.css` из последней сборки
+    - nginx на `http://127.0.0.1/` отдает HTML с этими же свежими assets
+    - API доступен через nginx (`/api/products`)
+  - если любой из smoke-check этапов не проходит, CD завершается с ошибкой и не считается успешным.
 
 ## Бэклог улучшений (чтобы не забыть)
 
