@@ -105,6 +105,16 @@ class OrderForm
                                     ->label('Скидка')
                                     ->formatStateUsing(fn ($state, $record) => number_format((float) $state, 0, '.', ' ') . ' ' . $record->currency)
                                     ->disabled(),
+                                Forms\Components\TextInput::make('loyalty_points_spent')
+                                    ->label('Списано баллов')
+                                    ->disabled(),
+                                Forms\Components\TextInput::make('loyalty_discount_total')
+                                    ->label('Скидка баллами')
+                                    ->formatStateUsing(fn ($state, $record) => number_format((float) $state, 0, '.', ' ') . ' ' . $record->currency)
+                                    ->disabled(),
+                                Forms\Components\TextInput::make('loyalty_points_earned')
+                                    ->label('Начислено баллов')
+                                    ->disabled(),
                                 Forms\Components\TextInput::make('delivery_total')
                                     ->label('Доставка, сумма')
                                     ->formatStateUsing(fn ($state, $record) => number_format((float) $state, 0, '.', ' ') . ' ' . $record->currency)

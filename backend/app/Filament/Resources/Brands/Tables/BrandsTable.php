@@ -15,6 +15,9 @@ class BrandsTable
     {
         return $table
             ->columns([
+                Tables\Columns\ImageColumn::make('image_url')
+                    ->label('Изображение')
+                    ->square(),
                 Tables\Columns\TextColumn::make('name')
                     ->label('Название')
                     ->searchable()

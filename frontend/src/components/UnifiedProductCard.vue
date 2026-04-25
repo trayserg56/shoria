@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
 import { toProductRoute } from '@/lib/product-route'
 import { useCartStore } from '@/stores/cart'
@@ -39,6 +39,7 @@ const props = withDefaults(
 )
 
 const cartStore = useCartStore()
+const router = useRouter()
 const { items: cartItems } = storeToRefs(cartStore)
 const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
@@ -207,6 +208,21 @@ function onProductImageError() {
   isImageBroken.value = true
 }
 
+async function openBrandCatalog(brand: string | null | undefined) {
+  const value = brand?.trim()
+
+  if (!value) {
+    return
+  }
+
+  await router.push({
+    path: '/catalog',
+    query: {
+      brands: value,
+    },
+  })
+}
+
 watch(
   () => props.product.image_url,
   () => {
@@ -248,7 +264,6 @@ watch(
       <img :src="productImageUrl" :alt="product.name" loading="lazy" @error="onProductImageError" />
       <div class="product-card__content">
         <p class="product-card__category">{{ product.category?.name ?? 'Sneakers' }}</p>
-        <p v-if="product.brand" class="product-card__brand">{{ product.brand }}</p>
         <div v-if="product.tags?.length" class="product-card__tags">
           <span v-for="tag in product.tags" :key="`${product.id}-${tag.code}`" class="tag-badge">
             {{ tag.label }}
@@ -262,6 +277,14 @@ watch(
         <p v-if="isOutOfStock" class="product-card__stock product-card__stock--empty">Нет в наличии</p>
       </div>
     </RouterLink>
+    <button
+      v-if="product.brand"
+      type="button"
+      class="product-card__brand-link"
+      @click.stop="openBrandCatalog(product.brand)"
+    >
+      {{ product.brand }}
+    </button>
 
     <div class="product-card__actions">
       <button
@@ -341,6 +364,21 @@ watch(
   margin: 0;
   font-size: 13px;
   color: #4f5a74;
+}
+
+.product-card__brand-link {
+  margin: 0 16px 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #4f5a74;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.product-card__brand-link:hover {
+  color: var(--color-accent, #bf4b08);
 }
 
 .product-card h3 {

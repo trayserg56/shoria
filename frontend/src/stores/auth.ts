@@ -10,6 +10,22 @@ export type User = {
   phone: string | null
   role: 'admin' | 'content_manager' | 'customer'
   email_verified_at: string | null
+  loyalty: {
+    points_balance: number
+    total_spent: number
+    accrual_percent: number
+    current_tier: {
+      name: string
+      min_spent: number
+      accrual_percent: number
+    } | null
+    next_tier: {
+      name: string
+      min_spent: number
+      accrual_percent: number
+    } | null
+    amount_to_next_tier: number
+  } | null
 }
 
 type AuthResponse = {

@@ -662,7 +662,13 @@ watch(
       <article class="details">
         <p class="details__category">{{ product.category?.name ?? 'Sneakers' }}</p>
         <h1>{{ product.name }}</h1>
-        <p v-if="product.brand" class="details__brand">Бренд: {{ product.brand }}</p>
+        <RouterLink
+          v-if="product.brand"
+          class="details__brand details__brand-link"
+          :to="{ path: '/catalog', query: { brands: product.brand } }"
+        >
+          Бренд: {{ product.brand }}
+        </RouterLink>
         <div v-if="product.tags.length" class="details__tags">
           <span v-for="tag in product.tags" :key="`details-tag-${tag.code}`" class="details__tag">
             {{ tag.label }}
@@ -922,6 +928,14 @@ watch(
   margin-top: 6px;
   color: #3d4760;
   font-size: 14px;
+}
+
+.details__brand-link {
+  text-decoration: none;
+}
+
+.details__brand-link:hover {
+  color: var(--color-accent, #bf4b08);
 }
 
 .details__tags {

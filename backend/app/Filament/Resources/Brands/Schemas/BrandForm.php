@@ -20,6 +20,29 @@ class BrandForm
                     ->label('Slug')
                     ->maxLength(140)
                     ->unique(ignoreRecord: true),
+                Forms\Components\TextInput::make('image_url')
+                    ->label('URL изображения')
+                    ->maxLength(2048),
+                Forms\Components\FileUpload::make('image_file')
+                    ->label('Или загрузить изображение')
+                    ->image()
+                    ->maxSize(2048)
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
+                    ->imageEditor()
+                    ->imageResizeMode('contain')
+                    ->imageResizeTargetWidth(1200)
+                    ->imageResizeTargetHeight(1200)
+                    ->imageResizeUpscale(false)
+                    ->disk('public')
+                    ->directory('brands')
+                    ->visibility('public')
+                    ->dehydrated(false)
+                    ->afterStateUpdated(function ($state, callable $set): void {
+                        if (is_string($state) && trim($state) !== '') {
+                            $set('image_url', $state);
+                        }
+                    })
+                    ->helperText('Можно оставить URL выше или загрузить файл (до 2MB). Изображение будет оптимизировано.'),
                 Forms\Components\TextInput::make('sort_order')
                     ->label('Порядок')
                     ->required()

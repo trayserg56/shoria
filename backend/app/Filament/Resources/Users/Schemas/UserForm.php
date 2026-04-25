@@ -25,6 +25,16 @@ class UserForm
                 Forms\Components\TextInput::make('phone')
                     ->label('Телефон')
                     ->maxLength(30),
+                Forms\Components\TextInput::make('loyalty_points_balance')
+                    ->label('Баланс баллов')
+                    ->numeric()
+                    ->minValue(0)
+                    ->default(0),
+                Forms\Components\TextInput::make('loyalty_total_spent')
+                    ->label('Сумма покупок для уровней (₽)')
+                    ->numeric()
+                    ->minValue(0)
+                    ->default(0),
                 Forms\Components\Select::make('role')
                     ->label('Роль')
                     ->options(User::roleOptions())

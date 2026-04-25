@@ -12,6 +12,7 @@ const navItems = [
   { to: { name: 'account-overview' }, label: 'Обзор' },
   { to: { name: 'account-settings' }, label: 'Настройки профиля' },
   { to: { name: 'account-orders' }, label: 'Заказы' },
+  { to: { name: 'account-loyalty' }, label: 'Лояльность' },
   { to: { name: 'account-saved' }, label: 'Избранное и сравнение' },
 ]
 

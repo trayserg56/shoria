@@ -6,6 +6,8 @@ import AccountOverviewView from '../views/AccountOverviewView.vue'
 import AccountOrdersView from '../views/AccountOrdersView.vue'
 import AccountSavedView from '../views/AccountSavedView.vue'
 import AccountSettingsView from '../views/AccountSettingsView.vue'
+import AccountLoyaltyView from '../views/AccountLoyaltyView.vue'
+import BrandsView from '../views/BrandsView.vue'
 import CatalogView from '../views/CatalogView.vue'
 import CartView from '../views/CartView.vue'
 import CompareView from '../views/CompareView.vue'
@@ -15,6 +17,7 @@ import NewsPostView from '../views/NewsPostView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
 import OrderSuccessView from '../views/OrderSuccessView.vue'
 import ProductView from '../views/ProductView.vue'
+import LoyaltyProgramView from '../views/LoyaltyProgramView.vue'
 import ServicePageView from '../views/ServicePageView.vue'
 import WishlistView from '../views/WishlistView.vue'
 
@@ -62,6 +65,15 @@ const router = createRouter({
       },
     },
     {
+      path: '/brands',
+      name: 'brands',
+      component: BrandsView,
+      meta: {
+        seoTitle: 'Бренды — Shoria',
+        seoDescription: 'Страница брендов Shoria с быстрым переходом в каталог по выбранному бренду.',
+      },
+    },
+    {
       path: '/catalog',
       name: 'catalog',
       component: CatalogView,
@@ -95,6 +107,15 @@ const router = createRouter({
       meta: {
         seoTitle: 'Информация — Shoria',
         seoDescription: 'Служебная информация магазина Shoria.',
+      },
+    },
+    {
+      path: '/loyalty-program',
+      name: 'loyalty-program',
+      component: LoyaltyProgramView,
+      meta: {
+        seoTitle: 'Программа лояльности — Shoria',
+        seoDescription: 'Условия, уровни и механика начисления баллов программы лояльности.',
       },
     },
     {
@@ -202,6 +223,16 @@ const router = createRouter({
           meta: {
             seoTitle: 'Избранное и сравнение — Shoria',
             seoDescription: 'Сохранённые товары и сравнение внутри личного кабинета Shoria.',
+            seoRobots: 'noindex,nofollow',
+          },
+        },
+        {
+          path: 'loyalty',
+          name: 'account-loyalty',
+          component: AccountLoyaltyView,
+          meta: {
+            seoTitle: 'Программа лояльности — Shoria',
+            seoDescription: 'Баллы, уровни и история операций по программе лояльности.',
             seoRobots: 'noindex,nofollow',
           },
         },

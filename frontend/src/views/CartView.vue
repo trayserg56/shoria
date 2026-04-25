@@ -22,6 +22,7 @@ const comment = ref('')
 const deliveryMethod = ref('')
 const paymentMethod = ref('')
 const promoCode = ref('')
+const loyaltyPointsToSpend = ref(0)
 const promoStatusMessage = ref('')
 const promoStatusApplied = ref(false)
 const checkoutError = ref('')
@@ -75,8 +76,13 @@ const deliveryMethods = computed(() => checkoutOptions.value?.delivery_methods ?
 const paymentMethods = computed(() => checkoutOptions.value?.payment_methods ?? [])
 const subtotalAmount = ref(0)
 const discountAmount = ref(0)
+const loyaltyDiscountAmount = ref(0)
 const deliveryAmount = ref(0)
 const checkoutTotalPreview = ref(0)
+const loyaltyMaxPoints = ref(0)
+const loyaltyPointsBalance = ref(0)
+const loyaltyPointsToEarn = ref(0)
+const loyaltyAccrualPercent = ref(0)
 const hasPreviewSnapshot = ref(false)
 const cartSubtotalFallback = computed(() => items.value.reduce((sum, item) => sum + item.total_price, 0))
 const selectedDeliveryFee = computed(
@@ -86,10 +92,15 @@ const displayedSubtotal = computed(() =>
   hasPreviewSnapshot.value ? subtotalAmount.value : cartSubtotalFallback.value,
 )
 const displayedDiscount = computed(() => (hasPreviewSnapshot.value ? discountAmount.value : 0))
+const displayedLoyaltyDiscount = computed(() => (hasPreviewSnapshot.value ? loyaltyDiscountAmount.value : 0))
 const displayedDelivery = computed(() =>
   hasPreviewSnapshot.value ? deliveryAmount.value : selectedDeliveryFee.value,
 )
-const displayedTotal = computed(() => displayedSubtotal.value - displayedDiscount.value + displayedDelivery.value)
+const loyaltyConfig = computed(() => checkoutOptions.value?.loyalty ?? null)
+const loyaltyEnabled = computed(() => !!(loyaltyConfig.value?.is_enabled && user.value))
+const displayedTotal = computed(
+  () => displayedSubtotal.value - displayedDiscount.value - displayedLoyaltyDiscount.value + displayedDelivery.value,
+)
 
 async function refreshCheckoutPreview() {
   if (!deliveryMethod.value) {
@@ -104,22 +115,36 @@ async function refreshCheckoutPreview() {
       delivery_method: deliveryMethod.value,
       promo_code: promoCode.value.trim() || undefined,
       customer_email: customerEmail.value.trim() || undefined,
+      loyalty_points_to_spend: loyaltyEnabled.value ? loyaltyPointsToSpend.value : 0,
     })
 
     subtotalAmount.value = preview.subtotal
     discountAmount.value = preview.discount_total
+    loyaltyDiscountAmount.value = preview.loyalty_discount_total
     deliveryAmount.value = preview.delivery_total
     checkoutTotalPreview.value = preview.total
     hasPreviewSnapshot.value = true
     promoStatusMessage.value = preview.promo.message ?? ''
     promoStatusApplied.value = preview.promo.is_applied
+    loyaltyMaxPoints.value = preview.loyalty.max_points_to_spend
+    loyaltyPointsBalance.value = preview.loyalty.points_balance
+    loyaltyPointsToEarn.value = preview.loyalty.points_to_earn
+    loyaltyAccrualPercent.value = preview.loyalty.accrual_percent
+    if (loyaltyEnabled.value && loyaltyPointsToSpend.value > loyaltyMaxPoints.value) {
+      loyaltyPointsToSpend.value = loyaltyMaxPoints.value
+    }
   } catch (error) {
     console.error(error)
     hasPreviewSnapshot.value = false
     discountAmount.value = 0
+    loyaltyDiscountAmount.value = 0
     deliveryAmount.value = selectedDeliveryFee.value
     subtotalAmount.value = cartSubtotalFallback.value
     checkoutTotalPreview.value = cartSubtotalFallback.value + selectedDeliveryFee.value
+    loyaltyMaxPoints.value = 0
+    loyaltyPointsBalance.value = 0
+    loyaltyPointsToEarn.value = 0
+    loyaltyAccrualPercent.value = 0
   } finally {
     previewLoading.value = false
   }
@@ -167,6 +192,7 @@ async function submitCheckout() {
       delivery_method: deliveryMethod.value,
       payment_method: paymentMethod.value,
       promo_code: promoCode.value.trim() || undefined,
+      loyalty_points_to_spend: loyaltyEnabled.value ? loyaltyPointsToSpend.value : undefined,
       comment: comment.value,
     })
 
@@ -204,8 +230,12 @@ onMounted(async () => {
 })
 
 watch(
-  () => [deliveryMethod.value, promoCode.value, customerEmail.value, total.value, items.value.length],
+  () => [deliveryMethod.value, promoCode.value, customerEmail.value, loyaltyPointsToSpend.value, total.value, items.value.length],
   async () => {
+    if (loyaltyPointsToSpend.value < 0) {
+      loyaltyPointsToSpend.value = 0
+      return
+    }
     await refreshCheckoutPreview()
   },
 )
@@ -366,6 +396,20 @@ watch(
             Промокод
             <input v-model="promoCode" type="text" placeholder="Например, WELCOME10" />
           </label>
+          <label v-if="loyaltyEnabled">
+            Списать баллы
+            <input
+              v-model.number="loyaltyPointsToSpend"
+              type="number"
+              min="0"
+              :max="loyaltyMaxPoints"
+              placeholder="0"
+            />
+            <small class="muted-inline">
+              Доступно: {{ loyaltyPointsBalance }} · максимум к списанию: {{ loyaltyMaxPoints }}.
+              Начислится за заказ: {{ loyaltyPointsToEarn }} ({{ loyaltyAccrualPercent.toFixed(2) }}%).
+            </small>
+          </label>
           <p v-if="promoStatusMessage" class="promo-status" :class="{ 'promo-status--ok': promoStatusApplied }">
             {{ promoStatusMessage }}
           </p>
@@ -377,6 +421,7 @@ watch(
             <span>Товаров: {{ totalItems }}</span>
             <span>Подытог: {{ formatPrice(displayedSubtotal) }}</span>
             <span>Скидка: -{{ formatPrice(displayedDiscount) }}</span>
+            <span v-if="loyaltyEnabled">Баллы: -{{ formatPrice(displayedLoyaltyDiscount) }}</span>
             <span>Доставка: {{ formatPrice(displayedDelivery) }}</span>
             <strong>Итого: {{ formatPrice(displayedTotal) }}</strong>
             <span v-if="previewLoading" class="preview-loading">Пересчитываем...</span>
@@ -618,6 +663,11 @@ watch(
   margin-top: 8px;
   color: #8f5014;
   font-size: 13px;
+}
+
+.muted-inline {
+  color: #66748f;
+  font-size: 12px;
 }
 
 .promo-status--ok {

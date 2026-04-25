@@ -39,6 +39,7 @@ type CheckoutPayload = {
   delivery_method: string
   payment_method: string
   promo_code?: string
+  loyalty_points_to_spend?: number
   comment?: string
 }
 
@@ -65,11 +66,41 @@ type CheckoutOptions = {
     discount_value: number
     min_subtotal: number | null
   }>
+  loyalty: {
+    is_enabled: boolean
+    base_accrual_percent: number
+    max_redeem_percent: number
+    point_value: number
+    min_order_total_for_redeem: number
+    tiers: Array<{
+      name: string
+      min_spent: number
+      accrual_percent: number
+    }>
+    terms_content: string | null
+    account: {
+      points_balance: number
+      total_spent: number
+      accrual_percent: number
+      current_tier: {
+        name: string
+        min_spent: number
+        accrual_percent: number
+      } | null
+      next_tier: {
+        name: string
+        min_spent: number
+        accrual_percent: number
+      } | null
+      amount_to_next_tier: number
+    } | null
+  }
 }
 
 type CheckoutPreview = {
   subtotal: number
   discount_total: number
+  loyalty_discount_total: number
   delivery_total: number
   total: number
   currency: string
@@ -77,6 +108,31 @@ type CheckoutPreview = {
     code: string | null
     is_applied: boolean
     message: string | null
+  }
+  loyalty: {
+    is_enabled: boolean
+    requested_points: number
+    applied_points: number
+    max_points_to_spend: number
+    points_balance: number
+    points_to_earn: number
+    accrual_percent: number
+    account: {
+      points_balance: number
+      total_spent: number
+      accrual_percent: number
+      current_tier: {
+        name: string
+        min_spent: number
+        accrual_percent: number
+      } | null
+      next_tier: {
+        name: string
+        min_spent: number
+        accrual_percent: number
+      } | null
+      amount_to_next_tier: number
+    } | null
   }
 }
 
@@ -94,10 +150,29 @@ type CheckoutResponse = {
   promo_code: string | null
   subtotal: number
   discount_total: number
+  loyalty_discount_total: number
+  loyalty_points_spent: number
+  loyalty_points_earned: number
   delivery_total: number
   total: number
   currency: string
   items_count: number
+  loyalty_account: {
+    points_balance: number
+    total_spent: number
+    accrual_percent: number
+    current_tier: {
+      name: string
+      min_spent: number
+      accrual_percent: number
+    } | null
+    next_tier: {
+      name: string
+      min_spent: number
+      accrual_percent: number
+    } | null
+    amount_to_next_tier: number
+  } | null
 }
 
 type OrderSummary = {
@@ -137,6 +212,9 @@ type OrderDetails = {
   total: number
   subtotal: number
   discount_total: number
+  loyalty_discount_total: number
+  loyalty_points_spent: number
+  loyalty_points_earned: number
   delivery_total: number
   currency: string
   customer_name: string
@@ -262,7 +340,12 @@ export const useCartStore = defineStore('cart', () => {
     checkoutOptions.value = await requestJson<CheckoutOptions>('/api/checkout/options')
   }
 
-  async function previewCheckout(payload: { delivery_method: string; promo_code?: string; customer_email?: string }) {
+  async function previewCheckout(payload: {
+    delivery_method: string
+    promo_code?: string
+    customer_email?: string
+    loyalty_points_to_spend?: number
+  }) {
     return requestJson<CheckoutPreview>('/api/checkout/preview', {
       method: 'POST',
       body: JSON.stringify({

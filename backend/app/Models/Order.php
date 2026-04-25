@@ -40,6 +40,9 @@ class Order extends Model
         'first_touch_landing_path',
         'comment',
         'promo_code',
+        'loyalty_points_spent',
+        'loyalty_discount_total',
+        'loyalty_points_earned',
         'placed_at',
         'confirmed_at',
         'cancelled_at',
@@ -49,6 +52,7 @@ class Order extends Model
     protected $casts = [
         'subtotal' => 'decimal:2',
         'discount_total' => 'decimal:2',
+        'loyalty_discount_total' => 'decimal:2',
         'delivery_total' => 'decimal:2',
         'total' => 'decimal:2',
         'placed_at' => 'datetime',

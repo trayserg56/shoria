@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Support\Loyalty\LoyaltyProgramService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,11 @@ use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
+    public function __construct(
+        private LoyaltyProgramService $loyaltyProgram,
+    ) {
+    }
+
     public function register(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -278,6 +284,8 @@ class AuthController extends Controller
 
     private function serializeUser(User $user): array
     {
+        $loyalty = $this->loyaltyProgram->userSnapshot($user);
+
         return [
             'id' => $user->id,
             'name' => $user->name,
@@ -285,6 +293,7 @@ class AuthController extends Controller
             'phone' => $user->phone,
             'role' => $user->role,
             'email_verified_at' => $user->email_verified_at?->toJSON(),
+            'loyalty' => $loyalty,
         ];
     }
 

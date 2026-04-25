@@ -16,6 +16,7 @@ use App\Models\ProductVariant;
 use App\Models\User;
 use App\Support\Analytics\AttributionData;
 use App\Support\Delivery\DeliveryGatewayRegistry;
+use App\Support\Loyalty\LoyaltyProgramService;
 use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,11 +31,15 @@ class CheckoutController extends Controller
     public function __construct(
         private PaymentGatewayRegistry $paymentGateways,
         private DeliveryGatewayRegistry $deliveryGateways,
+        private LoyaltyProgramService $loyaltyProgram,
     ) {
     }
 
-    public function options(): JsonResponse
+    public function options(Request $request): JsonResponse
     {
+        $user = $this->resolveAuthenticatedUser($request);
+        $loyaltySetting = $this->loyaltyProgram->getSetting();
+
         $deliveryMethods = DeliveryMethod::query()
             ->with('provider')
             ->where('is_active', true)
@@ -81,6 +86,10 @@ class CheckoutController extends Controller
             'delivery_methods' => $deliveryMethods,
             'payment_methods' => $paymentMethods,
             'promo_codes' => $promoCodes,
+            'loyalty' => [
+                ...$this->loyaltyProgram->infoPayload($loyaltySetting),
+                'account' => $this->loyaltyProgram->userSnapshot($user, $loyaltySetting),
+            ],
         ]);
     }
 
@@ -94,6 +103,7 @@ class CheckoutController extends Controller
             'delivery_method' => ['required', 'string', 'max:32'],
             'payment_method' => ['required', 'string', Rule::in($this->allowedPaymentMethodCodes())],
             'promo_code' => ['nullable', 'string', 'max:64'],
+            'loyalty_points_to_spend' => ['nullable', 'integer', 'min:0'],
             'comment' => ['nullable', 'string', 'max:2000'],
             'attribution' => ['nullable', 'array'],
         ]);
@@ -148,11 +158,41 @@ class CheckoutController extends Controller
             $user,
         );
         $discountTotal = $promoCode ? $this->calculateDiscount($promoCode, $cart, $subtotal) : 0.0;
+        $loyaltySetting = $this->loyaltyProgram->getSetting();
+        $requestedLoyaltyPoints = max(0, (int) ($validated['loyalty_points_to_spend'] ?? 0));
+        $subtotalAfterPromo = max(0.0, $subtotal - $discountTotal);
+        $loyaltyPointsSpent = 0;
+        $loyaltyDiscountTotal = 0.0;
+        $loyaltyPointsEarned = 0;
+        $loyaltyAccrualBase = 0.0;
+        $loyaltyAccrualPercent = 0.0;
+
+        if ($requestedLoyaltyPoints > 0 && ! $user) {
+            throw ValidationException::withMessages([
+                'loyalty_points_to_spend' => 'Чтобы списывать баллы, войдите в аккаунт.',
+            ]);
+        }
+
+        if ($user && $this->loyaltyProgram->isEnabled($loyaltySetting)) {
+            $maxLoyaltyPoints = $this->loyaltyProgram->resolveMaxRedeemPoints($user, $subtotalAfterPromo, $loyaltySetting);
+            $loyaltyPointsSpent = min($requestedLoyaltyPoints, $maxLoyaltyPoints);
+            $loyaltyDiscountTotal = $this->loyaltyProgram->resolveRedeemDiscountByPoints($loyaltyPointsSpent, $loyaltySetting);
+            $loyaltyDiscountTotal = min($loyaltyDiscountTotal, $subtotalAfterPromo);
+
+            $pointValue = max(0.01, (float) $loyaltySetting->point_value);
+            $loyaltyPointsSpent = (int) floor($loyaltyDiscountTotal / $pointValue);
+            $loyaltyDiscountTotal = $this->loyaltyProgram->resolveRedeemDiscountByPoints($loyaltyPointsSpent, $loyaltySetting);
+
+            $loyaltyAccrualBase = max(0.0, $subtotalAfterPromo - $loyaltyDiscountTotal);
+            $loyaltyAccrualPercent = $this->loyaltyProgram->resolveEffectiveAccrualPercent($user, $loyaltySetting);
+            $loyaltyPointsEarned = $this->loyaltyProgram->resolveAccrualPoints($user, $loyaltyAccrualBase, $loyaltySetting);
+        }
+
         $deliveryTotal = $this->resolveDeliveryFee($deliveryMethod, $subtotal);
         if ($promoCode?->free_delivery) {
             $deliveryTotal = 0.0;
         }
-        $orderTotal = max(0, $subtotal - $discountTotal + $deliveryTotal);
+        $orderTotal = max(0, $subtotal - $discountTotal - $loyaltyDiscountTotal + $deliveryTotal);
         $attribution = AttributionData::normalize($validated['attribution'] ?? null);
 
         $order = DB::transaction(function () use (
@@ -166,6 +206,12 @@ class CheckoutController extends Controller
             $promoCode,
             $subtotal,
             $discountTotal,
+            $loyaltyPointsSpent,
+            $loyaltyDiscountTotal,
+            $loyaltyPointsEarned,
+            $loyaltyAccrualBase,
+            $loyaltyAccrualPercent,
+            $loyaltySetting,
             $deliveryTotal,
             $orderTotal,
             $attribution,
@@ -184,6 +230,9 @@ class CheckoutController extends Controller
                 'currency' => $cart->currency,
                 'subtotal' => $subtotal,
                 'discount_total' => $discountTotal,
+                'loyalty_points_spent' => $loyaltyPointsSpent,
+                'loyalty_discount_total' => $loyaltyDiscountTotal,
+                'loyalty_points_earned' => $loyaltyPointsEarned,
                 'delivery_total' => $deliveryTotal,
                 'total' => $orderTotal,
                 'customer_name' => $validated['customer_name'],
@@ -243,6 +292,29 @@ class CheckoutController extends Controller
                 ]);
             }
 
+            if ($user && $this->loyaltyProgram->isEnabled($loyaltySetting)) {
+                $freshUser = User::query()->whereKey($user->id)->lockForUpdate()->first();
+
+                if ($freshUser && $loyaltyPointsSpent > 0) {
+                    $this->loyaltyProgram->applyRedeem(
+                        $freshUser,
+                        $order,
+                        $loyaltyPointsSpent,
+                        $loyaltyDiscountTotal,
+                    );
+                }
+
+                if ($freshUser && $loyaltyPointsEarned > 0) {
+                    $this->loyaltyProgram->applyAccrual(
+                        $freshUser,
+                        $order,
+                        $loyaltyPointsEarned,
+                        $loyaltyAccrualBase,
+                        $loyaltyAccrualPercent,
+                    );
+                }
+            }
+
             return $order->fresh(['items', 'paymentTransactions']);
         });
 
@@ -260,10 +332,14 @@ class CheckoutController extends Controller
             'promo_code' => $order->promo_code,
             'subtotal' => (float) $order->subtotal,
             'discount_total' => (float) $order->discount_total,
+            'loyalty_points_spent' => (int) $order->loyalty_points_spent,
+            'loyalty_discount_total' => (float) $order->loyalty_discount_total,
+            'loyalty_points_earned' => (int) $order->loyalty_points_earned,
             'delivery_total' => (float) $order->delivery_total,
             'total' => (float) $order->total,
             'currency' => $order->currency,
             'items_count' => $order->items->sum('qty'),
+            'loyalty_account' => $user ? $this->loyaltyProgram->userSnapshot($user->fresh(), $loyaltySetting) : null,
         ], 201);
     }
 
@@ -273,6 +349,7 @@ class CheckoutController extends Controller
             'session_id' => ['nullable', 'string', 'max:64'],
             'delivery_method' => ['required', 'string', 'max:32'],
             'promo_code' => ['nullable', 'string', 'max:64'],
+            'loyalty_points_to_spend' => ['nullable', 'integer', 'min:0'],
             'customer_email' => ['nullable', 'email', 'max:255'],
         ]);
 
@@ -328,15 +405,40 @@ class CheckoutController extends Controller
         }
 
         $discountTotal = $promoCode && $cart ? $this->calculateDiscount($promoCode, $cart, $subtotal) : 0.0;
+        $loyaltySetting = $this->loyaltyProgram->getSetting();
+        $requestedLoyaltyPoints = max(0, (int) ($validated['loyalty_points_to_spend'] ?? 0));
+        $subtotalAfterPromo = max(0.0, $subtotal - $discountTotal);
+        $maxLoyaltyPoints = 0;
+        $loyaltyPointsSpent = 0;
+        $loyaltyDiscountTotal = 0.0;
+        $loyaltyPointsEarned = 0;
+        $loyaltyAccrualPercent = 0.0;
+
+        if ($user && $this->loyaltyProgram->isEnabled($loyaltySetting)) {
+            $maxLoyaltyPoints = $this->loyaltyProgram->resolveMaxRedeemPoints($user, $subtotalAfterPromo, $loyaltySetting);
+            $loyaltyPointsSpent = min($requestedLoyaltyPoints, $maxLoyaltyPoints);
+            $loyaltyDiscountTotal = min(
+                $subtotalAfterPromo,
+                $this->loyaltyProgram->resolveRedeemDiscountByPoints($loyaltyPointsSpent, $loyaltySetting),
+            );
+            $pointValue = max(0.01, (float) $loyaltySetting->point_value);
+            $loyaltyPointsSpent = (int) floor($loyaltyDiscountTotal / $pointValue);
+            $loyaltyDiscountTotal = $this->loyaltyProgram->resolveRedeemDiscountByPoints($loyaltyPointsSpent, $loyaltySetting);
+            $accrualBase = max(0.0, $subtotalAfterPromo - $loyaltyDiscountTotal);
+            $loyaltyAccrualPercent = $this->loyaltyProgram->resolveEffectiveAccrualPercent($user, $loyaltySetting);
+            $loyaltyPointsEarned = $this->loyaltyProgram->resolveAccrualPoints($user, $accrualBase, $loyaltySetting);
+        }
+
         $deliveryTotal = $this->resolveDeliveryFee($deliveryMethod, $subtotal);
         if ($promoCode?->free_delivery) {
             $deliveryTotal = 0.0;
         }
-        $total = max(0, $subtotal - $discountTotal + $deliveryTotal);
+        $total = max(0, $subtotal - $discountTotal - $loyaltyDiscountTotal + $deliveryTotal);
 
         return response()->json([
             'subtotal' => $subtotal,
             'discount_total' => $discountTotal,
+            'loyalty_discount_total' => $loyaltyDiscountTotal,
             'delivery_total' => $deliveryTotal,
             'total' => $total,
             'currency' => $cart?->currency ?? 'RUB',
@@ -344,6 +446,16 @@ class CheckoutController extends Controller
                 'code' => $promoCode?->code ?? $requestedPromoCode,
                 'is_applied' => $promoApplied,
                 'message' => $promoMessage,
+            ],
+            'loyalty' => [
+                'is_enabled' => $this->loyaltyProgram->isEnabled($loyaltySetting),
+                'requested_points' => $requestedLoyaltyPoints,
+                'applied_points' => $loyaltyPointsSpent,
+                'max_points_to_spend' => $maxLoyaltyPoints,
+                'points_balance' => $user ? (int) $user->loyalty_points_balance : 0,
+                'points_to_earn' => $loyaltyPointsEarned,
+                'accrual_percent' => $loyaltyAccrualPercent,
+                'account' => $this->loyaltyProgram->userSnapshot($user, $loyaltySetting),
             ],
         ]);
     }

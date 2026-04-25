@@ -33,6 +33,13 @@ class UsersTable
                         User::ROLE_CONTENT_MANAGER => 'warning',
                         default => 'gray',
                     }),
+                Tables\Columns\TextColumn::make('loyalty_points_balance')
+                    ->label('Баллы')
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('loyalty_total_spent')
+                    ->label('Сумма покупок')
+                    ->money('RUB')
+                    ->sortable(),
                 Tables\Columns\IconColumn::make('email_verified_at')
                     ->label('Email подтвержден')
                     ->boolean(fn (User $record): bool => $record->email_verified_at !== null),

@@ -1,11 +1,13 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BrandController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\HomeController;
+use App\Http\Controllers\Api\LoyaltyController;
 use App\Http\Controllers\Api\NewsletterSubscriptionController;
 use App\Http\Controllers\Api\NavigationController;
 use App\Http\Controllers\Api\NewsController;
@@ -19,6 +21,7 @@ Route::middleware('throttle:public-api')->group(function (): void {
     Route::get('/home', HomeController::class);
     Route::get('/navigation', NavigationController::class);
     Route::get('/categories', [CategoryController::class, 'index']);
+    Route::get('/brands', [BrandController::class, 'index']);
     Route::get('/products', [ProductController::class, 'index']);
     Route::get('/search/suggest', [ProductController::class, 'suggest']);
     Route::get('/recommendations/personal', [ProductController::class, 'personalRecommendations']);
@@ -28,6 +31,7 @@ Route::middleware('throttle:public-api')->group(function (): void {
     Route::get('/news', [NewsController::class, 'index']);
     Route::get('/pages', [ServicePageController::class, 'index']);
     Route::get('/pages/{slug}', [ServicePageController::class, 'show']);
+    Route::get('/loyalty/info', [LoyaltyController::class, 'info']);
     Route::get('/cart', [CartController::class, 'show']);
     Route::get('/checkout/options', [CheckoutController::class, 'options']);
     Route::get('/orders', [OrderController::class, 'index']);
@@ -70,4 +74,5 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::post('/auth/email/verification-notification', [AuthController::class, 'resendVerificationEmail'])
         ->middleware('throttle:6,1');
+    Route::get('/loyalty/me', [LoyaltyController::class, 'me']);
 });

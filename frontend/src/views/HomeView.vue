@@ -35,6 +35,14 @@ type Product = {
   } | null
 }
 
+type Brand = {
+  id: number
+  name: string
+  slug: string
+  image_url: string | null
+  products_count: number
+}
+
 type NewsPost = {
   id: number
   title: string
@@ -99,7 +107,9 @@ const heroSlider = ref<HTMLElement | null>(null)
 const featuredSlider = ref<HTMLElement | null>(null)
 const recentSlider = ref<HTMLElement | null>(null)
 const personalSlider = ref<HTMLElement | null>(null)
+const brandsSlider = ref<HTMLElement | null>(null)
 const personalRecommendations = ref<Product[]>([])
+const brands = ref<Brand[]>([])
 const personalRecommendationsSource = ref<'order_history' | 'view_history' | 'featured_fallback' | null>(null)
 const heroBanners = computed<Banner[]>(() => {
   if (state.value.banners?.length) {
@@ -236,10 +246,21 @@ async function loadPersonalRecommendations() {
   }
 }
 
+async function loadBrands() {
+  try {
+    const payload = await fetchJson<Brand[]>('/api/brands')
+    brands.value = payload.slice(0, 8)
+  } catch (error) {
+    console.error(error)
+    brands.value = []
+  }
+}
+
 onMounted(async () => {
   recentlyViewed.value = readRecentlyViewed()
   await loadHome()
   await loadPersonalRecommendations()
+  await loadBrands()
 })
 
 async function subscribeToNewsletter() {
@@ -412,6 +433,32 @@ async function subscribeToNewsletter() {
             </a>
           </div>
         </article>
+      </div>
+    </section>
+
+    <section v-if="brands.length" class="section">
+      <header class="section__header">
+        <h2>Бренды</h2>
+        <p>Популярные бренды из каталога.</p>
+        <RouterLink class="section__more-link" to="/brands">Смотреть все бренды</RouterLink>
+      </header>
+      <div class="section__head-actions">
+        <button type="button" class="slider-nav" @click="scrollSlider(brandsSlider, 'prev')">←</button>
+        <button type="button" class="slider-nav" @click="scrollSlider(brandsSlider, 'next')">→</button>
+      </div>
+      <div ref="brandsSlider" class="slider brands-slider">
+        <RouterLink
+          v-for="brand in brands"
+          :key="`home-brand-${brand.id}`"
+          :to="{ path: '/catalog', query: { brands: brand.name } }"
+          class="brand-slide"
+        >
+          <img v-if="brand.image_url" :src="brand.image_url" :alt="brand.name" loading="lazy" />
+          <div class="brand-slide__body">
+            <h3>{{ brand.name }}</h3>
+            <p>{{ brand.products_count }} товаров</p>
+          </div>
+        </RouterLink>
       </div>
     </section>
 
@@ -776,6 +823,46 @@ async function subscribeToNewsletter() {
   flex: 0 0 clamp(230px, 24vw, 300px);
 }
 
+.brands-slider {
+  gap: 14px;
+}
+
+.brand-slide {
+  flex: 0 0 calc((100% - 42px) / 4);
+  min-width: 220px;
+  border: 1px solid #eadbc8;
+  border-radius: 20px;
+  background: #fffdfa;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+}
+
+.brand-slide:hover {
+  border-color: var(--color-accent, #bf4b08);
+}
+
+.brand-slide img {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+}
+
+.brand-slide__body {
+  padding: 12px 14px 14px;
+}
+
+.brand-slide__body h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.brand-slide__body p {
+  margin-top: 6px;
+  color: var(--color-text-soft);
+  font-size: 14px;
+}
+
 .news-grid {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
@@ -962,6 +1049,10 @@ async function subscribeToNewsletter() {
 
   .hero__content {
     padding: 30px 20px;
+  }
+
+  .brand-slide {
+    flex: 0 0 calc((100% - 14px) / 2);
   }
 }
 </style>

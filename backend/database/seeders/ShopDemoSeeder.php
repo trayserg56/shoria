@@ -7,6 +7,7 @@ use App\Models\Brand;
 use App\Models\Category;
 use App\Models\DeliveryProvider;
 use App\Models\DeliveryMethod;
+use App\Models\LoyaltyProgramSetting;
 use App\Models\NewsPost;
 use App\Models\PaymentProvider;
 use App\Models\PromoCode;
@@ -14,6 +15,7 @@ use App\Models\Product;
 use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\ProductVariantImage;
+use App\Models\ServicePage;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 
@@ -171,6 +173,48 @@ class ShopDemoSeeder extends Seeder
                 'starts_at' => null,
                 'ends_at' => null,
                 'is_active' => true,
+            ],
+        );
+
+        LoyaltyProgramSetting::query()->updateOrCreate(
+            ['id' => 1],
+            [
+                'is_enabled' => true,
+                'base_accrual_percent' => 5,
+                'max_redeem_percent' => 25,
+                'point_value' => 1,
+                'min_order_total_for_redeem' => 1000,
+                'tiers' => [
+                    ['name' => 'Base', 'min_spent' => 0, 'accrual_percent' => 5],
+                    ['name' => 'Silver', 'min_spent' => 30000, 'accrual_percent' => 6],
+                    ['name' => 'Gold', 'min_spent' => 80000, 'accrual_percent' => 7],
+                    ['name' => 'Platinum', 'min_spent' => 150000, 'accrual_percent' => 8],
+                ],
+                'terms_content' => <<<HTML
+<h2>Как работает программа лояльности</h2>
+<p>За каждую покупку начисляем баллы. 1 балл = 1 ₽. Баллами можно оплатить часть следующего заказа.</p>
+<ul>
+<li>Базовое начисление: 5% от суммы товаров после скидок.</li>
+<li>Максимальное списание: 25% от суммы товаров в заказе.</li>
+<li>Списать баллы можно при сумме заказа от 1000 ₽.</li>
+</ul>
+<p>Уровень лояльности повышается автоматически по накопленной сумме покупок.</p>
+HTML,
+            ],
+        );
+
+        ServicePage::query()->updateOrCreate(
+            ['slug' => 'loyalty-program'],
+            [
+                'title' => 'Программа лояльности',
+                'excerpt' => 'Баллы за покупки, уровни и условия использования.',
+                'content' => '<p>Эта страница обновляется на основе текущих правил программы лояльности.</p><p>Подробные условия и уровни доступны ниже.</p>',
+                'seo_title' => 'Программа лояльности — Shoria',
+                'seo_description' => 'Балльная программа Shoria: как копить и тратить баллы, уровни и правила.',
+                'is_active' => true,
+                'show_in_header' => false,
+                'show_in_footer' => true,
+                'sort_order' => 80,
             ],
         );
 
@@ -553,6 +597,17 @@ class ShopDemoSeeder extends Seeder
             ],
         ];
 
+        $brandImages = [
+            'Nike' => 'https://images.unsplash.com/photo-1511556532299-8f662fc26c06?auto=format&fit=crop&w=1200&q=80',
+            'Puma' => 'https://images.unsplash.com/photo-1514989940723-e8e51635b782?auto=format&fit=crop&w=1200&q=80',
+            'Adidas' => 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80',
+            'Reebok' => 'https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?auto=format&fit=crop&w=1200&q=80',
+            'Converse' => 'https://images.unsplash.com/photo-1512374382149-233c42b6a83b?auto=format&fit=crop&w=1200&q=80',
+            'ASICS' => 'https://images.unsplash.com/photo-1539185441755-769473a23570?auto=format&fit=crop&w=1200&q=80',
+            'Balenciaga' => 'https://images.unsplash.com/photo-1525966222134-fcfa99b8ae77?auto=format&fit=crop&w=1200&q=80',
+            'Moondrop' => 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?auto=format&fit=crop&w=1200&q=80',
+        ];
+
         $brands = collect();
 
         foreach (collect($products)->pluck('brand')->unique()->values() as $brandName) {
@@ -560,10 +615,16 @@ class ShopDemoSeeder extends Seeder
                 ['name' => $brandName],
                 [
                     'slug' => \Illuminate\Support\Str::slug($brandName),
+                    'image_url' => $brandImages[$brandName] ?? null,
                     'is_active' => true,
                     'sort_order' => 0,
                 ],
             );
+
+            if (! $brand->image_url && isset($brandImages[$brandName])) {
+                $brand->image_url = $brandImages[$brandName];
+                $brand->save();
+            }
 
             $brands->put($brand->name, $brand);
         }

@@ -37,6 +37,11 @@ const stats = computed(() => [
     value: String(compareTotalItems.value),
     to: { name: 'account-saved' },
   },
+  {
+    label: 'Баллы',
+    value: String(user.value?.loyalty?.points_balance ?? 0),
+    to: { name: 'account-loyalty' },
+  },
 ])
 
 function formatPrice(value: number) {
@@ -150,6 +155,7 @@ onMounted(async () => {
 
         <div class="quick-actions">
           <RouterLink :to="{ name: 'account-settings' }">Изменить имя, телефон и email</RouterLink>
+          <RouterLink :to="{ name: 'account-loyalty' }">Проверить баллы и уровень</RouterLink>
           <RouterLink :to="{ name: 'account-saved' }">Открыть избранное и сравнение</RouterLink>
           <RouterLink to="/catalog">Вернуться в каталог</RouterLink>
         </div>
@@ -263,7 +269,7 @@ onMounted(async () => {
 
 .account-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 
