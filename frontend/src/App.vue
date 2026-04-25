@@ -76,6 +76,8 @@ const defaultNavigation: NavigationResponse = {
     { id: -1, label: 'Главная', path: '/', is_external: false, open_in_new_tab: false },
     { id: -2, label: 'Каталог', path: '/catalog', is_external: false, open_in_new_tab: false },
     { id: -3, label: 'Новости', path: '/news', is_external: false, open_in_new_tab: false },
+    { id: -10, label: 'Доставка', path: '/pages/delivery', is_external: false, open_in_new_tab: false },
+    { id: -11, label: 'Пользовательское соглашение', path: '/pages/user-agreement', is_external: false, open_in_new_tab: false },
   ],
   footer: {
     customers: [
@@ -83,6 +85,11 @@ const defaultNavigation: NavigationResponse = {
       { id: -5, label: 'Новости', path: '/news', is_external: false, open_in_new_tab: false },
       { id: -6, label: 'Избранное', path: '/wishlist', is_external: false, open_in_new_tab: false },
       { id: -7, label: 'Корзина', path: '/cart', is_external: false, open_in_new_tab: false },
+      { id: -12, label: 'Доставка', path: '/pages/delivery', is_external: false, open_in_new_tab: false },
+      { id: -13, label: 'Оплата', path: '/pages/payment', is_external: false, open_in_new_tab: false },
+      { id: -14, label: 'Возврат и обмен', path: '/pages/returns', is_external: false, open_in_new_tab: false },
+      { id: -15, label: 'Пользовательское соглашение', path: '/pages/user-agreement', is_external: false, open_in_new_tab: false },
+      { id: -16, label: 'Политика конфиденциальности', path: '/pages/privacy-policy', is_external: false, open_in_new_tab: false },
     ],
     account: [
       { id: -8, label: 'Профиль', path: '/account', is_external: false, open_in_new_tab: false },

@@ -21,6 +21,7 @@ class Product extends Model
         'slug',
         'sku',
         'description',
+        'characteristics',
         'seo_title',
         'seo_description',
         'price',
@@ -43,6 +44,7 @@ class Product extends Model
         'is_new' => 'boolean',
         'is_customer_choice' => 'boolean',
         'is_active' => 'boolean',
+        'characteristics' => 'array',
     ];
 
     public function category(): BelongsTo

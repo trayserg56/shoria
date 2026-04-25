@@ -678,6 +678,7 @@ class ProductController extends Controller
             'slug' => $product->slug,
             'sku' => $product->sku,
             'description' => $product->description,
+            'characteristics' => $this->normalizeCharacteristics($product->characteristics),
             'seo_title' => $product->seo_title,
             'seo_description' => $product->seo_description,
             'price' => (float) $product->price,
@@ -703,6 +704,41 @@ class ProductController extends Controller
                     'is_cover' => $image->is_cover,
                 ]),
         ]);
+    }
+
+    /**
+     * @param mixed $characteristics
+     * @return array<int, array{group: string|null, name: string, value: string}>
+     */
+    private function normalizeCharacteristics(mixed $characteristics): array
+    {
+        if (! is_array($characteristics)) {
+            return [];
+        }
+
+        return collect($characteristics)
+            ->map(function ($row): ?array {
+                if (! is_array($row)) {
+                    return null;
+                }
+
+                $name = trim((string) ($row['name'] ?? ''));
+                $value = trim((string) ($row['value'] ?? ''));
+                $group = trim((string) ($row['group'] ?? ''));
+
+                if ($name === '' || $value === '') {
+                    return null;
+                }
+
+                return [
+                    'group' => $group !== '' ? $group : null,
+                    'name' => $name,
+                    'value' => $value,
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
     }
 
     public function recommendations(string $slug): JsonResponse

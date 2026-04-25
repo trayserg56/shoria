@@ -43,4 +43,3 @@ class NavigationController extends Controller
         ]);
     }
 }
-

@@ -18,6 +18,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use UnitEnum;
 
 class OrderResource extends Resource
 {
@@ -26,6 +27,8 @@ class OrderResource extends Resource
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedShoppingBag;
 
     protected static ?string $navigationLabel = 'Заказы';
+
+    protected static string|UnitEnum|null $navigationGroup = 'Магазин';
 
     protected static ?int $navigationSort = 3;
 

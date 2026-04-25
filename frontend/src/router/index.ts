@@ -12,8 +12,10 @@ import CompareView from '../views/CompareView.vue'
 import HomeView from '../views/HomeView.vue'
 import NewsListView from '../views/NewsListView.vue'
 import NewsPostView from '../views/NewsPostView.vue'
+import NotFoundView from '../views/NotFoundView.vue'
 import OrderSuccessView from '../views/OrderSuccessView.vue'
 import ProductView from '../views/ProductView.vue'
+import ServicePageView from '../views/ServicePageView.vue'
 import WishlistView from '../views/WishlistView.vue'
 
 const router = createRouter({
@@ -84,6 +86,15 @@ const router = createRouter({
       meta: {
         seoTitle: 'Новости — Shoria',
         seoDescription: 'Новости и подборки Shoria: тренды, новинки и полезные гайды.',
+      },
+    },
+    {
+      path: '/pages/:slug',
+      name: 'service-page',
+      component: ServicePageView,
+      meta: {
+        seoTitle: 'Информация — Shoria',
+        seoDescription: 'Служебная информация магазина Shoria.',
       },
     },
     {
@@ -199,6 +210,16 @@ const router = createRouter({
     {
       path: '/orders',
       redirect: '/account/orders',
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: NotFoundView,
+      meta: {
+        seoTitle: 'Страница не найдена — Shoria',
+        seoDescription: 'Запрошенная страница не найдена.',
+        seoRobots: 'noindex,nofollow',
+      },
     },
   ],
 })

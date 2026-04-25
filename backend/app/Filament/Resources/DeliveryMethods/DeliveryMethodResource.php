@@ -15,6 +15,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use UnitEnum;
 
 class DeliveryMethodResource extends Resource
 {
@@ -23,6 +24,8 @@ class DeliveryMethodResource extends Resource
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
 
     protected static ?string $navigationLabel = 'Доставка';
+
+    protected static string|UnitEnum|null $navigationGroup = 'Настройки';
 
     public static function canViewAny(): bool
     {

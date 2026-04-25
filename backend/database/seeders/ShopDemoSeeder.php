@@ -602,6 +602,12 @@ class ShopDemoSeeder extends Seeder
             ]);
             $product->save();
 
+            $currentCharacteristics = is_array($product->characteristics) ? $product->characteristics : [];
+            if ($currentCharacteristics === []) {
+                $product->characteristics = $this->buildProductCharacteristics($item);
+                $product->save();
+            }
+
             $categorySlugs = collect([
                 $item['category_slug'] ?? null,
                 ...($item['additional_category_slugs'] ?? []),
@@ -823,5 +829,54 @@ class ShopDemoSeeder extends Seeder
                 $post->products()->syncWithoutDetaching($productIds);
             }
         }
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     * @return array<int, array{group: string, name: string, value: string}>
+     */
+    private function buildProductCharacteristics(array $item): array
+    {
+        $categorySlug = (string) ($item['category_slug'] ?? '');
+        $brand = (string) ($item['brand'] ?? 'Shoria');
+        $sku = (string) ($item['sku'] ?? '—');
+
+        $general = [
+            ['group' => 'Общие характеристики', 'name' => 'Артикул', 'value' => $sku],
+            ['group' => 'Общие характеристики', 'name' => 'Бренд', 'value' => $brand],
+            ['group' => 'Общие характеристики', 'name' => 'Страна бренда', 'value' => 'США'],
+            ['group' => 'Общие характеристики', 'name' => 'Материал верха', 'value' => 'Текстиль / синтетика'],
+            ['group' => 'Общие характеристики', 'name' => 'Материал подошвы', 'value' => 'Резина'],
+        ];
+
+        $categorySpecific = match ($categorySlug) {
+            'running', 'road-running', 'trail-running' => [
+                ['group' => 'Общие характеристики', 'name' => 'Тип', 'value' => 'Беговые кроссовки'],
+                ['group' => 'Общие характеристики', 'name' => 'Амортизация', 'value' => 'Средняя'],
+                ['group' => 'Общие характеристики', 'name' => 'Перепад', 'value' => '8 мм'],
+                ['group' => 'Дополнительно', 'name' => 'Рекомендованный темп', 'value' => 'Легкий / средний'],
+            ],
+            'street', 'bold-street' => [
+                ['group' => 'Общие характеристики', 'name' => 'Тип', 'value' => 'Streetwear'],
+                ['group' => 'Общие характеристики', 'name' => 'Высота', 'value' => 'Низкие'],
+                ['group' => 'Дополнительно', 'name' => 'Стиль', 'value' => 'Повседневный / городской'],
+            ],
+            'premium', 'limited-edition' => [
+                ['group' => 'Общие характеристики', 'name' => 'Тип', 'value' => 'Премиум коллекция'],
+                ['group' => 'Общие характеристики', 'name' => 'Линейка', 'value' => 'Limited release'],
+                ['group' => 'Дополнительно', 'name' => 'Тираж', 'value' => 'Ограниченный'],
+            ],
+            default => [
+                ['group' => 'Общие характеристики', 'name' => 'Тип', 'value' => 'Lifestyle'],
+                ['group' => 'Дополнительно', 'name' => 'Назначение', 'value' => 'На каждый день'],
+            ],
+        };
+
+        return [
+            ...$general,
+            ...$categorySpecific,
+            ['group' => 'Дополнительно', 'name' => 'Гарантия', 'value' => '1 год'],
+            ['group' => 'Дополнительно', 'name' => 'Сезон', 'value' => 'Демисезон'],
+        ];
     }
 }

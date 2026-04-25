@@ -15,6 +15,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use UnitEnum;
 
 class NavigationMenuItemResource extends Resource
 {
@@ -23,6 +24,8 @@ class NavigationMenuItemResource extends Resource
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBars3BottomLeft;
 
     protected static ?string $navigationLabel = 'Меню сайта';
+
+    protected static string|UnitEnum|null $navigationGroup = 'Контент';
 
     public static function canViewAny(): bool
     {
@@ -68,4 +71,3 @@ class NavigationMenuItemResource extends Resource
         ];
     }
 }
-

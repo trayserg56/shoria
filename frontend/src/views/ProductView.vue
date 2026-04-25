@@ -42,6 +42,11 @@ type ProductPayload = {
   slug: string
   sku: string | null
   description: string | null
+  characteristics: Array<{
+    group: string | null
+    name: string
+    value: string
+  }>
   seo_title: string | null
   seo_description: string | null
   price: number
@@ -174,6 +179,31 @@ const catalogCategoryLink = computed(() =>
     ? { path: '/catalog', query: { category: product.value.category.slug } }
     : { path: '/catalog' },
 )
+const groupedCharacteristics = computed(() => {
+  if (!product.value?.characteristics?.length) {
+    return []
+  }
+
+  const groups = new Map<string, Array<{ name: string; value: string }>>()
+
+  for (const item of product.value.characteristics) {
+    const groupName = item.group?.trim() || 'Характеристики'
+
+    if (!groups.has(groupName)) {
+      groups.set(groupName, [])
+    }
+
+    groups.get(groupName)?.push({
+      name: item.name,
+      value: item.value,
+    })
+  }
+
+  return Array.from(groups.entries()).map(([name, items]) => ({
+    name,
+    items,
+  }))
+})
 
 function formatPrice(value: number, currency: string) {
   return new Intl.NumberFormat('ru-RU', {
@@ -690,6 +720,22 @@ watch(
           {{ effectiveStock > 0 ? `В наличии: ${effectiveStock} шт.` : 'Нет в наличии' }}
         </p>
         <p class="details__description">{{ product.description ?? 'Описание скоро обновим.' }}</p>
+        <section v-if="groupedCharacteristics.length" class="details__characteristics">
+          <article
+            v-for="group in groupedCharacteristics"
+            :key="`char-group-${group.name}`"
+            class="details__characteristics-group"
+          >
+            <h3>{{ group.name }}</h3>
+            <ul>
+              <li v-for="(row, index) in group.items" :key="`char-row-${group.name}-${index}`">
+                <span class="details__characteristics-name">{{ row.name }}</span>
+                <span class="details__characteristics-dots" />
+                <span class="details__characteristics-value">{{ row.value }}</span>
+              </li>
+            </ul>
+          </article>
+        </section>
 
         <div class="cta-row">
           <button
@@ -923,6 +969,47 @@ watch(
 .details__description {
   margin-top: 14px;
   color: #3d4760;
+}
+
+.details__characteristics {
+  margin-top: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.details__characteristics-group h3 {
+  margin: 0 0 7px;
+  font-size: 22px;
+}
+
+.details__characteristics-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 7px;
+}
+
+.details__characteristics-group li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.details__characteristics-name {
+  color: #5b6479;
+}
+
+.details__characteristics-dots {
+  border-bottom: 1px solid #d8d4cd;
+  transform: translateY(-4px);
+}
+
+.details__characteristics-value {
+  color: #1f2233;
+  font-weight: 600;
+  text-align: right;
 }
 
 .sizes {

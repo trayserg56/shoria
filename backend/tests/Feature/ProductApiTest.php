@@ -24,6 +24,12 @@ class ProductApiTest extends TestCase
         $response->assertJsonPath('brand', 'Nike');
         $response->assertJsonPath('seo_title', 'Road Tempo Elite — беговые кроссовки для темпа');
         $response->assertJsonPath('seo_description', 'Road Tempo Elite: беговая модель для асфальта, быстрых тренировок и высокой отзывчивости.');
+        $response->assertJsonStructure([
+            'characteristics' => [
+                '*' => ['group', 'name', 'value'],
+            ],
+        ]);
+        $this->assertNotEmpty($response->json('characteristics'));
     }
 
     public function test_product_show_can_resolve_variant_slug_and_custom_images(): void

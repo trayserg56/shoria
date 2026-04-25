@@ -11,6 +11,7 @@ use Filament\Resources\Resource;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use UnitEnum;
 
 class AdminActivityLogResource extends Resource
 {
@@ -19,6 +20,8 @@ class AdminActivityLogResource extends Resource
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentList;
 
     protected static ?string $navigationLabel = 'Аудит действий';
+
+    protected static string|UnitEnum|null $navigationGroup = 'Настройки';
 
     protected static ?int $navigationSort = 50;
 

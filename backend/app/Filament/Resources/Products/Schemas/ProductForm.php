@@ -59,6 +59,30 @@ class ProductForm
                                 Forms\Components\Textarea::make('description')
                                     ->rows(4)
                                     ->columnSpanFull(),
+                                Forms\Components\Repeater::make('characteristics')
+                                    ->label('Характеристики')
+                                    ->default([])
+                                    ->addActionLabel('Добавить характеристику')
+                                    ->reorderableWithButtons()
+                                    ->collapsed()
+                                    ->itemLabel(fn (array $state): ?string => $state['name'] ?? null)
+                                    ->schema([
+                                        Forms\Components\TextInput::make('group')
+                                            ->label('Раздел')
+                                            ->maxLength(120)
+                                            ->placeholder('Например: Общие характеристики'),
+                                        Forms\Components\TextInput::make('name')
+                                            ->label('Название')
+                                            ->required()
+                                            ->maxLength(160),
+                                        Forms\Components\TextInput::make('value')
+                                            ->label('Значение')
+                                            ->required()
+                                            ->maxLength(255),
+                                    ])
+                                    ->columns(3)
+                                    ->columnSpanFull()
+                                    ->helperText('Добавляйте любые характеристики товара. Можно группировать по разделам.'),
                                 Forms\Components\TextInput::make('price')
                                     ->required()
                                     ->numeric()

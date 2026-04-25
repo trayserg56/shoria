@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\NewsController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PaymentWebhookController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\ServicePageController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('throttle:public-api')->group(function (): void {
@@ -25,6 +26,8 @@ Route::middleware('throttle:public-api')->group(function (): void {
     Route::get('/products/{slug}', [ProductController::class, 'show']);
     Route::get('/news/{slug}', [NewsController::class, 'show']);
     Route::get('/news', [NewsController::class, 'index']);
+    Route::get('/pages', [ServicePageController::class, 'index']);
+    Route::get('/pages/{slug}', [ServicePageController::class, 'show']);
     Route::get('/cart', [CartController::class, 'show']);
     Route::get('/checkout/options', [CheckoutController::class, 'options']);
     Route::get('/orders', [OrderController::class, 'index']);
