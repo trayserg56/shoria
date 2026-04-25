@@ -71,6 +71,72 @@ type HeaderCategory = {
   subcategories?: HeaderCategory[]
 }
 
+type CityOption = {
+  name: string
+  region: string
+  district: string
+}
+
+type StoredCity = {
+  name: string
+  region: string
+  district: string
+  source: 'auto' | 'manual' | 'default'
+}
+
+type RussianCityEntry = {
+  name?: string
+  district?: string
+  subject?: string
+}
+
+const CITY_STORAGE_KEY = 'shoria.city.v1'
+const cityPickerOpen = ref(false)
+const citySearch = ref('')
+const citySelection = ref<StoredCity>({
+  name: 'Москва',
+  region: 'Москва',
+  district: 'Центральный',
+  source: 'default',
+})
+const selectedDistrict = ref('')
+const selectedRegion = ref('')
+let cityCatalogPromise: Promise<void> | null = null
+
+const fallbackCityOptions: CityOption[] = [
+  { name: 'Москва', region: 'Москва', district: 'Центральный' },
+  { name: 'Санкт-Петербург', region: 'Санкт-Петербург', district: 'Северо-Западный' },
+  { name: 'Екатеринбург', region: 'Свердловская область', district: 'Уральский' },
+  { name: 'Челябинск', region: 'Челябинская область', district: 'Уральский' },
+]
+const cityOptions = ref<CityOption[]>(fallbackCityOptions)
+
+const cityLabel = computed(() => citySelection.value.name)
+const citySearchNormalized = computed(() => citySearch.value.trim().toLowerCase())
+const filteredCities = computed(() => {
+  if (!citySearchNormalized.value) {
+    return cityOptions.value
+  }
+
+  return cityOptions.value.filter((item) =>
+    [item.name, item.region, item.district].some((value) => value.toLowerCase().includes(citySearchNormalized.value)),
+  )
+})
+const districtOptions = computed(() => [...new Set(filteredCities.value.map((item) => item.district))])
+const regionOptions = computed(() => {
+  const base = filteredCities.value.filter((item) => !selectedDistrict.value || item.district === selectedDistrict.value)
+  return [...new Set(base.map((item) => item.region))]
+})
+const cityOptionsForList = computed(() =>
+  filteredCities.value.filter((item) =>
+    (!selectedDistrict.value || item.district === selectedDistrict.value)
+    && (!selectedRegion.value || item.region === selectedRegion.value),
+  ),
+)
+const popularCities = computed(() =>
+  cityOptions.value.filter((item) => ['Москва', 'Санкт-Петербург', 'Екатеринбург', 'Челябинск'].includes(item.name)),
+)
+
 const defaultNavigation: NavigationResponse = {
   header: [
     { id: -1, label: 'Главная', path: '/', is_external: false, open_in_new_tab: false },
@@ -109,11 +175,193 @@ const footerCustomersMenuItems = computed(() => navigationMenu.value.footer.cust
 const footerAccountMenuItems = computed(() => navigationMenu.value.footer.account)
 const headerCategories = ref<HeaderCategory[]>([])
 
+function normalizeCityName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/^г\.\s*/i, '')
+    .replace(/^город\s+/i, '')
+}
+
+function normalizeRegionName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
+async function ensureCityCatalogLoaded() {
+  if (cityCatalogPromise) {
+    await cityCatalogPromise
+    return
+  }
+
+  cityCatalogPromise = (async () => {
+    try {
+      const response = await fetch('/data/russian-cities.json')
+      if (!response.ok) {
+        return
+      }
+
+      const payload = await response.json() as RussianCityEntry[]
+      const mapped = payload
+        .map((item): CityOption | null => {
+          const name = item.name?.trim()
+          if (!name) {
+            return null
+          }
+
+          return {
+            name,
+            region: item.subject?.trim() || 'Не указан',
+            district: item.district?.trim() || 'Не указан',
+          }
+        })
+        .filter((item): item is CityOption => item !== null)
+        .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+
+      if (mapped.length) {
+        cityOptions.value = mapped
+      }
+    } catch (error) {
+      console.warn('City catalog loading failed:', error)
+    }
+  })()
+
+  await cityCatalogPromise
+}
+
+function applyCity(city: StoredCity) {
+  citySelection.value = city
+  selectedDistrict.value = city.district
+  selectedRegion.value = city.region
+  localStorage.setItem(CITY_STORAGE_KEY, JSON.stringify(city))
+}
+
+function findCityOption(name: string, regionHint?: string): CityOption | null {
+  const normalized = normalizeCityName(name)
+  const byName = cityOptions.value.filter((city) => normalizeCityName(city.name) === normalized)
+
+  if (!byName.length) {
+    return null
+  }
+
+  if (!regionHint) {
+    return byName[0] ?? null
+  }
+
+  const normalizedRegionHint = normalizeRegionName(regionHint)
+  return byName.find((city) => normalizeRegionName(city.region) === normalizedRegionHint)
+    ?? byName[0]
+    ?? null
+}
+
+async function detectCityByIp(): Promise<StoredCity | null> {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), 1800)
+
+  try {
+    const response = await fetch('https://ipapi.co/json/', {
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      return null
+    }
+
+    const payload = await response.json() as { city?: string; region?: string }
+    const rawCity = payload.city?.trim()
+    if (!rawCity) {
+      return null
+    }
+
+    const matched = findCityOption(rawCity, payload.region)
+    if (matched) {
+      return {
+        name: matched.name,
+        region: matched.region,
+        district: matched.district,
+        source: 'auto',
+      }
+    }
+
+    return {
+      name: rawCity,
+      region: payload.region?.trim() || 'Не определен',
+      district: 'Не определен',
+      source: 'auto',
+    }
+  } catch (error) {
+    console.warn('City auto-detect skipped:', error)
+    return null
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+async function loadCitySelection() {
+  await ensureCityCatalogLoaded()
+
+  try {
+    const storedRaw = localStorage.getItem(CITY_STORAGE_KEY)
+    if (storedRaw) {
+      const stored = JSON.parse(storedRaw) as StoredCity
+      if (stored?.name) {
+        applyCity(stored)
+        return
+      }
+    }
+  } catch (error) {
+    console.warn('City storage parse failed:', error)
+  }
+
+  const autoCity = await detectCityByIp()
+  if (autoCity) {
+    applyCity(autoCity)
+    return
+  }
+
+  applyCity({
+    name: 'Москва',
+    region: 'Москва',
+    district: 'Центральный',
+    source: 'default',
+  })
+}
+
+function openCityPicker() {
+  citySearch.value = ''
+  selectedDistrict.value = citySelection.value.district
+  selectedRegion.value = citySelection.value.region
+  cityPickerOpen.value = true
+}
+
+function selectDistrict(value: string) {
+  selectedDistrict.value = value
+  if (!regionOptions.value.includes(selectedRegion.value)) {
+    selectedRegion.value = ''
+  }
+}
+
+function selectRegion(value: string) {
+  selectedRegion.value = value
+}
+
+function selectCity(city: CityOption) {
+  applyCity({
+    name: city.name,
+    region: city.region,
+    district: city.district,
+    source: 'manual',
+  })
+  cityPickerOpen.value = false
+}
+
 onMounted(async () => {
   captureFirstTouchAttribution()
   wishlistStore.hydrate()
   compareStore.hydrate()
-  await Promise.all([authStore.loadMe(), loadNavigationMenu(), loadHeaderCategories()])
+  await Promise.all([authStore.loadMe(), loadNavigationMenu(), loadHeaderCategories(), loadCitySelection()])
   await cartStore.loadCart()
 })
 
@@ -245,6 +493,10 @@ watch(headerSearchInput, (value) => {
 <template>
   <div class="app-shell">
     <header class="topbar">
+      <button type="button" class="topbar__city" @click="openCityPicker">
+        <span class="topbar__city-icon">📍</span>
+        <span>{{ cityLabel }}</span>
+      </button>
       <RouterLink to="/" class="brand">Shoria</RouterLink>
       <nav class="topbar__nav">
         <details v-if="headerCategories.length" ref="categoryMenuRef" class="topbar__categories">
@@ -324,6 +576,77 @@ watch(headerSearchInput, (value) => {
         <span v-if="isAuthenticated && user" class="user-pill">{{ user.name }}</span>
       </div>
     </header>
+    <Teleport to="body">
+      <div v-if="cityPickerOpen" class="city-modal" @click.self="cityPickerOpen = false">
+        <section class="city-modal__card">
+          <header class="city-modal__header">
+            <h2>Выберите город</h2>
+            <button type="button" class="city-modal__close" @click="cityPickerOpen = false">×</button>
+          </header>
+
+          <input
+            v-model.trim="citySearch"
+            type="search"
+            placeholder="Найти город"
+            class="city-modal__search"
+          />
+
+          <div class="city-modal__popular">
+            <button
+              v-for="item in popularCities"
+              :key="`popular-city-${item.name}-${item.region}`"
+              type="button"
+              class="city-modal__chip"
+              @click="selectCity(item)"
+            >
+              {{ item.name }}
+            </button>
+          </div>
+
+          <div class="city-modal__columns">
+            <div class="city-modal__column">
+              <p class="city-modal__label">Округ</p>
+              <button
+                v-for="district in districtOptions"
+                :key="`district-${district}`"
+                type="button"
+                class="city-modal__item"
+                :class="{ 'city-modal__item--active': selectedDistrict === district }"
+                @click="selectDistrict(district)"
+              >
+                {{ district }}
+              </button>
+            </div>
+            <div class="city-modal__column">
+              <p class="city-modal__label">Область</p>
+              <button
+                v-for="region in regionOptions"
+                :key="`region-${region}`"
+                type="button"
+                class="city-modal__item"
+                :class="{ 'city-modal__item--active': selectedRegion === region }"
+                @click="selectRegion(region)"
+              >
+                {{ region }}
+              </button>
+            </div>
+            <div class="city-modal__column city-modal__column--city">
+              <p class="city-modal__label">Город</p>
+              <button
+                v-for="city in cityOptionsForList"
+                :key="`city-${city.name}-${city.region}`"
+                type="button"
+                class="city-modal__item"
+                :class="{ 'city-modal__item--active': citySelection.name === city.name && citySelection.region === city.region }"
+                @click="selectCity(city)"
+              >
+                {{ city.name }}
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </Teleport>
     <RouterView />
     <footer class="footer">
       <div class="footer__grid">
@@ -387,10 +710,33 @@ watch(headerSearchInput, (value) => {
   display: grid;
   grid-template-columns: auto 1fr auto;
   grid-template-areas:
+    'city city city'
     'brand nav actions'
     'search search search';
   align-items: center;
   gap: 10px 14px;
+}
+
+.topbar__city {
+  grid-area: city;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #3f4860;
+  font: inherit;
+  cursor: pointer;
+}
+
+.topbar__city:hover {
+  color: var(--color-accent, #bf4b08);
+}
+
+.topbar__city-icon {
+  font-size: 14px;
 }
 
 .brand {
@@ -721,10 +1067,126 @@ watch(headerSearchInput, (value) => {
   font-size: 14px;
 }
 
+.city-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgb(17 24 39 / 52%);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.city-modal__card {
+  width: min(980px, 94vw);
+  max-height: min(78vh, 760px);
+  overflow: hidden;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid #e6ddd0;
+  box-shadow: 0 24px 54px rgb(16 24 40 / 28%);
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+}
+
+.city-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.city-modal__header h2 {
+  margin: 0;
+  font-size: 44px;
+  line-height: 1;
+  font-family: var(--font-display);
+}
+
+.city-modal__close {
+  border: 0;
+  background: transparent;
+  color: #7c8599;
+  font-size: 44px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.city-modal__search {
+  width: 100%;
+  min-height: 50px;
+  border: 1px solid #d6d3cc;
+  border-radius: 12px;
+  padding: 0 14px;
+  font: inherit;
+}
+
+.city-modal__popular {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.city-modal__chip {
+  border: 1px solid #d9dbe2;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: #f4f6f9;
+  color: #1f2233;
+  font: inherit;
+  cursor: pointer;
+}
+
+.city-modal__columns {
+  display: grid;
+  grid-template-columns: 1fr 1.25fr 1fr;
+  gap: 16px;
+  min-height: 340px;
+}
+
+.city-modal__column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.city-modal__label {
+  position: sticky;
+  top: 0;
+  margin: 0;
+  padding: 6px 0;
+  background: #fff;
+  font-weight: 700;
+  color: #364057;
+}
+
+.city-modal__item {
+  border: 0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  text-align: left;
+  color: #1f2233;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.city-modal__item:hover {
+  background: #f8f3ec;
+}
+
+.city-modal__item--active {
+  background: #f3ede4;
+  font-weight: 700;
+}
+
 @media (max-width: 1100px) {
   .topbar {
     grid-template-columns: 1fr auto;
     grid-template-areas:
+      'city city'
       'brand actions'
       'nav nav'
       'search search';
@@ -760,6 +1222,20 @@ watch(headerSearchInput, (value) => {
   .topbar__categories-dropdown {
     min-width: min(560px, 92vw);
     grid-template-columns: repeat(2, minmax(140px, 1fr));
+  }
+
+  .city-modal__header h2 {
+    font-size: 34px;
+  }
+
+  .city-modal__columns {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .city-modal__column {
+    max-height: 210px;
+    padding-right: 0;
   }
 
   .footer__grid {

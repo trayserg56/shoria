@@ -13,14 +13,29 @@ use App\Models\PaymentProvider;
 use App\Models\PromoCode;
 use App\Models\Product;
 use App\Models\ProductImage;
+use App\Models\ProductReview;
 use App\Models\ProductVariant;
 use App\Models\ProductVariantImage;
 use App\Models\ServicePage;
+use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Hash;
 
 class ShopDemoSeeder extends Seeder
 {
+    /**
+     * @var array<int, string>
+     */
+    private array $reviewPhrases = [
+        'Ношу уже две недели, посадка удобная и материал приятный.',
+        'Качество хорошее, выглядит аккуратно и вживую лучше, чем на фото.',
+        'По размеру всё совпало, доставка быстрая, покупкой доволен.',
+        'Комфортная модель на каждый день, после целого дня ноги не устают.',
+        'Порадовала амортизация и общий уровень сборки, рекомендую.',
+    ];
+
     public function run(): void
     {
         DeliveryProvider::query()->updateOrCreate(
@@ -629,6 +644,8 @@ HTML,
             $brands->put($brand->name, $brand);
         }
 
+        $seededProducts = collect();
+
         foreach ($products as $item) {
             $brandName = trim((string) ($item['brand'] ?? 'Shoria'));
             $brand = $brands->get($brandName);
@@ -806,7 +823,12 @@ HTML,
                     ],
                 );
             }
+
+            $seededProducts->push($product);
         }
+
+        $this->seedProductReviews($seededProducts);
+        $this->seedProductReviews(Product::query()->where('is_active', true)->get());
 
         NewsPost::query()->firstOrCreate([
             'slug' => 'how-to-choose-running-shoes',
@@ -939,5 +961,74 @@ HTML,
             ['group' => 'Дополнительно', 'name' => 'Гарантия', 'value' => '1 год'],
             ['group' => 'Дополнительно', 'name' => 'Сезон', 'value' => 'Демисезон'],
         ];
+    }
+
+    /**
+     * @param Collection<int, Product> $products
+     */
+    private function seedProductReviews(Collection $products): void
+    {
+        $reviewUsers = $this->resolveReviewUsers();
+
+        if ($reviewUsers->isEmpty()) {
+            return;
+        }
+
+        foreach ($products->values() as $productIndex => $product) {
+            $existingCount = ProductReview::query()
+                ->where('product_id', $product->id)
+                ->where('is_active', true)
+                ->count();
+
+            $targetCount = max(2, $existingCount);
+
+            for ($i = $existingCount; $i < $targetCount; $i++) {
+                /** @var User $user */
+                $user = $reviewUsers[($productIndex + $i) % $reviewUsers->count()];
+                $rating = (($productIndex + $i) % 5) + 1;
+                $phrase = $this->reviewPhrases[($productIndex + $i) % count($this->reviewPhrases)];
+
+                ProductReview::query()->updateOrCreate(
+                    [
+                        'product_id' => $product->id,
+                        'user_id' => $user->id,
+                    ],
+                    [
+                        'rating' => $rating,
+                        'review_text' => $phrase,
+                        'is_active' => true,
+                        'is_verified_purchase' => true,
+                    ],
+                );
+            }
+        }
+    }
+
+    /**
+     * @return Collection<int, User>
+     */
+    private function resolveReviewUsers(): Collection
+    {
+        $users = collect([
+            ['name' => 'Анна П.', 'email' => 'reviewer.anna@shoria.local'],
+            ['name' => 'Илья К.', 'email' => 'reviewer.ilya@shoria.local'],
+            ['name' => 'Мария В.', 'email' => 'reviewer.maria@shoria.local'],
+            ['name' => 'Олег Н.', 'email' => 'reviewer.oleg@shoria.local'],
+        ])->map(function (array $item): User {
+            /** @var User $user */
+            $user = User::query()->firstOrCreate(
+                ['email' => $item['email']],
+                [
+                    'name' => $item['name'],
+                    'password' => Hash::make('demo-password'),
+                    'email_verified_at' => now(),
+                    'role' => User::ROLE_CUSTOMER,
+                ],
+            );
+
+            return $user;
+        });
+
+        return $users->values();
     }
 }

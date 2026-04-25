@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\NewsController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PaymentWebhookController;
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\ProductReviewController;
 use App\Http\Controllers\Api\ServicePageController;
 use Illuminate\Support\Facades\Route;
 
@@ -26,6 +27,7 @@ Route::middleware('throttle:public-api')->group(function (): void {
     Route::get('/search/suggest', [ProductController::class, 'suggest']);
     Route::get('/recommendations/personal', [ProductController::class, 'personalRecommendations']);
     Route::get('/products/{slug}/recommendations', [ProductController::class, 'recommendations']);
+    Route::get('/products/{slug}/reviews', [ProductReviewController::class, 'index']);
     Route::get('/products/{slug}', [ProductController::class, 'show']);
     Route::get('/news/{slug}', [NewsController::class, 'show']);
     Route::get('/news', [NewsController::class, 'index']);
@@ -71,6 +73,8 @@ Route::get('/auth/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmai
 Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::patch('/auth/profile', [AuthController::class, 'updateProfile']);
+    Route::get('/reviews/me', [ProductReviewController::class, 'my']);
+    Route::post('/products/{slug}/reviews', [ProductReviewController::class, 'upsert']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::post('/auth/email/verification-notification', [AuthController::class, 'resendVerificationEmail'])
         ->middleware('throttle:6,1');

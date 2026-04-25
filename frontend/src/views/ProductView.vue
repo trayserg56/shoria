@@ -3,10 +3,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useCartStore } from '@/stores/cart'
+import { useAuthStore } from '@/stores/auth'
 import { useWishlistStore, type WishlistItem } from '@/stores/wishlist'
 import { useCompareStore, type CompareItem } from '@/stores/compare'
 import { trackEvent } from '@/lib/analytics'
-import { fetchJson } from '@/lib/api'
+import { fetchJson, requestJson } from '@/lib/api'
 import { toProductRoute } from '@/lib/product-route'
 import { clearStructuredData, setSeoMeta, setStructuredData } from '@/lib/seo'
 import { saveRecentlyViewed } from '@/lib/recently-viewed'
@@ -62,9 +63,39 @@ type ProductPayload = {
     code: string
     label: string
   }>
+  reviews_summary: {
+    count: number
+    average: number | null
+  }
+  can_review: boolean
+  my_review: ProductReviewPayload | null
   selected_variant_slug: string | null
   variants: ProductVariantPayload[]
   images: ProductImage[]
+}
+
+type ProductReviewPayload = {
+  id: number
+  rating: number
+  review_text: string
+  author_name: string
+  is_verified_purchase: boolean
+  created_at: string
+  updated_at: string
+}
+
+type ProductReviewsPayload = {
+  data: ProductReviewPayload[]
+  meta: {
+    current_page: number
+    last_page: number
+    per_page: number
+    total: number
+  }
+  summary: {
+    count: number
+    average: number | null
+  }
 }
 
 type RecommendedProduct = {
@@ -90,8 +121,10 @@ type RecommendationsPayload = {
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 const cartStore = useCartStore()
 const { items: cartItems } = storeToRefs(cartStore)
+const { isAuthenticated } = storeToRefs(authStore)
 const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
 
@@ -106,6 +139,18 @@ const selectedColorLabel = ref<string | null>(null)
 const recommendations = ref<RecommendedProduct[]>([])
 const recommendationsSlider = ref<HTMLElement | null>(null)
 const isCartBusy = ref(false)
+const reviews = ref<ProductReviewPayload[]>([])
+const reviewsMeta = ref({
+  current_page: 1,
+  last_page: 1,
+  total: 0,
+})
+const isReviewsLoading = ref(false)
+const isReviewSubmitting = ref(false)
+const reviewRating = ref(0)
+const reviewText = ref('')
+const reviewError = ref('')
+const reviewSuccess = ref('')
 
 const slug = computed(() => String(route.params.slug ?? ''))
 const currentCategorySlug = computed(() => String(route.params.categorySlug ?? ''))
@@ -211,6 +256,47 @@ function formatPrice(value: number, currency: string) {
     currency,
     maximumFractionDigits: 0,
   }).format(value)
+}
+
+function formatReviewDate(value: string) {
+  return new Intl.DateTimeFormat('ru-RU', {
+    dateStyle: 'medium',
+  }).format(new Date(value))
+}
+
+function renderStars(value: number) {
+  return '★'.repeat(value) + '☆'.repeat(Math.max(0, 5 - value))
+}
+
+async function loadReviews(page = 1) {
+  if (!slug.value) {
+    return
+  }
+
+  isReviewsLoading.value = true
+
+  try {
+    const response = await fetchJson<ProductReviewsPayload>(
+      `/api/products/${slug.value}/reviews?page=${page}`,
+    )
+
+    reviews.value = response.data
+    reviewsMeta.value = {
+      current_page: response.meta.current_page,
+      last_page: response.meta.last_page,
+      total: response.meta.total,
+    }
+  } catch (error) {
+    console.error(error)
+    reviews.value = []
+    reviewsMeta.value = {
+      current_page: 1,
+      last_page: 1,
+      total: 0,
+    }
+  } finally {
+    isReviewsLoading.value = false
+  }
 }
 
 function scrollSlider(target: HTMLElement | null, direction: 'prev' | 'next') {
@@ -347,6 +433,11 @@ async function loadProduct() {
     const initialVariant = resolveInitialVariant(product.value)
     selectedVariantId.value = initialVariant?.id ?? null
     selectedColorLabel.value = initialVariant?.color_label?.trim() || null
+    reviewError.value = ''
+    reviewSuccess.value = ''
+    reviewRating.value = product.value.my_review?.rating ?? 0
+    reviewText.value = product.value.my_review?.review_text ?? ''
+    await loadReviews(1)
     const actualCategorySlug = product.value.category?.slug ?? ''
     const selectedVariantSlug = initialVariant?.slug ?? null
 
@@ -443,6 +534,12 @@ async function loadProduct() {
     hasError.value = true
     product.value = null
     recommendations.value = []
+    reviews.value = []
+    reviewsMeta.value = {
+      current_page: 1,
+      last_page: 1,
+      total: 0,
+    }
     clearStructuredData()
   } finally {
     isLoading.value = false
@@ -594,6 +691,59 @@ function toggleCompare() {
     action: result.active ? 'added' : 'removed',
     source: 'product',
   })
+}
+
+function setReviewRating(value: number) {
+  reviewRating.value = value
+}
+
+async function submitReview() {
+  if (!product.value || !isAuthenticated.value) {
+    return
+  }
+
+  reviewError.value = ''
+  reviewSuccess.value = ''
+
+  if (reviewRating.value < 1 || reviewRating.value > 5) {
+    reviewError.value = 'Поставьте оценку от 1 до 5.'
+    return
+  }
+
+  if (!reviewText.value.trim()) {
+    reviewError.value = 'Добавьте текст отзыва.'
+    return
+  }
+
+  isReviewSubmitting.value = true
+
+  try {
+    const response = await requestJson<{
+      review: ProductReviewPayload
+      summary: {
+        count: number
+        average: number | null
+      }
+      is_new: boolean
+    }>(`/api/products/${product.value.slug}/reviews`, {
+      method: 'POST',
+      body: JSON.stringify({
+        rating: reviewRating.value,
+        review_text: reviewText.value.trim(),
+      }),
+    })
+
+    product.value.my_review = response.review
+    product.value.can_review = true
+    product.value.reviews_summary = response.summary
+    reviewSuccess.value = response.is_new ? 'Отзыв опубликован.' : 'Отзыв обновлён.'
+    await loadReviews(reviewsMeta.value.current_page)
+  } catch (error) {
+    console.error(error)
+    reviewError.value = 'Не удалось сохранить отзыв. Проверьте, покупали ли вы этот товар.'
+  } finally {
+    isReviewSubmitting.value = false
+  }
 }
 
 onMounted(loadProduct)
@@ -817,6 +967,81 @@ watch(
           class="slider-card"
         />
       </div>
+    </section>
+
+    <section v-if="product" class="details__reviews product-reviews">
+      <div class="details__reviews-head">
+        <h3>Отзывы покупателей</h3>
+        <p>
+          <template v-if="product.reviews_summary.count > 0">
+            {{ product.reviews_summary.average?.toFixed(1) ?? '—' }} из 5 ·
+            {{ product.reviews_summary.count }} отзывов
+          </template>
+          <template v-else>Пока отзывов нет — будьте первым.</template>
+        </p>
+      </div>
+
+      <form
+        v-if="isAuthenticated && (product.can_review || product.my_review)"
+        class="review-form"
+        @submit.prevent="submitReview"
+      >
+        <p class="review-form__title">
+          {{ product.my_review ? 'Обновить ваш отзыв' : 'Оставить отзыв' }}
+        </p>
+        <div class="review-form__stars">
+          <button
+            v-for="star in 5"
+            :key="`star-${star}`"
+            type="button"
+            class="review-form__star"
+            :class="{ 'review-form__star--active': star <= reviewRating }"
+            :aria-label="`Поставить ${star} из 5`"
+            @click="setReviewRating(star)"
+          >
+            ★
+          </button>
+        </div>
+        <textarea
+          v-model="reviewText"
+          class="review-form__textarea"
+          rows="4"
+          maxlength="2000"
+          placeholder="Расскажите, как товар показал себя в использовании"
+        />
+        <div class="review-form__footer">
+          <button type="submit" class="review-form__submit" :disabled="isReviewSubmitting">
+            {{ isReviewSubmitting ? 'Сохраняем...' : product.my_review ? 'Обновить отзыв' : 'Опубликовать отзыв' }}
+          </button>
+          <p v-if="reviewError" class="review-form__status review-form__status--error">{{ reviewError }}</p>
+          <p v-if="reviewSuccess" class="review-form__status review-form__status--success">{{ reviewSuccess }}</p>
+        </div>
+      </form>
+      <p v-else-if="isAuthenticated" class="details__reviews-note">
+        Оставить отзыв можно только после покупки этого товара.
+      </p>
+      <p v-else class="details__reviews-note">
+        Войдите в аккаунт, чтобы оставлять отзывы к купленным товарам.
+      </p>
+
+      <div v-if="isReviewsLoading" class="details__reviews-skeleton" aria-hidden="true">
+        <AppSkeleton width="100%" height="84px" radius="14px" />
+        <AppSkeleton width="100%" height="84px" radius="14px" />
+      </div>
+
+      <ul v-else-if="reviews.length" class="details__reviews-list">
+        <li v-for="review in reviews" :key="`product-review-${review.id}`" class="details__review">
+          <div class="details__review-head">
+            <strong>{{ review.author_name }}</strong>
+            <span class="details__review-stars">{{ renderStars(review.rating) }}</span>
+          </div>
+          <p class="details__review-text">{{ review.review_text }}</p>
+          <p class="details__review-meta">
+            <span>{{ formatReviewDate(review.updated_at || review.created_at) }}</span>
+            <span v-if="review.is_verified_purchase" class="details__review-verified">Покупка подтверждена</span>
+          </p>
+        </li>
+      </ul>
     </section>
   </main>
 </template>
@@ -1094,6 +1319,166 @@ watch(
 .size-chip--unavailable .size-chip__meta {
   color: #b84a14;
   font-weight: 600;
+}
+
+.details__reviews {
+  margin-top: 18px;
+  padding: 14px;
+  border-radius: 16px;
+  background: #fff8f1;
+  border: 1px solid #f3e4d5;
+  display: grid;
+  gap: 10px;
+}
+
+.product-reviews {
+  margin-top: 24px;
+}
+
+.details__reviews-head h3 {
+  font-size: 22px;
+}
+
+.details__reviews-head p {
+  margin-top: 3px;
+  color: #5f6b86;
+  font-size: 14px;
+}
+
+.details__reviews-note {
+  color: #5f6b86;
+  font-size: 14px;
+}
+
+.review-form {
+  display: grid;
+  gap: 10px;
+}
+
+.review-form__title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.review-form__stars {
+  display: flex;
+  gap: 6px;
+}
+
+.review-form__star {
+  border: 1px solid #d7d4ce;
+  border-radius: 10px;
+  background: #fff;
+  color: #b3ac9f;
+  width: 40px;
+  height: 36px;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.review-form__star--active {
+  border-color: #f35b04;
+  color: #f35b04;
+  background: #fff2e8;
+}
+
+.review-form__textarea {
+  width: 100%;
+  border: 1px solid #d7d4ce;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px;
+  color: var(--color-text);
+  font: inherit;
+  resize: vertical;
+  min-height: 96px;
+}
+
+.review-form__footer {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.review-form__submit {
+  border: 1px solid #d7d4ce;
+  border-radius: 12px;
+  background: #fff;
+  min-height: 40px;
+  padding: 0 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.review-form__submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.review-form__status {
+  font-size: 13px;
+}
+
+.review-form__status--error {
+  color: #a83a0f;
+}
+
+.review-form__status--success {
+  color: #185f2d;
+}
+
+.details__reviews-skeleton {
+  display: grid;
+  gap: 8px;
+}
+
+.details__reviews-list {
+  display: grid;
+  gap: 8px;
+}
+
+.details__review {
+  border: 1px solid #ecdcc9;
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.details__review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.details__review-stars {
+  color: #c74803;
+  letter-spacing: 0.06em;
+  font-size: 13px;
+}
+
+.details__review-text {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.details__review-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: #73809a;
+  font-size: 12px;
+}
+
+.details__review-verified {
+  border-radius: 999px;
+  background: #ecf8ef;
+  color: #185f2d;
+  padding: 2px 8px;
 }
 
 .buy-button {

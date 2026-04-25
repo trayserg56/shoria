@@ -7,6 +7,7 @@ import AccountOrdersView from '../views/AccountOrdersView.vue'
 import AccountSavedView from '../views/AccountSavedView.vue'
 import AccountSettingsView from '../views/AccountSettingsView.vue'
 import AccountLoyaltyView from '../views/AccountLoyaltyView.vue'
+import AccountReviewsView from '../views/AccountReviewsView.vue'
 import BrandsView from '../views/BrandsView.vue'
 import CatalogView from '../views/CatalogView.vue'
 import CartView from '../views/CartView.vue'
@@ -233,6 +234,16 @@ const router = createRouter({
           meta: {
             seoTitle: 'Программа лояльности — Shoria',
             seoDescription: 'Баллы, уровни и история операций по программе лояльности.',
+            seoRobots: 'noindex,nofollow',
+          },
+        },
+        {
+          path: 'reviews',
+          name: 'account-reviews',
+          component: AccountReviewsView,
+          meta: {
+            seoTitle: 'Ваши отзывы — Shoria',
+            seoDescription: 'Оставленные отзывы и товары, по которым можно поделиться впечатлением.',
             seoRobots: 'noindex,nofollow',
           },
         },

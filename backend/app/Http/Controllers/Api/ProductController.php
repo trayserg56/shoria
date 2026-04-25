@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\OrderItem;
 use App\Models\Product;
+use App\Models\ProductReview;
 use App\Models\ProductVariant;
 use App\Models\TrackingEvent;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -671,6 +673,40 @@ class ProductController extends Controller
                 'has_custom_images' => $variant->images->isNotEmpty(),
             ]);
 
+        $reviewsQuery = ProductReview::query()
+            ->where('product_id', $product->id)
+            ->where('is_active', true);
+
+        $reviewsCount = (int) $reviewsQuery->count();
+        $reviewsAverage = $reviewsCount > 0 ? round((float) $reviewsQuery->avg('rating'), 1) : null;
+
+        /** @var User|null $authUser */
+        $authUser = $request->user('sanctum');
+
+        $userReview = null;
+        $canReview = false;
+
+        if ($authUser instanceof User) {
+            $existingReview = ProductReview::query()
+                ->where('product_id', $product->id)
+                ->where('user_id', $authUser->id)
+                ->first();
+
+            if ($existingReview) {
+                $userReview = [
+                    'id' => $existingReview->id,
+                    'rating' => (int) $existingReview->rating,
+                    'review_text' => $existingReview->review_text,
+                    'is_verified_purchase' => (bool) $existingReview->is_verified_purchase,
+                    'created_at' => $existingReview->created_at,
+                    'updated_at' => $existingReview->updated_at,
+                ];
+                $canReview = true;
+            } else {
+                $canReview = ProductReview::canUserReviewProduct($authUser->id, $product->id);
+            }
+        }
+
         return response()->json([
             'id' => $product->id,
             'name' => $product->name,
@@ -695,6 +731,12 @@ class ProductController extends Controller
                     'slug' => $category->slug,
                 ])
                 ->values(),
+            'reviews_summary' => [
+                'count' => $reviewsCount,
+                'average' => $reviewsAverage,
+            ],
+            'can_review' => $canReview,
+            'my_review' => $userReview,
             'variants' => $variants,
             'images' => $activeImages
                 ->values()

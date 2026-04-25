@@ -156,6 +156,7 @@ onMounted(async () => {
         <div class="quick-actions">
           <RouterLink :to="{ name: 'account-settings' }">Изменить имя, телефон и email</RouterLink>
           <RouterLink :to="{ name: 'account-loyalty' }">Проверить баллы и уровень</RouterLink>
+          <RouterLink :to="{ name: 'account-reviews' }">Открыть ваши отзывы</RouterLink>
           <RouterLink :to="{ name: 'account-saved' }">Открыть избранное и сравнение</RouterLink>
           <RouterLink to="/catalog">Вернуться в каталог</RouterLink>
         </div>

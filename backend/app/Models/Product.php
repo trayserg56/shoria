@@ -78,6 +78,11 @@ class Product extends Model
         return $this->belongsToMany(NewsPost::class);
     }
 
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(ProductReview::class);
+    }
+
     protected static function booted(): void
     {
         static::saving(function (self $product): void {
