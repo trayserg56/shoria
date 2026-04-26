@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink } from 'vue-router'
+import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { toProductRoute } from '@/lib/product-route'
 import { useWishlistStore } from '@/stores/wishlist'
 import { useCartStore } from '@/stores/cart'
@@ -87,7 +88,7 @@ onMounted(() => {
     <div v-if="wishlistItems.length" class="wishlist-grid">
       <article v-for="item in wishlistItems" :key="item.id" class="wishlist-card">
         <RouterLink class="wishlist-card__link" :to="toProductRoute(item)">
-          <img v-if="item.image_url" :src="item.image_url" :alt="item.name" loading="lazy" />
+          <img :src="resolveImageSrc(item.image_url)" :alt="item.name" loading="lazy" @error="applyImageFallback" />
           <div class="wishlist-card__content">
             <p>{{ item.category?.name ?? 'Sneakers' }}</p>
             <h3>{{ item.name }}</h3>

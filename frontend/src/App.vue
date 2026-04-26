@@ -5,6 +5,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import AuthModal from '@/components/AuthModal.vue'
 import { captureFirstTouchAttribution } from '@/lib/attribution'
 import { fetchJson } from '@/lib/api'
+import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { toProductRoute } from '@/lib/product-route'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
@@ -552,7 +553,7 @@ watch(headerSearchInput, (value) => {
             class="topbar__suggestion"
             @mousedown.prevent="openSuggestion(item)"
           >
-            <img v-if="item.image_url" :src="item.image_url" :alt="item.name" loading="lazy" />
+            <img :src="resolveImageSrc(item.image_url)" :alt="item.name" loading="lazy" @error="applyImageFallback" />
             <span class="topbar__suggestion-body">
               <strong>{{ item.name }}</strong>
               <small>{{ item.category?.name ?? 'Sneakers' }}</small>

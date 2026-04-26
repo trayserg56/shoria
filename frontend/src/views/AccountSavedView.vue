@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink } from 'vue-router'
+import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { toProductRoute } from '@/lib/product-route'
 import { useWishlistStore } from '@/stores/wishlist'
 import { useCompareStore } from '@/stores/compare'
@@ -81,7 +82,7 @@ onMounted(() => {
         <div v-if="wishlistPreview.length" class="saved-items">
           <article v-for="item in wishlistPreview" :key="item.id" class="saved-item">
             <RouterLink :to="toProductRoute(item)" class="saved-item__body">
-              <img v-if="item.image_url" :src="item.image_url" :alt="item.name" loading="lazy" />
+              <img :src="resolveImageSrc(item.image_url)" :alt="item.name" loading="lazy" @error="applyImageFallback" />
               <div>
                 <p>{{ item.category?.name ?? 'Sneakers' }}</p>
                 <strong>{{ item.name }}</strong>
@@ -110,7 +111,7 @@ onMounted(() => {
         <div v-if="comparePreview.length" class="saved-items">
           <article v-for="item in comparePreview" :key="item.id" class="saved-item">
             <RouterLink :to="toProductRoute(item)" class="saved-item__body">
-              <img v-if="item.image_url" :src="item.image_url" :alt="item.name" loading="lazy" />
+              <img :src="resolveImageSrc(item.image_url)" :alt="item.name" loading="lazy" @error="applyImageFallback" />
               <div>
                 <p>{{ item.category?.name ?? 'Sneakers' }}</p>
                 <strong>{{ item.name }}</strong>

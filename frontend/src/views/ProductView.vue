@@ -8,6 +8,7 @@ import { useWishlistStore, type WishlistItem } from '@/stores/wishlist'
 import { useCompareStore, type CompareItem } from '@/stores/compare'
 import { trackEvent } from '@/lib/analytics'
 import { fetchJson, requestJson } from '@/lib/api'
+import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { toProductRoute } from '@/lib/product-route'
 import { clearStructuredData, setSeoMeta, setStructuredData } from '@/lib/seo'
 import { saveRecentlyViewed } from '@/lib/recently-viewed'
@@ -846,8 +847,9 @@ watch(
         <img
           v-if="activeImage"
           class="gallery__main"
-          :src="activeImage.url"
+          :src="resolveImageSrc(activeImage.url)"
           :alt="activeImage.alt ?? product.name"
+          @error="applyImageFallback"
         />
         <div class="gallery__thumbs">
           <button
@@ -858,7 +860,7 @@ watch(
             :class="{ 'thumb--active': index === activeImageIndex }"
             @click="activeImageIndex = index"
           >
-            <img :src="image.url" :alt="image.alt ?? product.name" />
+            <img :src="resolveImageSrc(image.url)" :alt="image.alt ?? product.name" @error="applyImageFallback" />
           </button>
         </div>
       </div>

@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink } from 'vue-router'
+import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { toProductRoute } from '@/lib/product-route'
 import { useCompareStore } from '@/stores/compare'
 import { useCartStore } from '@/stores/cart'
@@ -81,7 +82,7 @@ onMounted(() => {
         <div class="compare-label">Параметр</div>
         <article v-for="item in compareItems" :key="item.id" class="compare-cell compare-product">
           <RouterLink :to="toProductRoute(item)">
-            <img v-if="item.image_url" :src="item.image_url" :alt="item.name" loading="lazy" />
+            <img :src="resolveImageSrc(item.image_url)" :alt="item.name" loading="lazy" @error="applyImageFallback" />
             <h3>{{ item.name }}</h3>
           </RouterLink>
           <div class="compare-actions">

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { fetchJson } from '@/lib/api'
+import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { setSeoMeta } from '@/lib/seo'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 
@@ -74,11 +75,11 @@ onMounted(loadBrands)
         class="brand-card"
       >
         <img
-          v-if="brand.image_url"
-          :src="brand.image_url"
+          :src="resolveImageSrc(brand.image_url)"
           :alt="brand.name"
           loading="lazy"
           class="brand-card__image"
+          @error="applyImageFallback"
         />
         <div class="brand-card__body">
           <h2>{{ brand.name }}</h2>

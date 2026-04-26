@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 import { fetchJson } from '@/lib/api'
+import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { clearStructuredData, setSeoMeta, setStructuredData } from '@/lib/seo'
 import {
   buildBreadcrumbStructuredData,
@@ -163,7 +164,7 @@ watch(
       <h1>{{ post.title }}</h1>
       <p v-if="post.excerpt" class="excerpt">{{ post.excerpt }}</p>
 
-      <img v-if="post.cover_url" :src="post.cover_url" :alt="post.title" loading="lazy" class="cover" />
+      <img :src="resolveImageSrc(post.cover_url)" :alt="post.title" loading="lazy" class="cover" @error="applyImageFallback" />
 
       <article class="content" v-html="contentHtml" />
     </article>
@@ -197,7 +198,7 @@ watch(
       <div class="related-grid">
         <article v-for="item in post.related" :key="item.id" class="related-card">
           <RouterLink :to="{ name: 'news-post', params: { slug: item.slug } }">
-            <img v-if="item.cover_url" :src="item.cover_url" :alt="item.title" loading="lazy" />
+            <img :src="resolveImageSrc(item.cover_url)" :alt="item.title" loading="lazy" @error="applyImageFallback" />
             <div>
               <span class="related-type-badge">{{ resolveNewsTypeMeta(item.content_type).label }}</span>
               <p>{{ formatDate(item.published_at) }}</p>

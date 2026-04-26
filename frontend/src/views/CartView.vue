@@ -6,6 +6,7 @@ import { storeToRefs } from 'pinia'
 import { trackEvent } from '@/lib/analytics'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import { toProductRoute } from '@/lib/product-route'
+import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 
@@ -301,7 +302,7 @@ watch(
         </div>
 
         <article v-for="item in items" :key="item.id" class="item" :class="{ 'item--unavailable': !item.available }">
-          <img v-if="item.image_url" :src="item.image_url" :alt="item.product_name" />
+          <img :src="resolveImageSrc(item.image_url)" :alt="item.product_name" @error="applyImageFallback" />
           <div class="item__body">
             <RouterLink :to="toProductRoute({ slug: item.product_slug })">
               {{ item.product_name }}

@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
 import { captureFirstTouchAttribution } from '@/lib/attribution'
 import { fetchJson, requestJson } from '@/lib/api'
+import { applyImageFallback, resolveBackgroundImage, resolveImageSrc } from '@/lib/image-fallback'
 import { readRecentlyViewed, type RecentlyViewedItem } from '@/lib/recently-viewed'
 import { getAppSessionId } from '@/lib/session'
 import AppSkeleton from '@/components/AppSkeleton.vue'
@@ -385,7 +386,7 @@ async function subscribeToNewsletter() {
           class="hero"
           :style="{
             '--hero-bg': banner.bg_color ?? '#ee4e34',
-            '--hero-image': banner.image_url ? `url(${banner.image_url})` : 'none',
+            '--hero-image': resolveBackgroundImage(banner.image_url),
           }"
         >
           <component :is="bannerLinkTag(banner)" class="hero__link" v-bind="bannerLinkProps(banner)">
@@ -421,7 +422,7 @@ async function subscribeToNewsletter() {
         <template v-if="state.categories.length">
           <article v-for="item in state.categories" :key="item.id" class="card category-card">
             <RouterLink class="category-link" :to="`/catalog/${item.slug}`">
-              <img v-if="item.image_url" :src="item.image_url" :alt="item.name" loading="lazy" />
+              <img :src="resolveImageSrc(item.image_url)" :alt="item.name" loading="lazy" @error="applyImageFallback" />
               <div class="card__content">
                 <h3>{{ item.name }}</h3>
               </div>
@@ -457,7 +458,7 @@ async function subscribeToNewsletter() {
           :to="{ path: '/catalog', query: { brands: brand.name } }"
           class="brand-slide"
         >
-          <img v-if="brand.image_url" :src="brand.image_url" :alt="brand.name" loading="lazy" />
+          <img :src="resolveImageSrc(brand.image_url)" :alt="brand.name" loading="lazy" @error="applyImageFallback" />
           <div class="brand-slide__body">
             <h3>{{ brand.name }}</h3>
             <p>{{ brand.products_count }} товаров</p>
@@ -589,7 +590,7 @@ async function subscribeToNewsletter() {
         <template v-if="state.news.length">
           <article v-for="post in state.news" :key="post.id" class="card news-card">
             <RouterLink class="news-link" :to="{ name: 'news-post', params: { slug: post.slug } }">
-              <img v-if="post.cover_url" :src="post.cover_url" :alt="post.title" loading="lazy" />
+              <img :src="resolveImageSrc(post.cover_url)" :alt="post.title" loading="lazy" @error="applyImageFallback" />
               <div class="card__content">
                 <p class="news-date">{{ formatDate(post.published_at) }}</p>
                 <h3>{{ post.title }}</h3>

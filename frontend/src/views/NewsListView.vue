@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { fetchJson } from '@/lib/api'
+import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { setSeoMeta } from '@/lib/seo'
 import { buildNewsListSeoWithType } from '@/lib/seo-templates'
 import AppSkeleton from '@/components/AppSkeleton.vue'
@@ -192,7 +193,7 @@ watch(
     <section v-else-if="state.data.length" class="news-grid">
       <article v-for="post in state.data" :key="post.id" class="news-card">
         <RouterLink :to="{ name: 'news-post', params: { slug: post.slug } }">
-          <img v-if="post.cover_url" :src="post.cover_url" :alt="post.title" loading="lazy" />
+          <img :src="resolveImageSrc(post.cover_url)" :alt="post.title" loading="lazy" @error="applyImageFallback" />
           <div class="news-card__content">
             <div class="news-card__meta">
               <span class="news-type-badge">{{ newsTypeLabel(post.content_type) }}</span>

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
 import { fetchJson } from '@/lib/api'
+import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { setSeoMeta } from '@/lib/seo'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
@@ -215,9 +216,8 @@ const activeCharacteristics = computed(() => {
     .filter(Boolean)
 })
 const page = computed(() => Number(route.query.page ?? '1'))
-const hasActiveFilters = computed(
+const hasCatalogQueryContext = computed(
   () =>
-    Boolean(activeCategory.value) ||
     Boolean(activeQuery.value) ||
     Boolean(activeSort.value) ||
     Boolean(activePriceMin.value) ||
@@ -228,9 +228,15 @@ const hasActiveFilters = computed(
     activeBrands.value.length > 0 ||
     activeColors.value.length > 0 ||
     activeSizes.value.length > 0 ||
-    activeCharacteristics.value.length > 0,
+    activeCharacteristics.value.length > 0 ||
+    page.value > 1,
 )
-const isCategoryLanding = computed(() => !activeCategory.value)
+const hasActiveFilters = computed(
+  () =>
+    Boolean(activeCategory.value) ||
+    hasCatalogQueryContext.value,
+)
+const isCategoryLanding = computed(() => !activeCategory.value && !hasCatalogQueryContext.value)
 const activeCategoryPathNodes = computed(() => findCategoryPathNodesBySegments(activeCategorySegments.value))
 const activeCategoryNode = computed(() => {
   const nodes = activeCategoryPathNodes.value
@@ -1009,12 +1015,11 @@ onBeforeUnmount(() => {
       >
         <div class="category-showcase__media">
           <img
-            v-if="category.image_url"
-            :src="category.image_url"
+            :src="resolveImageSrc(category.image_url)"
             :alt="category.name"
             loading="lazy"
+            @error="applyImageFallback"
           />
-          <div v-else class="category-showcase__placeholder" />
         </div>
         <div class="category-showcase__content">
           <h2>{{ category.name }}</h2>
