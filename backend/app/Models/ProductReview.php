@@ -41,22 +41,33 @@ class ProductReview extends Model
         return $this->belongsTo(OrderItem::class);
     }
 
-    public static function latestPurchasedOrderItemForUser(int $userId, int $productId): ?OrderItem
+    public static function latestPurchasedOrderItemForUser(
+        int $userId,
+        int $productId,
+        ?int $productVariantId = null,
+    ): ?OrderItem
     {
-        return OrderItem::query()
+        $query = OrderItem::query()
             ->where('product_id', $productId)
             ->whereHas('order', function ($query) use ($userId): void {
                 $query
                     ->where('user_id', $userId)
                     ->whereIn('status', ['paid', 'processing', 'completed']);
-            })
-            ->latest('id')
-            ->first();
+            });
+
+        if ($productVariantId !== null) {
+            $query->where('product_variant_id', $productVariantId);
+        }
+
+        return $query->latest('id')->first();
     }
 
-    public static function canUserReviewProduct(int $userId, int $productId): bool
+    public static function canUserReviewProduct(
+        int $userId,
+        int $productId,
+        ?int $productVariantId = null,
+    ): bool
     {
-        return self::latestPurchasedOrderItemForUser($userId, $productId) !== null;
+        return self::latestPurchasedOrderItemForUser($userId, $productId, $productVariantId) !== null;
     }
 }
-

@@ -27,7 +27,7 @@ const NEWS_TYPE_META: Record<NewsContentType, NewsTypeMeta> = {
     spotlightTitle: 'Товары по теме гайда',
     spotlightDescription: 'Подобрали модели, которые лучше всего подходят под советы из материала.',
     spotlightCtaLabel: 'Смотреть беговые модели',
-    spotlightCtaLink: '/catalog?category=running',
+    spotlightCtaLink: '/catalog/running',
   },
   collection: {
     label: 'Подборка',

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductReview;
+use App\Models\ProductVariant;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -18,11 +19,32 @@ class ProductReviewController extends Controller
             ->where('slug', $slug)
             ->firstOrFail();
 
+        $variantSlug = trim((string) $request->query('variant_slug', ''));
+        $variant = null;
+
+        if ($variantSlug !== '') {
+            $variant = ProductVariant::query()
+                ->where('product_id', $product->id)
+                ->where('is_active', true)
+                ->where('slug', $variantSlug)
+                ->first();
+        }
+
         $reviewsQuery = ProductReview::query()
-            ->with('user:id,name')
+            ->with([
+                'user:id,name',
+                'orderItem:id,product_id,product_variant_id,product_name,variant_label',
+                'orderItem.variant:id,slug,size_label,color_label',
+            ])
             ->where('product_id', $product->id)
             ->where('is_active', true)
             ->orderByDesc('created_at');
+
+        if ($variant) {
+            $reviewsQuery->whereHas('orderItem', function ($query) use ($variant): void {
+                $query->where('product_variant_id', $variant->id);
+            });
+        }
 
         $reviews = $reviewsQuery
             ->paginate(10)
@@ -31,6 +53,11 @@ class ProductReviewController extends Controller
                 'rating' => (int) $review->rating,
                 'review_text' => $review->review_text,
                 'author_name' => $review->user?->name ?? 'Покупатель',
+                'target' => [
+                    'product_name' => $review->orderItem?->product_name ?: $product->name,
+                    'variant_label' => $review->orderItem?->variant_label,
+                    'variant_slug' => $review->orderItem?->variant?->slug,
+                ],
                 'is_verified_purchase' => (bool) $review->is_verified_purchase,
                 'created_at' => $review->created_at,
                 'updated_at' => $review->updated_at,
@@ -45,6 +72,12 @@ class ProductReviewController extends Controller
                 'last_page' => $reviews->lastPage(),
                 'per_page' => $reviews->perPage(),
                 'total' => $reviews->total(),
+                'scope' => $variant ? 'variant' : 'all',
+                'variant' => $variant ? [
+                    'slug' => $variant->slug,
+                    'size_label' => $variant->size_label,
+                    'color_label' => $variant->color_label,
+                ] : null,
             ],
             'summary' => $summary,
         ]);
@@ -68,13 +101,33 @@ class ProductReviewController extends Controller
         $validated = $request->validate([
             'rating' => ['required', 'integer', 'min:1', 'max:5'],
             'review_text' => ['required', 'string', 'min:10', 'max:2000'],
+            'variant_slug' => ['nullable', 'string'],
         ], [
             'rating.required' => 'Поставьте оценку.',
             'review_text.required' => 'Добавьте текст отзыва.',
             'review_text.min' => 'Отзыв должен содержать минимум 10 символов.',
         ]);
 
-        $latestOrderItem = ProductReview::latestPurchasedOrderItemForUser($user->id, $product->id);
+        $variantSlug = trim((string) ($validated['variant_slug'] ?? ''));
+        $variant = null;
+
+        if ($variantSlug !== '') {
+            $variant = ProductVariant::query()
+                ->where('product_id', $product->id)
+                ->where('is_active', true)
+                ->where('slug', $variantSlug)
+                ->first();
+        }
+
+        $latestOrderItem = ProductReview::latestPurchasedOrderItemForUser(
+            $user->id,
+            $product->id,
+            $variant?->id,
+        );
+
+        if (! $latestOrderItem && $variant) {
+            $latestOrderItem = ProductReview::latestPurchasedOrderItemForUser($user->id, $product->id);
+        }
 
         if (! $latestOrderItem) {
             return response()->json([
@@ -97,7 +150,11 @@ class ProductReviewController extends Controller
             'is_verified_purchase' => true,
         ]);
         $review->save();
-        $review->load('user:id,name');
+        $review->load([
+            'user:id,name',
+            'orderItem:id,product_id,product_variant_id,product_name,variant_label',
+            'orderItem.variant:id,slug,size_label,color_label',
+        ]);
 
         return response()->json([
             'review' => [
@@ -105,6 +162,11 @@ class ProductReviewController extends Controller
                 'rating' => (int) $review->rating,
                 'review_text' => $review->review_text,
                 'author_name' => $review->user?->name ?? 'Покупатель',
+                'target' => [
+                    'product_name' => $review->orderItem?->product_name ?: $product->name,
+                    'variant_label' => $review->orderItem?->variant_label,
+                    'variant_slug' => $review->orderItem?->variant?->slug,
+                ],
                 'is_verified_purchase' => (bool) $review->is_verified_purchase,
                 'created_at' => $review->created_at,
                 'updated_at' => $review->updated_at,
@@ -128,6 +190,8 @@ class ProductReviewController extends Controller
             ->with([
                 'product:id,name,slug,category_id',
                 'product.category:id,name,slug',
+                'orderItem:id,product_id,product_variant_id,product_name,variant_label',
+                'orderItem.variant:id,slug,size_label,color_label',
             ])
             ->where('user_id', $user->id)
             ->orderByDesc('updated_at')
@@ -139,6 +203,11 @@ class ProductReviewController extends Controller
                 'is_verified_purchase' => (bool) $review->is_verified_purchase,
                 'created_at' => $review->created_at,
                 'updated_at' => $review->updated_at,
+                'target' => [
+                    'product_name' => $review->orderItem?->product_name ?: $review->product?->name,
+                    'variant_label' => $review->orderItem?->variant_label,
+                    'variant_slug' => $review->orderItem?->variant?->slug,
+                ],
                 'product' => [
                     'id' => $review->product?->id,
                     'name' => $review->product?->name,

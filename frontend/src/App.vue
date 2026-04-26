@@ -503,14 +503,14 @@ watch(headerSearchInput, (value) => {
           <summary class="topbar__categories-summary">Категории</summary>
           <div class="topbar__categories-dropdown">
             <div v-for="category in headerCategories" :key="`header-category-${category.id}`" class="topbar__category-group">
-              <RouterLink :to="{ path: '/catalog', query: { category: category.slug } }" class="topbar__category-parent">
+              <RouterLink :to="`/catalog/${category.slug}`" class="topbar__category-parent">
                 {{ category.name }}
               </RouterLink>
               <div v-if="category.subcategories?.length" class="topbar__subcategory-list">
                 <RouterLink
                   v-for="subcategory in category.subcategories"
                   :key="`header-subcategory-${subcategory.id}`"
-                  :to="{ path: '/catalog', query: { category: subcategory.slug } }"
+                  :to="`/catalog/${category.slug}/${subcategory.slug}`"
                   class="topbar__subcategory-item"
                 >
                   {{ subcategory.name }}

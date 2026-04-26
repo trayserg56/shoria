@@ -11,6 +11,8 @@ type Category = {
   id: number
   name: string
   slug: string
+  description?: string | null
+  image_url?: string | null
   seo_title?: string | null
   seo_description?: string | null
   subcategories?: Category[]
@@ -30,6 +32,10 @@ type Product = {
     code: string
     label: string
   }[]
+  reviews_summary?: {
+    count: number
+    average: number | null
+  }
   category: {
     name: string
     slug: string
@@ -58,6 +64,10 @@ type CatalogFacets = {
   brands: FacetOption[]
   colors: FacetOption[]
   sizes: FacetOption[]
+  characteristics: {
+    name: string
+    values: FacetOption[]
+  }[]
   on_sale: {
     count: number
   }
@@ -85,6 +95,7 @@ const products = ref<PaginatedProducts>({
     brands: [],
     colors: [],
     sizes: [],
+    characteristics: [],
     on_sale: {
       count: 0,
     },
@@ -96,7 +107,47 @@ const priceMinInput = ref((route.query.price_min as string | undefined) ?? '')
 const priceMaxInput = ref((route.query.price_max as string | undefined) ?? '')
 let priceApplyTimeout: ReturnType<typeof setTimeout> | null = null
 
-const activeCategory = computed(() => (route.query.category as string | undefined) ?? '')
+function normalizeRouteSegment(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item).trim())
+      .filter(Boolean)
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split('/')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+
+  return []
+}
+
+const activeCategorySegments = computed(() => {
+  const categorySlug = typeof route.params.categorySlug === 'string' ? route.params.categorySlug.trim() : ''
+  const subcategorySlug =
+    typeof route.params.subcategorySlug === 'string' ? route.params.subcategorySlug.trim() : ''
+  const deepPathSegments = normalizeRouteSegment(route.params.deepPath)
+
+  const segments = [categorySlug, subcategorySlug, ...deepPathSegments].filter(Boolean)
+
+  if (segments.length > 0) {
+    return segments
+  }
+
+  const queryCategory = typeof route.query.category === 'string' ? route.query.category.trim() : ''
+  return queryCategory ? [queryCategory] : []
+})
+
+const activeCategory = computed(() => {
+  if (!activeCategorySegments.value.length) {
+    return ''
+  }
+
+  return activeCategorySegments.value[activeCategorySegments.value.length - 1] ?? ''
+})
+const activeCategorySlugSet = computed(() => new Set(activeCategorySegments.value))
 const activeQuery = computed(() => (route.query.q as string | undefined) ?? '')
 const activeSort = computed(() => (route.query.sort as string | undefined) ?? '')
 const activePriceMin = computed(() => (route.query.price_min as string | undefined) ?? '')
@@ -151,6 +202,18 @@ const activeSizes = computed(() => {
     .map((item) => item.trim())
     .filter(Boolean)
 })
+const activeCharacteristics = computed(() => {
+  const raw = (route.query.characteristics as string | undefined) ?? ''
+
+  if (!raw) {
+    return []
+  }
+
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+})
 const page = computed(() => Number(route.query.page ?? '1'))
 const hasActiveFilters = computed(
   () =>
@@ -164,22 +227,46 @@ const hasActiveFilters = computed(
     activeTags.value.length > 0 ||
     activeBrands.value.length > 0 ||
     activeColors.value.length > 0 ||
-    activeSizes.value.length > 0,
+    activeSizes.value.length > 0 ||
+    activeCharacteristics.value.length > 0,
 )
-const activeCategoryLabel = computed(() => {
-  for (const category of categories.value) {
-    if (category.slug === activeCategory.value) {
-      return category.name
-    }
-
-    const child = category.subcategories?.find((item) => item.slug === activeCategory.value)
-
-    if (child) {
-      return `${category.name} / ${child.name}`
-    }
+const isCategoryLanding = computed(() => !activeCategory.value)
+const activeCategoryPathNodes = computed(() => findCategoryPathNodesBySegments(activeCategorySegments.value))
+const activeCategoryNode = computed(() => {
+  const nodes = activeCategoryPathNodes.value
+  return nodes.length ? nodes[nodes.length - 1] : null
+})
+const activeCategoryPathNames = computed(() => activeCategoryPathNodes.value.map((node) => node.name))
+const childSubcategories = computed(() => {
+  if (!activeCategoryNode.value?.subcategories?.length) {
+    return []
   }
 
-  return ''
+  return activeCategoryNode.value.subcategories
+})
+const breadcrumbItems = computed(() => {
+  if (!activeCategoryPathNodes.value.length) {
+    return []
+  }
+
+  const segments: string[] = []
+
+  return activeCategoryPathNodes.value.map((node, index) => {
+    segments.push(node.slug)
+
+    return {
+      label: node.name,
+      path: buildCatalogPath(segments),
+      isLast: index === activeCategoryPathNodes.value.length - 1,
+    }
+  })
+})
+const activeCategoryPath = computed(() => {
+  if (activeCategorySegments.value.length > 0) {
+    return buildCatalogPath(activeCategorySegments.value)
+  }
+
+  return '/catalog'
 })
 
 const sortOptions = [
@@ -230,6 +317,32 @@ const availableColorOptions = computed(() =>
 const availableSizeOptions = computed(() =>
   withActiveFacetValues(products.value.filters.sizes, activeSizes.value),
 )
+const availableCharacteristicGroups = computed(() => {
+  const groupsMap = new Map<string, FacetOption[]>()
+
+  for (const group of products.value.filters.characteristics) {
+    groupsMap.set(group.name, [...group.values])
+  }
+
+  for (const token of activeCharacteristics.value) {
+    const pair = parseCharacteristicToken(token)
+
+    if (!pair) {
+      continue
+    }
+
+    const currentValues = groupsMap.get(pair.name) ?? []
+    const withActiveValues = withActiveFacetValues(currentValues, [pair.value])
+    groupsMap.set(pair.name, withActiveValues)
+  }
+
+  return [...groupsMap.entries()]
+    .map(([name, values]) => ({
+      name,
+      values: [...values].sort((a, b) => a.value.localeCompare(b.value, 'ru')),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+})
 const availableCategoryCounts = computed(() => {
   return products.value.filters.categories.reduce<Record<string, number>>((acc, item) => {
     acc[item.slug] = item.count
@@ -245,6 +358,7 @@ const filterSections = ref({
   brands: true,
   colors: false,
   sizes: false,
+  characteristics: false,
   categories: true,
 })
 
@@ -262,6 +376,26 @@ async function loadCategories() {
 }
 
 async function loadProducts() {
+  if (isCategoryLanding.value) {
+    products.value = {
+      current_page: 1,
+      last_page: 1,
+      data: [],
+      filters: {
+        categories: [],
+        tags: [],
+        brands: [],
+        colors: [],
+        sizes: [],
+        characteristics: [],
+        on_sale: { count: 0 },
+      },
+    }
+    hasError.value = false
+    isLoading.value = false
+    return
+  }
+
   isLoading.value = true
 
   const query = new URLSearchParams()
@@ -314,6 +448,10 @@ async function loadProducts() {
     query.set('sizes', activeSizes.value.join(','))
   }
 
+  if (activeCharacteristics.value.length) {
+    query.set('characteristics', activeCharacteristics.value.join(','))
+  }
+
   const suffix = query.toString() ? `?${query.toString()}` : ''
 
   try {
@@ -330,6 +468,7 @@ async function loadProducts() {
       brands: activeBrands.value.join(',') || 'none',
       colors: activeColors.value.join(',') || 'none',
       sizes: activeSizes.value.join(',') || 'none',
+      characteristics: activeCharacteristics.value.join(',') || 'none',
     })
   } catch (error) {
     console.error(error)
@@ -341,7 +480,6 @@ async function loadProducts() {
 
 function buildBaseCatalogQuery() {
   return {
-    ...(activeCategory.value ? { category: activeCategory.value } : {}),
     ...(activeQuery.value ? { q: activeQuery.value } : {}),
     ...(activeSort.value ? { sort: activeSort.value } : {}),
     ...(activePriceMin.value ? { price_min: activePriceMin.value } : {}),
@@ -352,27 +490,81 @@ function buildBaseCatalogQuery() {
     ...(activeBrands.value.length ? { brands: activeBrands.value.join(',') } : {}),
     ...(activeColors.value.length ? { colors: activeColors.value.join(',') } : {}),
     ...(activeSizes.value.length ? { sizes: activeSizes.value.join(',') } : {}),
+    ...(activeCharacteristics.value.length ? { characteristics: activeCharacteristics.value.join(',') } : {}),
   }
 }
 
-function navigateCatalog(query: Record<string, string | undefined>) {
-  const keepScrollTop = window.scrollY
+function buildCatalogPath(pathSegments?: string[]) {
+  if (!pathSegments?.length) {
+    return '/catalog'
+  }
 
-  void router.replace({
-    path: '/catalog',
-    query,
-  })
+  return `/catalog/${pathSegments.map((segment) => encodeURIComponent(segment)).join('/')}`
+}
 
-  requestAnimationFrame(() => {
-    window.scrollTo({ top: keepScrollTop, left: 0, behavior: 'auto' })
-  })
+function resolveCategoryPathBySlug(slug: string): string[] | null {
+  const walk = (nodes: Category[], trail: string[]): string[] | null => {
+    for (const node of nodes) {
+      const nextTrail = [...trail, node.slug]
+
+      if (node.slug === slug) {
+        return nextTrail
+      }
+
+      const nested = walk(node.subcategories ?? [], nextTrail)
+      if (nested) {
+        return nested
+      }
+    }
+
+    return null
+  }
+
+  return walk(categories.value, [])
+}
+
+function findCategoryPathNodesBySegments(segments: string[]): Category[] {
+  if (!segments.length) {
+    return []
+  }
+
+  const pathNodes: Category[] = []
+  let cursor = categories.value
+
+  for (const segment of segments) {
+    const node = cursor.find((item) => item.slug === segment)
+
+    if (!node) {
+      return []
+    }
+
+    pathNodes.push(node)
+    cursor = node.subcategories ?? []
+  }
+
+  return pathNodes
+}
+
+function navigateCatalog(query: Record<string, string | undefined>, mode: 'replace' | 'push' = 'replace') {
+  const navigate = mode === 'push' ? router.push : router.replace
+  void navigate.call(router, { path: activeCategoryPath.value, query })
 }
 
 function selectCategory(slug = '') {
-  navigateCatalog({
+  if (!slug) {
+    navigateCatalog({}, 'push')
+    return
+  }
+  const query = {
     ...buildBaseCatalogQuery(),
-    category: slug || undefined,
     page: undefined,
+  }
+  const resolved = resolveCategoryPathBySlug(slug)
+  const path = resolved ? buildCatalogPath(resolved) : buildCatalogPath([slug])
+
+  void router.push({
+    path,
+    query,
   })
 }
 
@@ -479,6 +671,19 @@ function toggleSizeFilter(size: string) {
   })
 }
 
+function toggleCharacteristicFilter(name: string, value: string) {
+  const token = buildCharacteristicToken(name, value)
+  const nextCharacteristics = toggleMultiValue(activeCharacteristics.value, token)
+
+  navigateCatalog({
+    ...buildBaseCatalogQuery(),
+    ...(nextCharacteristics.length
+      ? { characteristics: nextCharacteristics.join(',') }
+      : { characteristics: undefined }),
+    page: undefined,
+  })
+}
+
 function resetCatalogFilters() {
   navigateCatalog({})
 }
@@ -499,6 +704,35 @@ function toggleMultiValue(currentValues: string[], value: string) {
   return [...current]
 }
 
+function buildCharacteristicToken(name: string, value: string) {
+  return `${name}::${value}`
+}
+
+function parseCharacteristicToken(token: string): { name: string; value: string } | null {
+  const separatorIndex = token.indexOf('::')
+
+  if (separatorIndex === -1) {
+    return null
+  }
+
+  const name = token.slice(0, separatorIndex)
+  const value = token.slice(separatorIndex + 2)
+
+  if (!name || !value) {
+    return null
+  }
+
+  return {
+    name: name.trim(),
+    value: value.trim(),
+  }
+}
+
+function isCharacteristicActive(name: string, value: string) {
+  const token = buildCharacteristicToken(name, value)
+  return activeCharacteristics.value.includes(token)
+}
+
 function isFacetValueVisible(count: number, isActive: boolean) {
   return count > 0 || isActive
 }
@@ -509,7 +743,7 @@ function categoryCountBySlug(slug: string): number {
 
 function categoryDisplayCount(category: Category): number {
   const own = categoryCountBySlug(category.slug)
-  const children = category.subcategories?.reduce((sum, item) => sum + categoryCountBySlug(item.slug), 0) ?? 0
+  const children = category.subcategories?.reduce((sum, item) => sum + categoryDisplayCount(item), 0) ?? 0
 
   return own + children
 }
@@ -527,31 +761,62 @@ function shouldShowCategory(category: Category): boolean {
 }
 
 function shouldShowSubcategory(category: Category): boolean {
-  if (activeCategory.value === category.slug) {
+  if (activeCategorySlugSet.value.has(category.slug)) {
     return true
   }
 
-  return categoryCountBySlug(category.slug) > 0
+  if (categoryDisplayCount(category) > 0) {
+    return true
+  }
+
+  return category.subcategories?.some((item) => shouldShowSubcategory(item)) ?? false
 }
 
-function hasActiveSubcategory(category: Category): boolean {
-  return category.subcategories?.some((item) => item.slug === activeCategory.value) ?? false
+function walkCategories(nodes: Category[], visit: (category: Category) => void) {
+  for (const node of nodes) {
+    visit(node)
+    if (node.subcategories?.length) {
+      walkCategories(node.subcategories, visit)
+    }
+  }
 }
 
 function syncCategoryAccordions() {
   const nextState = { ...categoryAccordions.value }
 
-  for (const category of categories.value) {
+  walkCategories(categories.value, (category) => {
     if (!(category.slug in nextState)) {
-      nextState[category.slug] = hasActiveSubcategory(category)
+      nextState[category.slug] = false
     }
+  })
 
-    if (hasActiveSubcategory(category)) {
-      nextState[category.slug] = true
-    }
+  for (const segment of activeCategorySegments.value) {
+    nextState[segment] = true
   }
 
   categoryAccordions.value = nextState
+}
+
+function flattenedVisibleSubcategories(category: Category, depth = 1): Array<{ category: Category; depth: number }> {
+  if (!category.subcategories?.length) {
+    return []
+  }
+
+  const rows: Array<{ category: Category; depth: number }> = []
+
+  for (const subcategory of category.subcategories) {
+    if (!shouldShowSubcategory(subcategory)) {
+      continue
+    }
+
+    rows.push({ category: subcategory, depth })
+
+    if (subcategory.subcategories?.length && categoryAccordions.value[subcategory.slug]) {
+      rows.push(...flattenedVisibleSubcategories(subcategory, depth + 1))
+    }
+  }
+
+  return rows
 }
 
 function isKnownCategorySlug(slug: string): boolean {
@@ -559,23 +824,64 @@ function isKnownCategorySlug(slug: string): boolean {
     return true
   }
 
-  return categories.value.some(
-    (category) =>
-      category.slug === slug || category.subcategories?.some((subcategory) => subcategory.slug === slug),
-  )
+  return resolveCategoryPathBySlug(slug) !== null
 }
 
 function ensureValidCategoryFilter(): boolean {
   if (!activeCategory.value || isKnownCategorySlug(activeCategory.value)) {
+    if (activeCategorySegments.value.length) {
+      const nodes = findCategoryPathNodesBySegments(activeCategorySegments.value)
+
+      if (nodes.length !== activeCategorySegments.value.length) {
+        void router.replace({
+          path: '/catalog',
+          query: { ...route.query, page: undefined },
+        })
+
+        return true
+      }
+    }
+
     return false
   }
 
   void router.replace({
     path: '/catalog',
+    query: { ...route.query, page: undefined },
+  })
+
+  return true
+}
+
+function migrateLegacyCategoryQuery(): boolean {
+  const categoryFromQuery = typeof route.query.category === 'string' ? route.query.category.trim() : ''
+  const hasCategoryParam = activeCategorySegments.value.length > 0
+
+  if (!categoryFromQuery || hasCategoryParam) {
+    if (activeCategorySegments.value.length === 1) {
+      const resolved = resolveCategoryPathBySlug(activeCategorySegments.value[0] ?? '')
+
+      if (resolved && resolved.length > 1) {
+        void router.replace({
+          path: buildCatalogPath(resolved),
+          query: route.query,
+        })
+
+        return true
+      }
+    }
+
+    return false
+  }
+
+  const resolved = resolveCategoryPathBySlug(categoryFromQuery)
+  const path = resolved ? buildCatalogPath(resolved) : buildCatalogPath([categoryFromQuery])
+
+  void router.replace({
+    path,
     query: {
       ...route.query,
       category: undefined,
-      page: undefined,
     },
   })
 
@@ -590,25 +896,19 @@ function toggleCategoryAccordion(slug: string) {
 }
 
 function findActiveCategoryMeta() {
-  for (const category of categories.value) {
-    if (category.slug === activeCategory.value) {
-      return category
-    }
-
-    const child = category.subcategories?.find((item) => item.slug === activeCategory.value)
-
-    if (child) {
-      return child
-    }
-  }
-
-  return null
+  return activeCategoryNode.value
 }
 
 function syncCatalogSeo() {
   const activeCategoryMeta = findActiveCategoryMeta()
 
   if (!activeCategoryMeta) {
+    setSeoMeta({
+      title: 'Каталог — Shoria',
+      description: 'Категории и товары Shoria: удобный выбор, фильтры, бренды и быстрый переход к карточкам.',
+      robots: 'index,follow',
+      canonical: `${window.location.origin}/catalog`,
+    })
     return
   }
 
@@ -618,7 +918,7 @@ function syncCatalogSeo() {
       activeCategoryMeta.seo_description?.trim() ||
       `Подборка товаров Shoria в категории ${activeCategoryMeta.name}: фильтры, поиск и быстрый выбор.`,
     robots: 'index,follow',
-    canonical: `${window.location.origin}/catalog?category=${activeCategoryMeta.slug}`,
+    canonical: `${window.location.origin}${activeCategoryPath.value}`,
   })
 }
 
@@ -626,6 +926,10 @@ onMounted(async () => {
   priceMinInput.value = activePriceMin.value
   priceMaxInput.value = activePriceMax.value
   await loadCategories()
+  const migratedLegacyCategory = migrateLegacyCategoryQuery()
+  if (migratedLegacyCategory) {
+    return
+  }
   const fixedInvalidCategory = ensureValidCategoryFilter()
   syncCatalogSeo()
   if (!fixedInvalidCategory) {
@@ -680,18 +984,50 @@ onBeforeUnmount(() => {
       <RouterLink to="/">Главная</RouterLink>
       <span>/</span>
       <RouterLink to="/catalog">Каталог</RouterLink>
-      <template v-if="activeCategoryLabel">
+      <template v-for="item in breadcrumbItems" :key="item.path">
         <span>/</span>
-        <span>{{ activeCategoryLabel }}</span>
+        <RouterLink v-if="!item.isLast" :to="item.path">{{ item.label }}</RouterLink>
+        <span v-else>{{ item.label }}</span>
       </template>
     </nav>
 
     <header class="catalog-header">
       <h1>Каталог</h1>
-      <p>Подборки и все доступные модели из API.</p>
+      <p v-if="isCategoryLanding">Выберите категорию, чтобы открыть товары и фильтры.</p>
+      <p v-else>Подборки и все доступные модели из API.</p>
     </header>
 
-    <section class="catalog-layout">
+    <section v-if="isCategoryLanding" class="catalog-landing">
+      <article
+        v-for="category in categories"
+        :key="category.id"
+        class="category-showcase"
+        role="button"
+        tabindex="0"
+        @click="selectCategory(category.slug)"
+        @keydown.enter.prevent="selectCategory(category.slug)"
+      >
+        <div class="category-showcase__media">
+          <img
+            v-if="category.image_url"
+            :src="category.image_url"
+            :alt="category.name"
+            loading="lazy"
+          />
+          <div v-else class="category-showcase__placeholder" />
+        </div>
+        <div class="category-showcase__content">
+          <h2>{{ category.name }}</h2>
+          <p v-if="category.description">{{ category.description }}</p>
+          <p v-else>
+            {{ category.subcategories?.length ? `${category.subcategories.length} подкатегорий` : 'Перейти к товарам' }}
+          </p>
+          <div class="category-showcase__cta">Открыть категорию</div>
+        </div>
+      </article>
+    </section>
+
+    <section v-else class="catalog-layout">
       <aside class="catalog-sidebar">
         <div class="sidebar-card">
           <div class="sidebar-section">
@@ -826,6 +1162,32 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="sidebar-section">
+            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('characteristics')">
+              <span>Характеристики</span>
+              <span class="sidebar-section__chevron">{{ filterSections.characteristics ? '−' : '+' }}</span>
+            </button>
+            <div v-if="filterSections.characteristics" class="sidebar-section__body">
+              <div class="characteristics-groups">
+                <div v-for="group in availableCharacteristicGroups" :key="group.name" class="characteristics-group">
+                  <p class="characteristics-group__title">{{ group.name }}</p>
+                  <div class="tag-filters">
+                    <button
+                      v-for="option in group.values"
+                      v-show="isFacetValueVisible(option.count, isCharacteristicActive(group.name, option.value))"
+                      :key="`${group.name}:${option.value}`"
+                      class="tag-chip"
+                      :class="{ 'tag-chip--active': isCharacteristicActive(group.name, option.value) }"
+                      @click="toggleCharacteristicFilter(group.name, option.value)"
+                    >
+                      {{ option.value }} <span class="chip-count">{{ option.count }}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
             <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('categories')">
               <span>Категории</span>
               <span class="sidebar-section__chevron">{{ filterSections.categories ? '−' : '+' }}</span>
@@ -873,16 +1235,16 @@ onBeforeUnmount(() => {
                     class="subcategory-list"
                   >
                     <button
-                      v-for="subcategory in category.subcategories"
-                      v-show="shouldShowSubcategory(subcategory)"
-                      :key="subcategory.id"
+                      v-for="entry in flattenedVisibleSubcategories(category)"
+                      :key="entry.category.id"
                       type="button"
                       class="chip chip--subcategory"
-                      :class="{ 'chip--active': activeCategory === subcategory.slug }"
-                      @click="selectCategory(subcategory.slug)"
+                      :class="{ 'chip--active': activeCategory === entry.category.slug }"
+                      :style="entry.depth > 1 ? { marginLeft: `${(entry.depth - 1) * 14}px` } : undefined"
+                      @click="selectCategory(entry.category.slug)"
                     >
-                      {{ subcategory.name }}
-                      <span class="chip-count">{{ categoryCountBySlug(subcategory.slug) }}</span>
+                      {{ entry.category.name }}
+                      <span class="chip-count">{{ categoryDisplayCount(entry.category) }}</span>
                     </button>
                   </div>
                 </div>
@@ -897,6 +1259,22 @@ onBeforeUnmount(() => {
       </aside>
 
       <div class="catalog-content">
+        <section v-if="childSubcategories.length" class="subcategory-strip">
+          <h2>Подкатегории {{ activeCategoryNode?.name }}</h2>
+          <div class="subcategory-strip__items">
+            <button
+              v-for="subcategory in childSubcategories"
+              :key="subcategory.id"
+              type="button"
+              class="subcategory-strip__chip"
+              :class="{ 'subcategory-strip__chip--active': activeCategory === subcategory.slug }"
+              @click="selectCategory(subcategory.slug)"
+            >
+              {{ subcategory.name }}
+            </button>
+          </div>
+        </section>
+
         <section v-if="isLoading && !products.data.length" class="catalog-grid">
           <article v-for="index in 6" :key="`catalog-skeleton-${index}`" class="catalog-skeleton-card">
             <AppSkeleton width="100%" height="250px" radius="28px 28px 0 0" />
@@ -968,6 +1346,87 @@ onBeforeUnmount(() => {
 .catalog-header p {
   margin-top: 8px;
   color: var(--color-text-soft);
+}
+
+.catalog-landing {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+.category-showcase {
+  border: 1px solid #efe2d4;
+  border-radius: 24px;
+  overflow: hidden;
+  background: #fffdf9;
+  cursor: pointer;
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    border-color 0.22s ease;
+}
+
+.category-showcase:hover,
+.category-showcase:focus-visible {
+  transform: translateY(-4px);
+  border-color: #e8c7a8;
+  box-shadow: 0 18px 36px rgb(31 34 51 / 10%);
+  outline: none;
+}
+
+.category-showcase__media {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: linear-gradient(135deg, #f4ecdf 0%, #e9ddcd 100%);
+}
+
+.category-showcase__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.category-showcase__placeholder {
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(circle at 20% 20%, rgb(255 255 255 / 80%) 0, rgb(255 255 255 / 0%) 45%),
+    linear-gradient(140deg, #f4ecdf 0%, #eadcc9 100%);
+}
+
+.category-showcase__content {
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.category-showcase__content h2 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.05;
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+.category-showcase__content p {
+  margin: 0;
+  color: #5f6f88;
+  font-size: 15px;
+}
+
+.category-showcase__cta {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid #d7c7b6;
+  color: #253049;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .catalog-layout {
@@ -1126,6 +1585,25 @@ onBeforeUnmount(() => {
   color: rgb(255 255 255 / 86%);
 }
 
+.characteristics-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.characteristics-group {
+  padding: 10px;
+  border: 1px solid #ecdcca;
+  border-radius: 14px;
+  background: rgb(255 253 249 / 92%);
+}
+
+.characteristics-group__title {
+  margin: 0 0 8px;
+  color: #5b6a84;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .filters {
   display: flex;
   flex-wrap: wrap;
@@ -1250,6 +1728,40 @@ onBeforeUnmount(() => {
 
 .catalog-content {
   min-width: 0;
+}
+
+.subcategory-strip {
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid #ecdcca;
+  border-radius: 18px;
+  background: rgb(255 252 247 / 82%);
+}
+
+.subcategory-strip h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+
+.subcategory-strip__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.subcategory-strip__chip {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid #d6d3cc;
+  background: #fff;
+  color: #23293a;
+  cursor: pointer;
+}
+
+.subcategory-strip__chip--active {
+  border-color: #f35b04;
+  background: #fff1e6;
+  color: #c74803;
 }
 
 .catalog-grid {

@@ -50,6 +50,12 @@ class NewsController extends Controller
                 'brandEntity:id,name,slug',
                 'images:id,product_id,url,alt,is_cover,sort_order',
             ])
+            ->withCount([
+                'reviews as reviews_count' => fn (Builder $reviewsQuery) => $reviewsQuery->where('is_active', true),
+            ])
+            ->withAvg([
+                'reviews as reviews_avg_rating' => fn (Builder $reviewsQuery) => $reviewsQuery->where('is_active', true),
+            ], 'rating')
             ->where('products.is_active', true)
             ->get();
         $spotlightProducts = $manualProducts->isNotEmpty()
@@ -81,6 +87,12 @@ class NewsController extends Controller
                 'brandEntity:id,name,slug',
                 'images:id,product_id,url,alt,is_cover,sort_order',
             ])
+            ->withCount([
+                'reviews as reviews_count' => fn (Builder $reviewsQuery) => $reviewsQuery->where('is_active', true),
+            ])
+            ->withAvg([
+                'reviews as reviews_avg_rating' => fn (Builder $reviewsQuery) => $reviewsQuery->where('is_active', true),
+            ], 'rating')
             ->where('is_active', true)
             ->where('stock', '>', 0);
 
@@ -156,6 +168,12 @@ class NewsController extends Controller
             'price' => (float) $product->price,
             'old_price' => $product->old_price !== null ? (float) $product->old_price : null,
             'currency' => $product->currency,
+            'reviews_summary' => [
+                'count' => (int) ($product->reviews_count ?? 0),
+                'average' => $product->reviews_avg_rating !== null
+                    ? round((float) $product->reviews_avg_rating, 1)
+                    : null,
+            ],
             'image_url' => $product->images
                 ->sortBy([
                     ['is_cover', 'desc'],

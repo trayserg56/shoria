@@ -21,12 +21,20 @@ class CategoryForm
                                 Forms\Components\Select::make('parent_id')
                                     ->label('Родительская категория')
                                     ->options(function ($record): array {
-                                        return Category::query()
-                                            ->when($record, fn ($query) => $query->whereKeyNot($record->getKey()))
-                                            ->whereNull('parent_id')
+                                        $categories = Category::query()
                                             ->orderBy('sort_order')
-                                            ->pluck('name', 'id')
-                                            ->all();
+                                            ->orderBy('name')
+                                            ->get(['id', 'parent_id', 'name']);
+
+                                        $excludedIds = $record
+                                            ? self::collectDescendantIds($categories, (int) $record->getKey())
+                                            : [];
+
+                                        if ($record) {
+                                            $excludedIds[] = (int) $record->getKey();
+                                        }
+
+                                        return self::buildHierarchyOptions($categories, $excludedIds);
                                     })
                                     ->searchable()
                                     ->preload(),
@@ -107,5 +115,68 @@ class CategoryForm
                     ->columnSpanFull(),
             ])
             ->columns(2);
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, Category> $categories
+     * @return array<int, string>
+     */
+    protected static function buildHierarchyOptions($categories, array $excludedIds = []): array
+    {
+        $excludedLookup = array_fill_keys($excludedIds, true);
+        $childrenByParent = [];
+
+        foreach ($categories as $category) {
+            $childrenByParent[$category->parent_id ?? 0][] = $category;
+        }
+
+        $appendOptions = function (int $parentId, int $depth, array &$options) use (&$appendOptions, $childrenByParent, $excludedLookup): void {
+            foreach ($childrenByParent[$parentId] ?? [] as $child) {
+                $id = (int) $child->id;
+
+                if (! isset($excludedLookup[$id])) {
+                    $prefix = $depth > 0 ? str_repeat('— ', $depth) : '';
+                    $options[$id] = $prefix.$child->name;
+                }
+
+                $appendOptions($id, $depth + 1, $options);
+            }
+        };
+
+        $options = [];
+        $appendOptions(0, 0, $options);
+
+        return $options;
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, Category> $categories
+     * @return int[]
+     */
+    protected static function collectDescendantIds($categories, int $rootId): array
+    {
+        $childrenByParent = [];
+
+        foreach ($categories as $category) {
+            $childrenByParent[$category->parent_id ?? 0][] = (int) $category->id;
+        }
+
+        $result = [];
+        $stack = [$rootId];
+
+        while ($stack !== []) {
+            $parentId = array_pop($stack);
+
+            foreach ($childrenByParent[$parentId] ?? [] as $childId) {
+                if (in_array($childId, $result, true)) {
+                    continue;
+                }
+
+                $result[] = $childId;
+                $stack[] = $childId;
+            }
+        }
+
+        return $result;
     }
 }

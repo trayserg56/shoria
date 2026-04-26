@@ -12,6 +12,11 @@ type ReviewItem = {
   is_verified_purchase: boolean
   created_at: string
   updated_at: string
+  target?: {
+    product_name: string | null
+    variant_label: string | null
+    variant_slug: string | null
+  }
   product: {
     id: number
     name: string
@@ -116,13 +121,22 @@ onMounted(loadReviewsCabinet)
             <strong>{{ review.product?.name ?? 'Товар' }}</strong>
             <span class="rating">{{ buildStars(review.rating) }}</span>
           </div>
+          <p v-if="review.target?.variant_label" class="target">
+            Вариант: {{ review.target.variant_label }}
+          </p>
           <p class="text">{{ review.review_text }}</p>
           <div class="meta">
             <span>{{ formatDate(review.updated_at || review.created_at) }}</span>
             <span v-if="review.is_verified_purchase" class="meta__verified">Покупка подтверждена</span>
             <RouterLink
               v-if="review.product"
-              :to="toProductRoute({ slug: review.product.slug, category: review.product.category })"
+              :to="
+                toProductRoute({
+                  slug: review.product.slug,
+                  category: review.product.category,
+                  variant_slug: review.target?.variant_slug ?? null,
+                })
+              "
             >
               Редактировать
             </RouterLink>
@@ -213,6 +227,12 @@ onMounted(loadReviewsCabinet)
   line-height: 1.45;
 }
 
+.target {
+  margin: 0;
+  color: #657290;
+  font-size: 13px;
+}
+
 .meta {
   display: flex;
   gap: 10px;
@@ -260,4 +280,3 @@ onMounted(loadReviewsCabinet)
   }
 }
 </style>
-

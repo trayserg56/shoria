@@ -29,6 +29,10 @@ type Product = {
     code: string
     label: string
   }[]
+  reviews_summary?: {
+    count: number
+    average: number | null
+  }
   category: {
     name: string
     slug: string
@@ -416,7 +420,7 @@ async function subscribeToNewsletter() {
       <div class="category-grid">
         <template v-if="state.categories.length">
           <article v-for="item in state.categories" :key="item.id" class="card category-card">
-            <RouterLink class="category-link" :to="{ path: '/catalog', query: { category: item.slug } }">
+            <RouterLink class="category-link" :to="`/catalog/${item.slug}`">
               <img v-if="item.image_url" :src="item.image_url" :alt="item.name" loading="lazy" />
               <div class="card__content">
                 <h3>{{ item.name }}</h3>

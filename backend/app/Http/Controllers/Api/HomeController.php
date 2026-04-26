@@ -7,6 +7,7 @@ use App\Models\Banner;
 use App\Models\Category;
 use App\Models\NewsPost;
 use App\Models\Product;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
 
@@ -43,6 +44,12 @@ class HomeController extends Controller
                 'brandEntity:id,name,slug',
                 'images:id,product_id,url,is_cover,sort_order',
             ])
+            ->withCount([
+                'reviews as reviews_count' => fn (Builder $reviewsQuery) => $reviewsQuery->where('is_active', true),
+            ])
+            ->withAvg([
+                'reviews as reviews_avg_rating' => fn (Builder $reviewsQuery) => $reviewsQuery->where('is_active', true),
+            ], 'rating')
             ->where('is_active', true)
             ->orderByDesc('is_featured')
             ->orderBy('sort_order')
@@ -60,6 +67,12 @@ class HomeController extends Controller
                     'price' => (float) $product->price,
                     'old_price' => $product->old_price !== null ? (float) $product->old_price : null,
                     'currency' => $product->currency,
+                    'reviews_summary' => [
+                        'count' => (int) ($product->reviews_count ?? 0),
+                        'average' => $product->reviews_avg_rating !== null
+                            ? round((float) $product->reviews_avg_rating, 1)
+                            : null,
+                    ],
                     'category' => $primaryCategory ? [
                         'name' => $primaryCategory->name,
                         'slug' => $primaryCategory->slug,

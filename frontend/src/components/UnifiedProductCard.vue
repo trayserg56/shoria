@@ -26,6 +26,10 @@ type ProductCardData = {
     code: string
     label: string
   }>
+  reviews_summary?: {
+    count: number
+    average: number | null
+  }
 }
 
 const props = withDefaults(
@@ -88,6 +92,30 @@ function formatPricePerUnit(value: number, currency: string) {
   }
 
   return `${amount} ${currency}/шт`
+}
+
+function formatReviewsCount(value: number) {
+  const normalized = Math.max(0, Math.trunc(value))
+  const mod10 = normalized % 10
+  const mod100 = normalized % 100
+
+  if (mod10 === 1 && mod100 !== 11) {
+    return `${normalized} отзыв`
+  }
+
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return `${normalized} отзыва`
+  }
+
+  return `${normalized} отзывов`
+}
+
+function formatRating(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return '—'
+  }
+
+  return value.toFixed(1)
 }
 
 function tagCodeClass(code: string) {
@@ -319,6 +347,9 @@ watch(
         <h3>{{ product.name }}</h3>
       </RouterLink>
       <div class="product-card__meta-row">
+        <span v-if="(product.reviews_summary?.count ?? 0) > 0" class="product-card__meta-item">
+          ★ {{ formatRating(product.reviews_summary?.average) }} · {{ formatReviewsCount(product.reviews_summary?.count ?? 0) }}
+        </span>
         <span class="product-card__meta-item" :class="{ 'product-card__meta-item--ok': !isOutOfStock }">
           {{ isOutOfStock ? 'Нет в наличии' : 'В наличии' }}
         </span>

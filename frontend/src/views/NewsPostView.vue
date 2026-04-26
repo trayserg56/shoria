@@ -21,6 +21,10 @@ type SpotlightProduct = {
   stock: number
   currency: string
   image_url: string | null
+  reviews_summary?: {
+    count: number
+    average: number | null
+  }
   category: {
     name: string
     slug: string

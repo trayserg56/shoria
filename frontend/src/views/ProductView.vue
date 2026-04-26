@@ -79,6 +79,11 @@ type ProductReviewPayload = {
   rating: number
   review_text: string
   author_name: string
+  target?: {
+    product_name: string | null
+    variant_label: string | null
+    variant_slug: string | null
+  }
   is_verified_purchase: boolean
   created_at: string
   updated_at: string
@@ -91,6 +96,7 @@ type ProductReviewsPayload = {
     last_page: number
     per_page: number
     total: number
+    scope?: 'all' | 'variant'
   }
   summary: {
     count: number
@@ -108,6 +114,10 @@ type RecommendedProduct = {
   stock: number
   currency: string
   image_url: string | null
+  reviews_summary?: {
+    count: number
+    average: number | null
+  }
   category: {
     name: string
     slug: string
@@ -151,6 +161,7 @@ const reviewRating = ref(0)
 const reviewText = ref('')
 const reviewError = ref('')
 const reviewSuccess = ref('')
+const reviewsScope = ref<'all' | 'variant'>('all')
 
 const slug = computed(() => String(route.params.slug ?? ''))
 const currentCategorySlug = computed(() => String(route.params.categorySlug ?? ''))
@@ -221,7 +232,7 @@ const currentCartQty = computed(() => {
 })
 const catalogCategoryLink = computed(() =>
   product.value?.category?.slug
-    ? { path: '/catalog', query: { category: product.value.category.slug } }
+    ? { path: `/catalog/${product.value.category.slug}` }
     : { path: '/catalog' },
 )
 const groupedCharacteristics = computed(() => {
@@ -268,6 +279,22 @@ function renderStars(value: number) {
   return '★'.repeat(value) + '☆'.repeat(Math.max(0, 5 - value))
 }
 
+function formatReviewCount(value: number) {
+  const normalized = Math.max(0, Math.trunc(value))
+  const mod10 = normalized % 10
+  const mod100 = normalized % 100
+
+  if (mod10 === 1 && mod100 !== 11) {
+    return `${normalized} отзыв`
+  }
+
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return `${normalized} отзыва`
+  }
+
+  return `${normalized} отзывов`
+}
+
 async function loadReviews(page = 1) {
   if (!slug.value) {
     return
@@ -276,8 +303,16 @@ async function loadReviews(page = 1) {
   isReviewsLoading.value = true
 
   try {
+    const params = new URLSearchParams({
+      page: String(page),
+    })
+
+    if (reviewsScope.value === 'variant' && selectedVariant.value?.slug) {
+      params.set('variant_slug', selectedVariant.value.slug)
+    }
+
     const response = await fetchJson<ProductReviewsPayload>(
-      `/api/products/${slug.value}/reviews?page=${page}`,
+      `/api/products/${slug.value}/reviews?${params.toString()}`,
     )
 
     reviews.value = response.data
@@ -297,6 +332,15 @@ async function loadReviews(page = 1) {
   } finally {
     isReviewsLoading.value = false
   }
+}
+
+function setReviewsScope(scope: 'all' | 'variant') {
+  if (scope === reviewsScope.value) {
+    return
+  }
+
+  reviewsScope.value = scope
+  void loadReviews(1)
 }
 
 function scrollSlider(target: HTMLElement | null, direction: 'prev' | 'next') {
@@ -491,7 +535,7 @@ async function loadProduct() {
         { name: 'Главная', path: '/' },
         { name: 'Каталог', path: '/catalog' },
         ...(product.value.category
-          ? [{ name: product.value.category.name, path: `/catalog?category=${product.value.category.slug}` }]
+          ? [{ name: product.value.category.name, path: `/catalog/${product.value.category.slug}` }]
           : []),
         {
           name: product.value.name,
@@ -730,6 +774,7 @@ async function submitReview() {
       body: JSON.stringify({
         rating: reviewRating.value,
         review_text: reviewText.value.trim(),
+        variant_slug: selectedVariant.value?.slug ?? null,
       }),
     })
 
@@ -752,6 +797,15 @@ watch(
   () => route.fullPath,
   async () => {
     await loadProduct()
+  },
+)
+
+watch(
+  () => selectedVariant.value?.slug ?? null,
+  () => {
+    if (reviewsScope.value === 'variant') {
+      void loadReviews(1)
+    }
   },
 )
 </script>
@@ -830,6 +884,13 @@ watch(
           <strong>{{ formatPrice(effectivePrice, product.currency) }}</strong>
           <s v-if="product.old_price">{{ formatPrice(product.old_price, product.currency) }}</s>
         </div>
+        <p class="details__reviews-summary">
+          <template v-if="product.reviews_summary.count > 0">
+            ★ {{ product.reviews_summary.average?.toFixed(1) ?? '—' }} ·
+            {{ formatReviewCount(product.reviews_summary.count) }}
+          </template>
+          <template v-else>Пока нет отзывов</template>
+        </p>
 
         <div v-if="product.has_variants" class="sizes">
           <div v-if="hasColorOptions" class="sizes__group">
@@ -979,6 +1040,25 @@ watch(
           </template>
           <template v-else>Пока отзывов нет — будьте первым.</template>
         </p>
+        <div v-if="product.has_variants" class="details__reviews-tabs">
+          <button
+            type="button"
+            class="details__reviews-tab"
+            :class="{ 'details__reviews-tab--active': reviewsScope === 'all' }"
+            @click="setReviewsScope('all')"
+          >
+            Все отзывы
+          </button>
+          <button
+            type="button"
+            class="details__reviews-tab"
+            :class="{ 'details__reviews-tab--active': reviewsScope === 'variant' }"
+            :disabled="!selectedVariant?.slug"
+            @click="setReviewsScope('variant')"
+          >
+            Этот вариант
+          </button>
+        </div>
       </div>
 
       <form
@@ -1035,6 +1115,10 @@ watch(
             <strong>{{ review.author_name }}</strong>
             <span class="details__review-stars">{{ renderStars(review.rating) }}</span>
           </div>
+          <p class="details__review-target">
+            {{ review.target?.product_name ?? product.name }}
+            <template v-if="review.target?.variant_label"> · {{ review.target.variant_label }}</template>
+          </p>
           <p class="details__review-text">{{ review.review_text }}</p>
           <p class="details__review-meta">
             <span>{{ formatReviewDate(review.updated_at || review.created_at) }}</span>
@@ -1195,6 +1279,12 @@ watch(
   font-size: 18px;
 }
 
+.details__reviews-summary {
+  margin: 4px 0 0;
+  color: #5a6379;
+  font-size: 14px;
+}
+
 .details__stock {
   margin-top: 10px;
   color: #1f2233;
@@ -1345,6 +1435,38 @@ watch(
   font-size: 14px;
 }
 
+.details__reviews-tabs {
+  margin-top: 10px;
+  display: inline-flex;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid #d7dbe8;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.details__reviews-tab {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #4f5a74;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.details__reviews-tab--active {
+  background: #1f2233;
+  color: #fff;
+}
+
+.details__reviews-tab:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .details__reviews-note {
   color: #5f6b86;
   font-size: 14px;
@@ -1464,6 +1586,12 @@ watch(
 .details__review-text {
   font-size: 14px;
   line-height: 1.45;
+}
+
+.details__review-target {
+  margin: 0;
+  color: #67738e;
+  font-size: 13px;
 }
 
 .details__review-meta {

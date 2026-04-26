@@ -22,7 +22,7 @@ class ProductController extends Controller
     {
         $filters = $this->collectCatalogFilters($request);
 
-        $query = $this->catalogQuery($filters)
+        $query = $this->withReviewSummary($this->catalogQuery($filters))
             ->with([
                 'category:id,name,slug',
                 'categories:id,name,slug',
@@ -44,6 +44,7 @@ class ProductController extends Controller
                 'currency' => $product->currency,
                 'stock' => $product->stock,
                 'tags' => $this->resolveProductTags($product),
+                'reviews_summary' => $this->resolveReviewsSummary($product),
                 'category' => $this->resolvePrimaryCategoryPayload($product),
                 'image_url' => $product->images
                     ->sortBy([
@@ -73,7 +74,8 @@ class ProductController extends Controller
      *     tags: array<int, string>,
      *     brands: array<int, string>,
      *     colors: array<int, string>,
-     *     sizes: array<int, string>
+     *     sizes: array<int, string>,
+     *     characteristics: array<int, array{name: string, value: string}>
      * }
      */
     private function collectCatalogFilters(Request $request): array
@@ -90,6 +92,7 @@ class ProductController extends Controller
             'brands' => $this->parseStringListFilter($request->query('brands')),
             'colors' => $this->parseStringListFilter($request->query('colors')),
             'sizes' => $this->parseStringListFilter($request->query('sizes')),
+            'characteristics' => $this->parseCharacteristicFilters($request->query('characteristics')),
         ];
     }
 
@@ -105,7 +108,8 @@ class ProductController extends Controller
      *     tags: array<int, string>,
      *     brands: array<int, string>,
      *     colors: array<int, string>,
-     *     sizes: array<int, string>
+     *     sizes: array<int, string>,
+     *     characteristics: array<int, array{name: string, value: string}>
      * } $filters
      * @param array<int, string> $exclude
      */
@@ -230,6 +234,45 @@ class ProductController extends Controller
             });
         }
 
+        if (! isset($excludeMap['characteristics']) && $filters['characteristics'] !== []) {
+            $characteristicsByName = [];
+
+            foreach ($filters['characteristics'] as $characteristic) {
+                $name = trim((string) ($characteristic['name'] ?? ''));
+                $value = trim((string) ($characteristic['value'] ?? ''));
+
+                if ($name === '' || $value === '') {
+                    continue;
+                }
+
+                if (! isset($characteristicsByName[$name])) {
+                    $characteristicsByName[$name] = [];
+                }
+
+                $characteristicsByName[$name][$value] = true;
+            }
+
+            foreach ($characteristicsByName as $name => $valuesMap) {
+                $values = array_keys($valuesMap);
+
+                if ($values === []) {
+                    continue;
+                }
+
+                $query->where(function (Builder $characteristicsQuery) use ($name, $values): void {
+                    foreach ($values as $index => $value) {
+                        $method = $index === 0 ? 'whereJsonContains' : 'orWhereJsonContains';
+                        $characteristicsQuery->{$method}('products.characteristics', [
+                            [
+                                'name' => $name,
+                                'value' => $value,
+                            ],
+                        ]);
+                    }
+                });
+            }
+        }
+
         return $query;
     }
 
@@ -253,6 +296,7 @@ class ProductController extends Controller
      *     brands: array<int, array{value: string, count: int}>,
      *     colors: array<int, array{value: string, count: int}>,
      *     sizes: array<int, array{value: string, count: int}>,
+     *     characteristics: array<int, array{name: string, values: array<int, array{value: string, count: int}>>>,
      *     on_sale: array{count: int}
      * }
      */
@@ -356,6 +400,80 @@ class ProductController extends Controller
             ])
             ->values();
 
+        $characteristicsFacetBase = $this->catalogQuery($filters, ['characteristics'])
+            ->select(['products.id', 'products.characteristics'])
+            ->get();
+
+        $characteristicsMatrix = [];
+
+        foreach ($characteristicsFacetBase as $product) {
+            $normalizedCharacteristics = $this->normalizeCharacteristics($product->characteristics);
+            $seenPairs = [];
+
+            foreach ($normalizedCharacteristics as $characteristic) {
+                $name = trim((string) ($characteristic['name'] ?? ''));
+                $value = trim((string) ($characteristic['value'] ?? ''));
+
+                if ($name === '' || $value === '') {
+                    continue;
+                }
+
+                $pairKey = $name . '||' . $value;
+
+                if (isset($seenPairs[$pairKey])) {
+                    continue;
+                }
+
+                $seenPairs[$pairKey] = true;
+
+                if (! isset($characteristicsMatrix[$name])) {
+                    $characteristicsMatrix[$name] = [];
+                }
+
+                if (! isset($characteristicsMatrix[$name][$value])) {
+                    $characteristicsMatrix[$name][$value] = 0;
+                }
+
+                $characteristicsMatrix[$name][$value]++;
+            }
+        }
+
+        foreach ($filters['characteristics'] as $characteristic) {
+            $name = trim((string) ($characteristic['name'] ?? ''));
+            $value = trim((string) ($characteristic['value'] ?? ''));
+
+            if ($name === '' || $value === '') {
+                continue;
+            }
+
+            if (! isset($characteristicsMatrix[$name])) {
+                $characteristicsMatrix[$name] = [];
+            }
+
+            if (! isset($characteristicsMatrix[$name][$value])) {
+                $characteristicsMatrix[$name][$value] = 0;
+            }
+        }
+
+        $characteristics = collect($characteristicsMatrix)
+            ->map(function (array $values, string $name): array {
+                $sortedValues = collect($values)
+                    ->sortKeys(SORT_NATURAL | SORT_FLAG_CASE)
+                    ->map(fn (int $count, string $value): array => [
+                        'value' => $value,
+                        'count' => $count,
+                    ])
+                    ->values()
+                    ->all();
+
+                return [
+                    'name' => $name,
+                    'values' => $sortedValues,
+                ];
+            })
+            ->sortBy(fn (array $row): string => mb_strtolower($row['name']))
+            ->values();
+
         $saleFacetBase = $this->catalogQuery($filters, ['on_sale']);
         $onSaleCount = (clone $saleFacetBase)
             ->whereNotNull('products.old_price')
@@ -383,6 +501,7 @@ class ProductController extends Controller
             'brands' => $brands->all(),
             'colors' => $colors->all(),
             'sizes' => $sizes->all(),
+            'characteristics' => $characteristics->all(),
             'on_sale' => [
                 'count' => $onSaleCount,
             ],
@@ -418,7 +537,7 @@ class ProductController extends Controller
             $searchVariants,
         );
 
-        $products = Product::query()
+        $products = $this->withReviewSummary(Product::query())
             ->with([
                 'category:id,name,slug',
                 'categories:id,name,slug',
@@ -465,6 +584,7 @@ class ProductController extends Controller
                 'price' => (float) $product->price,
                 'currency' => $product->currency,
                 'tags' => $this->resolveProductTags($product),
+                'reviews_summary' => $this->resolveReviewsSummary($product),
                 'category' => $this->resolvePrimaryCategoryPayload($product),
                 'image_url' => $product->images
                     ->sortBy([
@@ -568,6 +688,39 @@ class ProductController extends Controller
             static fn (mixed $value): string => trim((string) $value),
             $items,
         ))));
+    }
+
+    /**
+     * @param mixed $rawValues
+     * @return array<int, array{name: string, value: string}>
+     */
+    private function parseCharacteristicFilters(mixed $rawValues): array
+    {
+        $tokens = $this->parseStringListFilter($rawValues);
+        $pairs = [];
+
+        foreach ($tokens as $token) {
+            $parts = explode('::', $token, 2);
+
+            if (count($parts) !== 2) {
+                continue;
+            }
+
+            $name = trim((string) $parts[0]);
+            $value = trim((string) $parts[1]);
+
+            if ($name === '' || $value === '') {
+                continue;
+            }
+
+            $key = mb_strtolower($name) . '::' . mb_strtolower($value);
+            $pairs[$key] = [
+                'name' => $name,
+                'value' => $value,
+            ];
+        }
+
+        return array_values($pairs);
     }
 
     private function tagToColumn(string $tag): ?string
@@ -816,7 +969,7 @@ class ProductController extends Controller
             ->values();
 
         if ($coPurchaseProductIds->isNotEmpty()) {
-            $coPurchaseProducts = Product::query()
+            $coPurchaseProducts = $this->withReviewSummary(Product::query())
                 ->with([
                     'category:id,name,slug',
                     'categories:id,name,slug',
@@ -1008,7 +1161,7 @@ class ProductController extends Controller
             ->pluck('category_id')
             ->values();
 
-        $baseQuery = Product::query()
+        $baseQuery = $this->withReviewSummary(Product::query())
             ->with([
                 'category:id,name,slug',
                 'categories:id,name,slug',
@@ -1048,7 +1201,7 @@ class ProductController extends Controller
      */
     private function fallbackRecommendations(?Collection $excludeProductIds = null, int $limit = 12): Collection
     {
-        $query = Product::query()
+        $query = $this->withReviewSummary(Product::query())
             ->with([
                 'category:id,name,slug',
                 'categories:id,name,slug',
@@ -1078,6 +1231,7 @@ class ProductController extends Controller
      *     currency: string,
      *     stock: int,
      *     tags: array<int, array{code: string, label: string}>,
+     *     reviews_summary: array{count: int, average: float|null},
      *     category: array{name: string, slug: string}|null,
      *     image_url: string|null
      * }
@@ -1094,13 +1248,39 @@ class ProductController extends Controller
             'currency' => $product->currency,
             'stock' => $product->stock,
             'tags' => $this->resolveProductTags($product),
+            'reviews_summary' => $this->resolveReviewsSummary($product),
             'category' => $this->resolvePrimaryCategoryPayload($product),
             'image_url' => $product->images
                 ->sortBy([
                     ['is_cover', 'desc'],
                     ['sort_order', 'asc'],
                 ])
-                ->first()?->url,
+            ->first()?->url,
+        ];
+    }
+
+    private function withReviewSummary(Builder $query): Builder
+    {
+        return $query
+            ->withCount([
+                'reviews as reviews_count' => fn (Builder $reviewsQuery) => $reviewsQuery->where('is_active', true),
+            ])
+            ->withAvg([
+                'reviews as reviews_avg_rating' => fn (Builder $reviewsQuery) => $reviewsQuery->where('is_active', true),
+            ], 'rating');
+    }
+
+    /**
+     * @return array{count: int, average: float|null}
+     */
+    private function resolveReviewsSummary(Product $product): array
+    {
+        $count = (int) ($product->reviews_count ?? 0);
+        $averageRaw = $product->reviews_avg_rating;
+
+        return [
+            'count' => $count,
+            'average' => $averageRaw !== null ? round((float) $averageRaw, 1) : null,
         ];
     }
 

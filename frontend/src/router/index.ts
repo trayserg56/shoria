@@ -25,7 +25,9 @@ import WishlistView from '../views/WishlistView.vue'
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   scrollBehavior(to, from, savedPosition) {
-    const isCatalogRoute = to.name === 'catalog' && from.name === 'catalog'
+    const catalogRouteNames = new Set(['catalog', 'catalog-category', 'catalog-subcategory', 'catalog-deep'])
+    const isCatalogRoute = catalogRouteNames.has(String(to.name ?? '')) && catalogRouteNames.has(String(from.name ?? ''))
+    const isSameCatalogPath = isCatalogRoute && to.path === from.path
     const isProductRoute =
       (to.name === 'product' || to.name === 'product-legacy')
       && (from.name === 'product' || from.name === 'product-legacy')
@@ -40,7 +42,7 @@ const router = createRouter({
 
     // Keep scroll position when catalog query params change (filters/sort/pagination).
     // Using route name is safer than path matching and avoids rare edge-cases with URL normalization.
-    if (isCatalogRoute) {
+    if (isSameCatalogPath) {
       return false
     }
 
@@ -77,6 +79,33 @@ const router = createRouter({
     {
       path: '/catalog',
       name: 'catalog',
+      component: CatalogView,
+      meta: {
+        seoTitle: 'Каталог — Shoria',
+        seoDescription: 'Каталог товаров Shoria: фильтры, поиск, сортировка и быстрый выбор.',
+      },
+    },
+    {
+      path: '/catalog/:categorySlug',
+      name: 'catalog-category',
+      component: CatalogView,
+      meta: {
+        seoTitle: 'Каталог — Shoria',
+        seoDescription: 'Каталог товаров Shoria: фильтры, поиск, сортировка и быстрый выбор.',
+      },
+    },
+    {
+      path: '/catalog/:categorySlug/:subcategorySlug',
+      name: 'catalog-subcategory',
+      component: CatalogView,
+      meta: {
+        seoTitle: 'Каталог — Shoria',
+        seoDescription: 'Каталог товаров Shoria: фильтры, поиск, сортировка и быстрый выбор.',
+      },
+    },
+    {
+      path: '/catalog/:categorySlug/:subcategorySlug/:deepPath(.*)*',
+      name: 'catalog-deep',
       component: CatalogView,
       meta: {
         seoTitle: 'Каталог — Shoria',
