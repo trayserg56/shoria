@@ -91,6 +91,14 @@ class AppServiceProvider extends ServiceProvider
                 ->by($request->ip().'|'.(string) $request->input('customer_email', 'na'));
         });
 
+        RateLimiter::for('checkout-preview', function (Request $request): Limit {
+            $sessionId = (string) $request->input('session_id', 'na');
+            $userId = (string) ($request->user()?->id ?? 'guest');
+
+            return Limit::perMinute((int) env('RATE_LIMIT_CHECKOUT_PREVIEW', 180))
+                ->by($request->ip().'|'.$userId.'|'.$sessionId);
+        });
+
         RateLimiter::for('webhooks', function (Request $request): Limit {
             $providerCode = (string) $request->route('providerCode', 'unknown');
 

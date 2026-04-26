@@ -53,7 +53,7 @@ Route::delete('/cart/items/{itemId}', [CartController::class, 'removeItem'])
     ->middleware('throttle:cart-write');
 
 Route::post('/checkout/preview', [CheckoutController::class, 'preview'])
-    ->middleware('throttle:checkout-write');
+    ->middleware('throttle:checkout-preview');
 Route::post('/checkout', [CheckoutController::class, 'store'])
     ->middleware('throttle:checkout-write');
 

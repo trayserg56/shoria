@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
@@ -84,6 +84,7 @@ const loyaltyPointsBalance = ref(0)
 const loyaltyPointsToEarn = ref(0)
 const loyaltyAccrualPercent = ref(0)
 const hasPreviewSnapshot = ref(false)
+let previewRefreshTimer: ReturnType<typeof setTimeout> | null = null
 const cartSubtotalFallback = computed(() => items.value.reduce((sum, item) => sum + item.total_price, 0))
 const selectedDeliveryFee = computed(
   () => deliveryMethods.value.find((method) => method.code === deliveryMethod.value)?.fee ?? 0,
@@ -148,6 +149,17 @@ async function refreshCheckoutPreview() {
   } finally {
     previewLoading.value = false
   }
+}
+
+function scheduleCheckoutPreviewRefresh(delayMs = 300) {
+  if (previewRefreshTimer !== null) {
+    clearTimeout(previewRefreshTimer)
+  }
+
+  previewRefreshTimer = setTimeout(() => {
+    previewRefreshTimer = null
+    void refreshCheckoutPreview()
+  }, delayMs)
 }
 
 async function increaseQty(itemId: number, qty: number) {
@@ -231,14 +243,22 @@ onMounted(async () => {
 
 watch(
   () => [deliveryMethod.value, promoCode.value, customerEmail.value, loyaltyPointsToSpend.value, total.value, items.value.length],
-  async () => {
+  () => {
     if (loyaltyPointsToSpend.value < 0) {
       loyaltyPointsToSpend.value = 0
       return
     }
-    await refreshCheckoutPreview()
+
+    scheduleCheckoutPreviewRefresh()
   },
 )
+
+onBeforeUnmount(() => {
+  if (previewRefreshTimer !== null) {
+    clearTimeout(previewRefreshTimer)
+    previewRefreshTimer = null
+  }
+})
 
 watch(
   () => user.value,
