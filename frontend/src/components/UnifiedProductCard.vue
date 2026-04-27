@@ -55,6 +55,15 @@ const isWishlisted = computed(() => wishlistStore.has(props.product.id))
 const isCompared = computed(() => compareStore.has(props.product.id))
 const isOutOfStock = computed(() => props.product.stock <= 0)
 const loyaltyReward = computed(() => Math.max(1, Math.round(props.product.price * 0.1)))
+const discountPercent = computed(() => {
+  const oldPrice = props.product.old_price
+
+  if (!oldPrice || oldPrice <= props.product.price || oldPrice <= 0) {
+    return null
+  }
+
+  return Math.round(((oldPrice - props.product.price) / oldPrice) * 100)
+})
 const productImageUrl = computed(() => {
   if (isImageBroken.value) {
     return productImageFallback
@@ -333,6 +342,10 @@ watch(
     <div class="product-card__content">
       <div class="price-row">
         <strong>{{ formatPricePerUnit(product.price, product.currency) }}</strong>
+        <span v-if="product.old_price" class="product-card__old-price">
+          {{ formatPrice(product.old_price, product.currency) }}
+        </span>
+        <span v-if="discountPercent" class="product-card__discount-pill">-{{ discountPercent }}%</span>
       </div>
       <p class="product-card__reward">+{{ loyaltyReward }} на счет</p>
       <button
@@ -354,9 +367,6 @@ watch(
           {{ isOutOfStock ? 'Нет в наличии' : 'В наличии' }}
         </span>
       </div>
-      <p v-if="product.old_price" class="product-card__old-price">
-        {{ formatPrice(product.old_price, product.currency) }}
-      </p>
     </div>
 
     <div class="product-card__actions">
@@ -394,11 +404,12 @@ watch(
   position: relative;
   display: flex;
   flex-direction: column;
-  border-radius: 20px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--card) 88%, #fff) 0%, var(--card) 100%);
+  border: 1px solid var(--border);
   box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
-  padding: 12px;
+  padding: 10px;
+  height: 100%;
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease,
@@ -406,28 +417,32 @@ watch(
 }
 
 .unified-product-card:hover {
-  border-color: #d1d5db;
+  border-color: color-mix(in srgb, var(--ring) 35%, var(--border));
   box-shadow:
-    0 12px 28px rgb(15 23 42 / 10%),
-    0 2px 6px rgb(15 23 42 / 6%);
-  transform: translateY(-2px);
+    0 14px 28px rgb(15 23 42 / 12%),
+    0 2px 5px rgb(15 23 42 / 6%);
+  transform: translateY(-1px);
 }
 
 .product-link {
   display: block;
   color: inherit;
   text-decoration: none;
-  border-radius: 14px;
+  border-radius: 12px;
   overflow: hidden;
-  background: #f6f7fb;
+  background: transparent;
   position: relative;
+  width: 100%;
+  height: 100%;
 }
 
 .product-card__media {
   position: relative;
-  border-radius: 14px;
+  border-radius: 12px;
   overflow: hidden;
-  background: #f6f7fb;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, white);
+  aspect-ratio: 4 / 3;
 }
 
 .product-card__media:hover .product-card__quickview {
@@ -436,10 +451,11 @@ watch(
 }
 
 .unified-product-card img {
+  display: block;
   width: 100%;
-  height: 220px;
-  object-fit: contain;
-  padding: 12px;
+  height: 100%;
+  object-fit: cover;
+  padding: 0;
 }
 
 .product-card__quickview {
@@ -449,36 +465,37 @@ watch(
   transform: translate(-50%, 12px);
   opacity: 0;
   transition: 0.2s ease;
-  background: rgb(15 23 42 / 60%);
-  color: #fff;
+  background: rgb(15 23 42 / 62%);
+  color: var(--primary-foreground);
   border-radius: 8px;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 5px 9px;
+  letter-spacing: 0.01em;
 }
 
 .product-card__tags {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: 10px;
+  left: 10px;
   z-index: 2;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
   max-width: 72%;
 }
 
 .tag-badge {
-  padding: 4px 8px;
-  border-radius: 7px;
-  font-size: 10px;
-  font-weight: 700;
+  padding: 4px 7px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
   color: #fff;
-  letter-spacing: 0.01em;
 }
 
 .tag-badge--hit {
-  background: #ff7f5c;
+  background: #ff7a59;
 }
 
 .tag-badge--new {
@@ -486,25 +503,25 @@ watch(
 }
 
 .tag-badge--choice {
-  background: #8c63f0;
+  background: #6f5cff;
 }
 
 .product-card__rail {
   position: absolute;
-  right: 12px;
-  top: 12px;
+  right: 10px;
+  top: 10px;
   z-index: 2;
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
 .rail-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  border: 1px solid #d1d5db;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
   background: rgb(255 255 255 / 92%);
-  color: #6b7280;
+  color: var(--muted-foreground);
   cursor: pointer;
   display: grid;
   place-items: center;
@@ -515,26 +532,31 @@ watch(
 }
 
 .rail-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   fill: currentColor;
 }
 
 .rail-btn--active {
-  color: #0f172a;
-  border-color: #9ca3af;
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--ring) 35%, var(--border));
   background: #fff;
 }
 
 .product-card__content {
   display: grid;
   gap: 6px;
-  padding: 12px 4px 6px;
+  padding: 10px 2px 6px;
+  flex: 1 1 auto;
 }
 
 .product-card__actions {
-  min-height: 52px;
-  padding: 0 4px 4px;
+  min-height: 48px;
+  padding: 0 2px 2px;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .product-card__brand-link {
@@ -542,15 +564,18 @@ watch(
   padding: 0;
   border: 0;
   background: transparent;
-  color: #64748b;
-  font-size: 14px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   text-align: left;
   cursor: pointer;
-  line-height: 1.15;
+  line-height: 1.2;
 }
 
 .product-card__brand-link:hover {
-  color: #f35b04;
+  color: var(--foreground);
 }
 
 .product-card__title-link {
@@ -560,9 +585,9 @@ watch(
 
 .product-card__title-link h3 {
   margin: 0;
-  font-size: clamp(26px, 1.55vw, 32px);
-  line-height: 1.08;
-  letter-spacing: -0.01em;
+  font-size: clamp(19px, 1.18vw, 22px);
+  line-height: 1.18;
+  letter-spacing: -0.015em;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -571,68 +596,94 @@ watch(
 
 .product-card__reward {
   margin: 0;
-  font-size: 14px;
+  font-size: 11px;
   color: #1db74e;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .product-card__meta-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: 12px;
-  color: #6b7280;
+  font-size: 11px;
+  color: var(--muted-foreground);
   line-height: 1.2;
 }
 
 .product-card__meta-item--ok {
   color: #1db74e;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .product-card__old-price {
   margin: 0;
-  color: #94a3b8;
-  font-size: 13px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
   text-decoration: line-through;
-  line-height: 1.15;
+  line-height: 1;
 }
 
 .price-row {
   display: flex;
   align-items: baseline;
-  min-height: 22px;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 20px;
 }
 
 .price-row strong {
-  font-size: clamp(24px, 1.55vw, 30px);
-  line-height: 0.95;
-  letter-spacing: -0.02em;
+  font-size: clamp(20px, 1.28vw, 24px);
+  line-height: 1;
+  letter-spacing: -0.015em;
+}
+
+.product-card__discount-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, #ff7a59 22%, white);
+  color: #e14b2b;
+  border: 1px solid color-mix(in srgb, #ff7a59 35%, white);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
 }
 
 .action {
   display: block;
   text-align: center;
-  width: 100%;
-  padding: 10px 12px;
-  border: none;
-  border-radius: 12px;
+  width: auto;
+  min-width: 148px;
+  padding: 7px 14px;
+  border-radius: 9px;
   font: inherit;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   line-height: 1.2;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .action--cart {
-  background: var(--primary);
+  background: #15a9e8;
   color: var(--primary-foreground);
+  border: 1px solid transparent;
+}
+
+.action--cart:hover {
+  background: #0f9fdb;
 }
 
 .action--wishlist {
-  background: #fff;
-  color: #334155;
-  border: 1px solid #d1d5db;
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
 }
 
 .action--cart:disabled {
@@ -644,14 +695,16 @@ watch(
   position: relative;
   display: flex;
   align-items: center;
-  min-height: 44px;
+  min-height: 42px;
+  width: 100%;
+  max-width: 220px;
 }
 
 .cart-stepper__label {
   position: absolute;
   top: -13px;
   left: 0;
-  color: #64748b;
+  color: var(--muted-foreground);
   font-size: 10px;
   font-weight: 600;
 }
@@ -661,32 +714,32 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 12px;
-  background: #f8fafc;
-  padding: 4px 6px;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  padding: 4px 5px;
 }
 
 .cart-stepper__controls strong {
   flex: 1 1 auto;
   text-align: center;
-  font-size: 22px;
+  font-size: 17px;
   line-height: 1.1;
   letter-spacing: -0.01em;
 }
 
 .cart-stepper__controls button {
-  width: 36px;
-  height: 36px;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   background: #fff;
   font: inherit;
-  font-size: 30px;
+  font-size: 22px;
   line-height: 0.9;
   cursor: pointer;
-  color: #0f172a;
+  color: var(--foreground);
 }
 
 .cart-stepper__controls button:disabled {
@@ -696,31 +749,32 @@ watch(
 
 @media (max-width: 720px) {
   .unified-product-card {
-    border-radius: 16px;
-    padding: 10px;
+    border-radius: 14px;
+    padding: 8px;
   }
 
   .unified-product-card img {
-    height: 170px;
-    padding: 10px;
+    height: 100%;
   }
 
   .product-card__title-link h3 {
-    font-size: 22px;
+    font-size: 17px;
   }
 
   .price-row strong {
-    font-size: 20px;
+    font-size: 18px;
   }
 
   .action {
-    font-size: 14px;
+    font-size: 12px;
+    padding: 7px 12px;
+    min-width: 132px;
   }
 
   .product-card__brand-link,
   .product-card__reward,
   .product-card__meta-row {
-    font-size: 11px;
+    font-size: 10px;
   }
 }
 </style>
