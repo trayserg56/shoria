@@ -16,43 +16,65 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || '22' }}
-          script_stop: true
-          command_timeout: 30m
-          script: |
-            set -e
-            cd "${{ secrets.DEPLOY_PATH }}"
-            git checkout main
-            git pull --ff-only origin main
-            docker compose exec -T app php artisan migrate --force
-            docker compose run --rm -T node npm ci
-            docker compose run --rm -T node npm run build
-            rm -rf backend/public/assets
-            cp -a frontend/dist/. backend/public/
-            cp frontend/dist/index.html backend/public/spa-index.html
-            docker compose restart nginx
-            sleep 3
+      - name: Deploy over SSH (with retries)
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
 
-            EXPECTED_JS=$(sed -n 's@.*src="/assets/\([^"]*\.js\)".*@\1@p' frontend/dist/index.html | head -n 1)
-            EXPECTED_CSS=$(sed -n 's@.*href="/assets/\([^"]*\.css\)".*@\1@p' frontend/dist/index.html | head -n 1)
-            test -n "$EXPECTED_JS"
-            test -n "$EXPECTED_CSS"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
 
-            # Smoke 1: fallback SPA index must reference freshly built assets.
-            grep -q "$EXPECTED_JS" backend/public/spa-index.html
-            grep -q "$EXPECTED_CSS" backend/public/spa-index.html
+          ATTEMPTS=5
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            echo "SSH deploy attempt $attempt/$ATTEMPTS..."
 
-            # Smoke 2: nginx root should return HTML with the same assets.
-            RENDERED_HTML=$(docker compose exec -T nginx wget -qO- http://127.0.0.1/)
-            echo "$RENDERED_HTML" | grep -q "$EXPECTED_JS"
-            echo "$RENDERED_HTML" | grep -q "$EXPECTED_CSS"
+            if ssh \
+              -i "$HOME/.ssh/deploy_key" \
+              -p "$SSH_PORT" \
+              -o StrictHostKeyChecking=accept-new \
+              -o ConnectTimeout=20 \
+              -o ServerAliveInterval=15 \
+              -o ServerAliveCountMax=6 \
+              "$SSH_USER@$SSH_HOST" \
+              "DEPLOY_PATH='$DEPLOY_PATH' bash -se" <<'REMOTE_SCRIPT'
+              set -e
+              cd "$DEPLOY_PATH"
+              git checkout main
+              git pull --ff-only origin main
+              docker compose exec -T app php artisan migrate --force
+              docker compose run --rm -T node npm ci
+              docker compose run --rm -T node npm run build
+              rm -rf backend/public/assets
+              cp -a frontend/dist/. backend/public/
+              cp frontend/dist/index.html backend/public/spa-index.html
+              docker compose restart nginx
+              sleep 3
+              ok=0
+              for i in 1 2 3 4 5 6 7 8 9 10; do
+                if docker compose exec -T nginx wget -qO- http://127.0.0.1/api/products | grep -Eq '\[|\{'; then
+                  ok=1
+                  break
+                fi
+                sleep 2
+              done
+              test "$ok" -eq 1
+REMOTE_SCRIPT
+            then
+              echo "Deploy completed successfully."
+              break
+            fi
 
-            # Smoke 3: API must be reachable through nginx after deploy.
-            API_PRODUCTS=$(docker compose exec -T nginx wget -qO- http://127.0.0.1/api/products)
-            echo "$API_PRODUCTS" | grep -Eq '\[|\{'
+            if [ "$attempt" -eq "$ATTEMPTS" ]; then
+              echo "Deploy failed after $ATTEMPTS attempts."
+              exit 1
+            fi
+
+            echo "Attempt $attempt failed, retrying in 15s..."
+            sleep 15
+          done

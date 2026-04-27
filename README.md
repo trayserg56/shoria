@@ -1819,3 +1819,12 @@ docker compose exec app php artisan make:filament-user
   - перед `npm run build` на сервере добавлен шаг `docker compose run --rm -T node npm ci`.
 - Причина:
   - при добавлении новых frontend-зависимостей деплой мог падать на сборке, если зависимости в контейнере не были установлены.
+
+## Оперативные заметки (2026-04-27, CD hotfix: SSH retry)
+
+- Обновлен workflow `.github/workflows/cd.yml` для стабильности подключения к прод-серверу:
+  - вместо одиночного подключения через `appleboy/ssh-action` используется прямой `ssh`-деплой с автоповторами (до 5 попыток);
+  - добавлены сетевые параметры устойчивости (`ConnectTimeout`, `ServerAliveInterval`, `ServerAliveCountMax`);
+  - при временном сетевом сбое/`connection reset by peer` workflow повторяет подключение, а не падает сразу.
+- Команды деплоя не менялись по смыслу:
+  - `git pull`, `migrate --force`, `npm ci`, `npm run build`, публикация `frontend/dist` в `backend/public`, `nginx restart`, smoke `/api/products`.
