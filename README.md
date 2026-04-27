@@ -1828,3 +1828,16 @@ docker compose exec app php artisan make:filament-user
   - при временном сетевом сбое/`connection reset by peer` workflow повторяет подключение, а не падает сразу.
 - Команды деплоя не менялись по смыслу:
   - `git pull`, `migrate --force`, `npm ci`, `npm run build`, публикация `frontend/dist` в `backend/public`, `nginx restart`, smoke `/api/products`.
+
+## Оперативные заметки (2026-04-27, прод: стабилизация PHP-FPM под нагрузкой)
+
+- По прод-логам зафиксирована причина 502/504 в каталоге:
+  - `upstream prematurely closed connection` / `upstream timed out` (nginx -> php-fpm);
+  - в `app` логах: `server reached pm.max_children setting (5)`.
+- Вывод: при пиках запросов и сборках на 1 vCPU пул PHP-FPM упирался в лимит воркеров.
+- Подготовлен фикс в образе `app` (`docker/php/Dockerfile`):
+  - `pm.max_children: 5 -> 12`
+  - `pm.start_servers: 2 -> 3`
+  - `pm.min_spare_servers: 1 -> 2`
+  - `pm.max_spare_servers: 3 -> 5`
+  - включены `pm.max_requests = 500` и `catch_workers_output = yes` для более устойчивой работы и диагностики.
