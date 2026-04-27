@@ -1812,3 +1812,10 @@ docker compose exec app php artisan make:filament-user
   - активные цвета чекбокса применяются предсказуемо через `checked`-состояние.
 - Техническая проверка:
   - `docker compose exec node npm run build` — успешно.
+
+## Оперативные заметки (2026-04-27, CD hotfix для фронта)
+
+- Обновлен workflow `.github/workflows/cd.yml`:
+  - перед `npm run build` на сервере добавлен шаг `docker compose run --rm -T node npm ci`.
+- Причина:
+  - при добавлении новых frontend-зависимостей деплой мог падать на сборке, если зависимости в контейнере не были установлены.

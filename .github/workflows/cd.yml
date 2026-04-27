@@ -31,6 +31,7 @@ jobs:
             git checkout main
             git pull --ff-only origin main
             docker compose exec -T app php artisan migrate --force
+            docker compose run --rm -T node npm ci
             docker compose run --rm -T node npm run build
             rm -rf backend/public/assets
             cp -a frontend/dist/. backend/public/
