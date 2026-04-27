@@ -14,9 +14,11 @@ jobs:
   deploy:
     name: Deploy to Production
     runs-on: ubuntu-latest
+    timeout-minutes: 35
 
     steps:
       - name: Deploy over SSH (with retries)
+        timeout-minutes: 30
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
@@ -30,13 +32,14 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
           chmod 600 "$HOME/.ssh/deploy_key"
 
-          REMOTE_CMD="set -e;
+          REMOTE_CMD="set -euo pipefail;
+          export COMPOSE_INTERACTIVE_NO_CLI=1;
           cd '$DEPLOY_PATH';
           git checkout main;
           git pull --ff-only origin main;
           docker compose exec -T app php artisan migrate --force;
-          docker compose run --rm -T node npm ci;
-          docker compose run --rm -T node npm run build;
+          docker compose run --rm -T node npm ci --no-audit --no-fund;
+          docker compose run --rm -T node npm run build-only;
           rm -rf backend/public/assets;
           cp -a frontend/dist/. backend/public/;
           cp frontend/dist/index.html backend/public/spa-index.html;
@@ -56,9 +59,10 @@ jobs:
           for attempt in $(seq 1 "$ATTEMPTS"); do
             echo "SSH deploy attempt $attempt/$ATTEMPTS..."
 
-            if ssh \
+            if timeout 20m ssh \
               -i "$HOME/.ssh/deploy_key" \
               -p "$SSH_PORT" \
+              -o BatchMode=yes \
               -o StrictHostKeyChecking=accept-new \
               -o ConnectTimeout=20 \
               -o ServerAliveInterval=15 \
