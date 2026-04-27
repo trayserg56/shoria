@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import AuthModal from '@/components/AuthModal.vue'
@@ -490,6 +490,12 @@ watch(headerSearchInput, (value) => {
     void loadSuggestions(value)
   }, 220)
 })
+
+onBeforeUnmount(() => {
+  if (suggestDebounce !== null) {
+    window.clearTimeout(suggestDebounce)
+  }
+})
 </script>
 
 <template>
@@ -578,10 +584,10 @@ watch(headerSearchInput, (value) => {
         </RouterLink>
         <span v-if="isAuthenticated && user" class="user-pill">{{ user.name }}</span>
       </div>
-    </header>
-    <Teleport to="body">
-      <div v-if="cityPickerOpen" class="city-modal" @click.self="cityPickerOpen = false">
-        <section class="city-modal__card">
+      </header>
+      <Teleport to="body">
+        <div v-if="cityPickerOpen" class="city-modal" @click.self="cityPickerOpen = false">
+          <section class="city-modal__card">
           <header class="city-modal__header">
             <h2>Выберите город</h2>
             <button type="button" class="city-modal__close" @click="cityPickerOpen = false">×</button>
@@ -647,11 +653,11 @@ watch(headerSearchInput, (value) => {
               </button>
             </div>
           </div>
-        </section>
-      </div>
-    </Teleport>
-    <RouterView />
-    <footer class="footer">
+          </section>
+        </div>
+      </Teleport>
+      <RouterView />
+      <footer class="footer">
       <div class="footer__grid">
         <div>
           <p class="footer__brand">Shoria Store</p>
@@ -696,7 +702,7 @@ watch(headerSearchInput, (value) => {
         </div>
       </div>
       <p class="footer__copy">© {{ currentYear }} Shoria. Все права защищены.</p>
-    </footer>
+      </footer>
     <AuthModal :open="authModalOpen" @close="closeAuthModal" @authenticated="onAuthenticated" />
   </div>
 </template>

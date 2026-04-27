@@ -1,4 +1,9 @@
 import { getAuthToken } from './auth-token'
+import { computed, ref } from 'vue'
+
+const apiPendingRequests = ref(0)
+
+export const isApiLoading = computed(() => apiPendingRequests.value > 0)
 
 export function getApiBaseUrl() {
   const configured = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/$/, '')
@@ -23,22 +28,27 @@ export function getApiBaseUrl() {
 
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAuthToken()
+  apiPendingRequests.value += 1
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
-    headers: {
-      Accept: 'application/json',
-      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
+  try {
+    const response = await fetch(`${getApiBaseUrl()}${path}`, {
+      headers: {
+        Accept: 'application/json',
+        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+      ...init,
+    })
 
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`)
+    if (!response.ok) {
+      throw new Error(`Request failed: ${response.status}`)
+    }
+
+    return response.json() as Promise<T>
+  } finally {
+    apiPendingRequests.value = Math.max(0, apiPendingRequests.value - 1)
   }
-
-  return response.json() as Promise<T>
 }
 
 export async function fetchJson<T>(path: string): Promise<T> {

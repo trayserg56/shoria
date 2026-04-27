@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRouter } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import { toProductRoute } from '@/lib/product-route'
 import { useCartStore } from '@/stores/cart'
 import { useWishlistStore, type WishlistItem } from '@/stores/wishlist'
@@ -36,9 +37,11 @@ const props = withDefaults(
   defineProps<{
     product: ProductCardData
     source?: string
+    showImageSkeleton?: boolean
   }>(),
   {
     source: 'catalog',
+    showImageSkeleton: true,
   },
 )
 
@@ -49,6 +52,7 @@ const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
 const isCartBusy = ref(false)
 const isImageBroken = ref(false)
+const isImageLoading = ref(true)
 const productImageFallback = '/images/product-fallback.svg'
 
 const isWishlisted = computed(() => wishlistStore.has(props.product.id))
@@ -268,6 +272,11 @@ async function decreaseCartQty() {
 
 function onProductImageError() {
   isImageBroken.value = true
+  isImageLoading.value = false
+}
+
+function onProductImageLoad() {
+  isImageLoading.value = false
 }
 
 async function openBrandCatalog(brand: string | null | undefined) {
@@ -289,6 +298,7 @@ watch(
   () => props.product.image_url,
   () => {
     isImageBroken.value = false
+    isImageLoading.value = true
   },
 )
 </script>
@@ -297,7 +307,21 @@ watch(
   <article class="unified-product-card">
     <div class="product-card__media">
       <RouterLink class="product-link" :to="toProductRoute(product)" @click="onProductClick">
-        <img :src="productImageUrl" :alt="product.name" loading="lazy" @error="onProductImageError" />
+        <AppSkeleton
+          v-if="showImageSkeleton && isImageLoading"
+          class="product-card__image-skeleton"
+          width="100%"
+          height="100%"
+          radius="12px"
+        />
+        <img
+          :src="productImageUrl"
+          :alt="product.name"
+          loading="lazy"
+          :class="{ 'product-card__image--hidden': showImageSkeleton && isImageLoading }"
+          @error="onProductImageError"
+          @load="onProductImageLoad"
+        />
         <span class="product-card__quickview">Быстрый просмотр</span>
       </RouterLink>
       <div v-if="product.tags?.length" class="product-card__tags">
@@ -456,6 +480,16 @@ watch(
   height: 100%;
   object-fit: cover;
   padding: 0;
+}
+
+.product-card__image-skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.product-card__image--hidden {
+  opacity: 0;
 }
 
 .product-card__quickview {

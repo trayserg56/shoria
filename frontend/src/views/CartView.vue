@@ -450,7 +450,14 @@ watch(
             <span v-if="loyaltyEnabled">Баллы: -{{ formatPrice(displayedLoyaltyDiscount) }}</span>
             <span>Доставка: {{ formatPrice(displayedDelivery) }}</span>
             <strong>Итого: {{ formatPrice(displayedTotal) }}</strong>
-            <span v-if="previewLoading" class="preview-loading">Пересчитываем...</span>
+            <AppSkeleton
+              v-if="previewLoading"
+              class="preview-loading"
+              inline
+              width="136px"
+              height="14px"
+              radius="999px"
+            />
           </div>
           <p v-if="hasUnavailableItems" class="error error--soft">
             {{ unavailableCartMessage }}
@@ -714,8 +721,7 @@ watch(
 }
 
 .preview-loading {
-  color: #66748f;
-  font-size: 12px;
+  margin-top: 2px;
 }
 
 .checkout__submit {

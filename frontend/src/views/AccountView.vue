@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 
@@ -148,9 +149,21 @@ watch(
         </button>
       </div>
 
-      <p v-if="isLoadingOrders" class="status">Загружаем заказы...</p>
+      <section v-if="isLoadingOrders" class="list" aria-hidden="true">
+        <article v-for="idx in 4" :key="`account-order-skeleton-${idx}`" class="row">
+          <div class="row__skeleton-left">
+            <AppSkeleton width="180px" height="18px" />
+            <AppSkeleton width="140px" height="14px" />
+            <AppSkeleton width="120px" height="12px" />
+          </div>
+          <div class="row__skeleton-right">
+            <AppSkeleton width="74px" height="22px" radius="999px" />
+            <AppSkeleton width="90px" height="18px" />
+          </div>
+        </article>
+      </section>
 
-      <section v-if="orderHistory.length > 0" class="list">
+      <section v-else-if="orderHistory.length > 0" class="list">
         <article v-for="order in orderHistory" :key="order.order_number" class="row">
           <div>
             <RouterLink :to="{ name: 'order-success', params: { orderNumber: order.order_number } }">
@@ -169,7 +182,7 @@ watch(
         </article>
       </section>
 
-      <section v-else-if="!isLoadingOrders" class="empty">
+      <section v-else class="empty">
         <p>Заказы пока не найдены.</p>
         <RouterLink to="/catalog">Перейти в каталог</RouterLink>
       </section>
@@ -287,6 +300,17 @@ button {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+}
+
+.row__skeleton-left,
+.row__skeleton-right {
+  display: grid;
+  gap: 8px;
+}
+
+.row__skeleton-right {
+  justify-items: end;
+  min-width: 96px;
 }
 
 .row a {

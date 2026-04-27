@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import { useCartStore } from '@/stores/cart'
 
 const cartStore = useCartStore()
@@ -88,9 +89,21 @@ watch(
       </button>
     </div>
 
-    <p v-if="isLoading" class="status">Загружаем заказы...</p>
+    <section v-if="isLoading" class="orders-skeleton" aria-hidden="true">
+      <article v-for="idx in 4" :key="`order-skeleton-${idx}`" class="orders-skeleton__row">
+        <div class="orders-skeleton__left">
+          <AppSkeleton width="180px" height="20px" />
+          <AppSkeleton width="130px" height="14px" />
+          <AppSkeleton width="150px" height="14px" />
+        </div>
+        <div class="orders-skeleton__right">
+          <AppSkeleton width="72px" height="24px" radius="999px" />
+          <AppSkeleton width="96px" height="24px" />
+        </div>
+      </article>
+    </section>
 
-    <section v-if="orderHistory.length > 0" class="list">
+    <section v-else-if="orderHistory.length > 0" class="list">
       <article v-for="order in orderHistory" :key="order.order_number" class="row">
         <div>
           <RouterLink :to="{ name: 'order-success', params: { orderNumber: order.order_number } }">
@@ -170,6 +183,32 @@ watch(
 
 .status {
   color: #5e677b;
+}
+
+.orders-skeleton {
+  display: grid;
+  gap: 10px;
+}
+
+.orders-skeleton__row {
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 12px 40px rgb(16 24 40 / 9%);
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.orders-skeleton__left,
+.orders-skeleton__right {
+  display: grid;
+  gap: 8px;
+}
+
+.orders-skeleton__right {
+  justify-items: end;
 }
 
 .list {

@@ -388,22 +388,36 @@ async function loadCategories() {
 
 async function loadProducts() {
   if (isCategoryLanding.value) {
-    products.value = {
-      current_page: 1,
-      last_page: 1,
-      data: [],
-      filters: {
-        categories: [],
-        tags: [],
-        brands: [],
-        colors: [],
-        sizes: [],
-        characteristics: [],
-        on_sale: { count: 0 },
-      },
+    isLoading.value = true
+    try {
+      const landingPreview = await fetchJson<PaginatedProducts>('/api/products')
+      products.value = {
+        current_page: 1,
+        last_page: 1,
+        data: [],
+        filters: landingPreview.filters,
+      }
+      hasError.value = false
+    } catch (error) {
+      console.error(error)
+      hasError.value = true
+      products.value = {
+        current_page: 1,
+        last_page: 1,
+        data: [],
+        filters: {
+          categories: [],
+          tags: [],
+          brands: [],
+          colors: [],
+          sizes: [],
+          characteristics: [],
+          on_sale: { count: 0 },
+        },
+      }
+    } finally {
+      isLoading.value = false
     }
-    hasError.value = false
-    isLoading.value = false
     return
   }
 
@@ -1026,7 +1040,13 @@ onBeforeUnmount(() => {
       <p v-else>Подборки и все доступные модели из API.</p>
     </header>
 
-    <section v-if="isCategoryLanding" class="catalog-landing">
+    <section v-if="isCategoryLanding && isLoading" class="catalog-landing" aria-hidden="true">
+      <article v-for="index in 8" :key="`category-landing-skeleton-${index}`" class="category-showcase category-showcase--skeleton">
+        <AppSkeleton width="100%" height="100%" />
+      </article>
+    </section>
+
+    <section v-else-if="isCategoryLanding" class="catalog-landing">
       <article
         v-for="category in categories"
         :key="category.id"
@@ -1043,14 +1063,13 @@ onBeforeUnmount(() => {
             loading="lazy"
             @error="applyImageFallback"
           />
-        </div>
-        <div class="category-showcase__content">
-          <h2>{{ category.name }}</h2>
-          <p v-if="category.description">{{ category.description }}</p>
-          <p v-else>
-            {{ category.subcategories?.length ? `${category.subcategories.length} подкатегорий` : 'Перейти к товарам' }}
-          </p>
-          <div class="category-showcase__cta">Открыть категорию</div>
+          <div class="category-showcase__overlay">
+            <div class="category-showcase__text">
+              <h2>{{ category.name }}</h2>
+              <p>{{ categoryDisplayCount(category) }} товаров</p>
+            </div>
+            <span class="category-showcase__arrow">›</span>
+          </div>
         </div>
       </article>
     </section>
@@ -1309,31 +1328,65 @@ onBeforeUnmount(() => {
       </aside>
 
       <div class="catalog-content">
-        <section v-if="childSubcategories.length" class="subcategory-strip">
-          <h2>Подкатегории {{ activeCategoryNode?.name }}</h2>
-          <div class="subcategory-strip__items">
-            <Button
-              v-for="subcategory in childSubcategories"
-              :key="subcategory.id"
-              type="button"
-              variant="outline"
-              class="subcategory-strip__chip"
-              :class="{ 'subcategory-strip__chip--active': activeCategory === subcategory.slug }"
-              @click="selectCategory(subcategory.slug)"
+        <section v-if="isLoading && childSubcategories.length" class="subcategory-strip" aria-hidden="true">
+          <div class="subcategory-strip__grid">
+            <article
+              v-for="index in Math.min(childSubcategories.length, 3)"
+              :key="`subcategory-skeleton-${index}`"
+              class="subcategory-card subcategory-card--skeleton"
             >
-              {{ subcategory.name }}
-            </Button>
+              <AppSkeleton width="100%" height="100%" />
+              <div class="subcategory-card__skeleton-overlay">
+                <AppSkeleton width="58%" height="24px" />
+                <AppSkeleton width="34%" height="18px" />
+              </div>
+            </article>
           </div>
         </section>
 
-        <section v-if="isLoading && !products.data.length" class="catalog-grid">
+        <section v-else-if="childSubcategories.length" class="subcategory-strip">
+          <div class="subcategory-strip__grid">
+            <article
+              v-for="subcategory in childSubcategories"
+              :key="subcategory.id"
+              class="subcategory-card"
+              :class="{ 'subcategory-card--active': activeCategory === subcategory.slug }"
+              role="button"
+              tabindex="0"
+              @click="selectCategory(subcategory.slug)"
+              @keydown.enter.prevent="selectCategory(subcategory.slug)"
+            >
+              <div class="subcategory-card__media">
+                <img
+                  :src="resolveImageSrc(subcategory.image_url)"
+                  :alt="subcategory.name"
+                  loading="lazy"
+                  @error="applyImageFallback"
+                />
+                <div class="subcategory-card__overlay">
+                  <div class="subcategory-card__text">
+                    <h3>{{ subcategory.name }}</h3>
+                    <p>{{ categoryDisplayCount(subcategory) }} товаров</p>
+                  </div>
+                  <span class="subcategory-card__arrow">›</span>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section v-if="isLoading" class="catalog-grid" aria-hidden="true">
           <article v-for="index in 6" :key="`catalog-skeleton-${index}`" class="catalog-skeleton-card">
-            <AppSkeleton width="100%" height="250px" radius="28px 28px 0 0" />
+            <div class="catalog-skeleton-card__media">
+              <AppSkeleton width="100%" height="100%" radius="20px 20px 0 0" />
+            </div>
             <div class="catalog-skeleton-card__body">
-              <AppSkeleton width="30%" height="14px" />
-              <AppSkeleton width="58%" height="24px" />
-              <AppSkeleton width="34%" height="24px" />
-              <AppSkeleton width="100%" height="52px" radius="16px" />
+              <AppSkeleton width="44%" height="14px" />
+              <AppSkeleton width="70%" height="18px" />
+              <AppSkeleton width="38%" height="16px" />
+              <AppSkeleton width="86%" height="16px" />
+              <AppSkeleton width="46%" height="16px" />
+              <AppSkeleton width="100%" height="44px" radius="12px" />
             </div>
           </article>
         </section>
@@ -1404,15 +1457,15 @@ onBeforeUnmount(() => {
 .catalog-landing {
   margin-top: 22px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 16px;
 }
 
 .category-showcase {
-  border: 1px solid #e5e7eb;
-  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, #fff);
+  border-radius: 20px;
   overflow: hidden;
-  background: #fff;
+  background: transparent;
   cursor: pointer;
   transition:
     transform 0.2s ease,
@@ -1422,66 +1475,78 @@ onBeforeUnmount(() => {
 
 .category-showcase:hover,
 .category-showcase:focus-visible {
-  transform: translateY(-2px);
-  border-color: #d1d5db;
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--ring) 35%, var(--border));
   box-shadow:
-    0 10px 24px rgb(15 23 42 / 8%),
+    0 12px 24px rgb(15 23 42 / 10%),
     0 2px 6px rgb(15 23 42 / 6%);
   outline: none;
 }
 
+.category-showcase--skeleton {
+  pointer-events: none;
+}
+
+.category-showcase--skeleton :deep(.app-skeleton) {
+  display: block;
+  width: 100%;
+  aspect-ratio: 5 / 3;
+  border-radius: 0;
+}
+
 .category-showcase__media {
   position: relative;
-  aspect-ratio: 16 / 10;
-  background: #f8fafc;
+  aspect-ratio: 5 / 3;
+  background: #f1f5f9;
 }
 
 .category-showcase__media img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.category-showcase__placeholder {
-  width: 100%;
-  height: 100%;
-  background:
-    radial-gradient(circle at 20% 20%, rgb(255 255 255 / 80%) 0, rgb(255 255 255 / 0%) 45%),
-    linear-gradient(140deg, #f4ecdf 0%, #eadcc9 100%);
+.category-showcase__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 18px;
+  background: linear-gradient(180deg, rgb(0 0 0 / 4%) 35%, rgb(0 0 0 / 52%) 100%);
 }
 
-.category-showcase__content {
-  padding: 14px 14px 16px;
-  display: grid;
-  gap: 7px;
-}
-
-.category-showcase__content h2 {
+.category-showcase__text h2 {
   margin: 0;
-  font-size: 22px;
+  color: #fff;
+  font-size: clamp(30px, 2.2vw, 38px);
   line-height: 1.1;
   font-family: var(--font-display);
   letter-spacing: -0.01em;
 }
 
-.category-showcase__content p {
+.category-showcase__text p {
   margin: 0;
-  color: #64748b;
-  font-size: 14px;
+  color: rgb(255 255 255 / 88%);
+  font-size: 15px;
+  font-weight: 600;
 }
 
-.category-showcase__cta {
-  margin-top: 8px;
+.category-showcase__arrow {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  width: fit-content;
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid #d1d5db;
-  color: #1f2937;
-  background: #fff;
-  font-size: 12px;
-  font-weight: 700;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(255 255 255 / 14%);
+  border: 1px solid rgb(255 255 255 / 22%);
+  font-size: 28px;
+  line-height: 1;
 }
 
 .catalog-layout {
@@ -1882,43 +1947,127 @@ onBeforeUnmount(() => {
 
 .subcategory-strip {
   margin-bottom: 16px;
-  padding: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  background: #fff;
-}
-
-.subcategory-strip h2 {
-  margin: 0 0 10px;
-  font-size: 18px;
-  line-height: 1.2;
 }
 
 .subcategory-strip__items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: none;
 }
 
-.subcategory-strip__chip {
-  padding: 7px 12px;
-  border-radius: 999px;
-  border: 1px solid #d1d5db;
-  background: #fff;
-  color: #334155;
+.subcategory-strip__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.subcategory-card {
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, #fff);
+  border-radius: 14px;
+  overflow: hidden;
   cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
-.subcategory-strip__chip--active {
-  border-color: #0f172a;
-  background: #0f172a;
+.subcategory-card:hover,
+.subcategory-card:focus-visible {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--ring) 35%, var(--border));
+  box-shadow:
+    0 8px 18px rgb(15 23 42 / 9%),
+    0 1px 4px rgb(15 23 42 / 6%);
+  outline: none;
+}
+
+.subcategory-card--active {
+  border-color: color-mix(in srgb, var(--ring) 45%, var(--border));
+}
+
+.subcategory-card__media {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: #f1f5f9;
+}
+
+.subcategory-card__media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.subcategory-card__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px;
+  background: linear-gradient(180deg, rgb(0 0 0 / 2%) 38%, rgb(0 0 0 / 50%) 100%);
+}
+
+.subcategory-card__text h3 {
+  margin: 0;
   color: #fff;
+  font-size: 18px;
+  line-height: 1.1;
+  font-family: var(--font-display);
+}
+
+.subcategory-card__text p {
+  margin: 0;
+  color: rgb(255 255 255 / 86%);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.subcategory-card__arrow {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(255 255 255 / 14%);
+  border: 1px solid rgb(255 255 255 / 24%);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.subcategory-card--skeleton {
+  pointer-events: none;
+}
+
+.subcategory-card--skeleton :deep(.app-skeleton) {
+  border-radius: 0;
+}
+
+.subcategory-card__skeleton-overlay {
+  position: absolute;
+  inset: auto 12px 12px;
+  display: grid;
+  gap: 8px;
 }
 
 .catalog-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+}
+
+@media (max-width: 1180px) {
+  .subcategory-strip__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .catalog-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .catalog-skeleton-card {
@@ -1928,10 +2077,16 @@ onBeforeUnmount(() => {
   background: #fff;
 }
 
+.catalog-skeleton-card__media {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+}
+
 .catalog-skeleton-card__body {
   display: grid;
-  gap: 12px;
-  padding: 18px;
+  gap: 10px;
+  padding: 14px 14px 16px;
 }
 
 .pagination {
@@ -1992,6 +2147,26 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 720px) {
+  .catalog-landing {
+    grid-template-columns: 1fr;
+  }
+
+  .category-showcase {
+    border-radius: 16px;
+  }
+
+  .category-showcase__overlay {
+    padding: 14px;
+  }
+
+  .category-showcase__text h2 {
+    font-size: 28px;
+  }
+
+  .category-showcase__text p {
+    font-size: 14px;
+  }
+
   .catalog-layout {
     grid-template-columns: 1fr;
   }
@@ -2015,6 +2190,26 @@ onBeforeUnmount(() => {
   }
 
   .toolbar__price-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .subcategory-strip__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .subcategory-card {
+    border-radius: 12px;
+  }
+
+  .subcategory-card__overlay {
+    padding: 10px;
+  }
+
+  .subcategory-card__text h3 {
+    font-size: 18px;
+  }
+
+  .catalog-grid {
     grid-template-columns: 1fr;
   }
 }

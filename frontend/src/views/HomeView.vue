@@ -232,8 +232,6 @@ async function loadHome() {
     console.error(error)
     hasError.value = true
     state.value = fallback
-  } finally {
-    isLoading.value = false
   }
 }
 
@@ -263,9 +261,13 @@ async function loadBrands() {
 
 onMounted(async () => {
   recentlyViewed.value = readRecentlyViewed()
-  await loadHome()
-  await loadPersonalRecommendations()
-  await loadBrands()
+  isLoading.value = true
+  await Promise.all([
+    loadHome(),
+    loadPersonalRecommendations(),
+    loadBrands(),
+  ])
+  isLoading.value = false
 })
 
 async function subscribeToNewsletter() {
@@ -483,6 +485,7 @@ async function subscribeToNewsletter() {
             :key="product.id"
             :product="product"
             source="home_featured"
+            :show-image-skeleton="false"
             class="slider-card"
           />
         </template>
@@ -515,6 +518,7 @@ async function subscribeToNewsletter() {
           :key="`personal-${product.id}`"
           :product="product"
           source="home_personal"
+          :show-image-skeleton="false"
           class="slider-card"
         />
       </div>
@@ -535,6 +539,7 @@ async function subscribeToNewsletter() {
           :key="`recent-${product.id}`"
           :product="product"
           source="home_recent"
+          :show-image-skeleton="false"
           class="slider-card"
         />
       </div>
