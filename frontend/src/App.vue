@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import AuthModal from '@/components/AuthModal.vue'
+import { Input } from '@/components/ui/input'
 import { captureFirstTouchAttribution } from '@/lib/attribution'
 import { fetchJson } from '@/lib/api'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
@@ -535,10 +536,11 @@ watch(headerSearchInput, (value) => {
         <button v-else type="button" class="auth-btn" @click="authModalOpen = true">Вход / Регистрация</button>
       </nav>
       <form class="topbar__search" @submit.prevent="submitHeaderSearch">
-        <input
+        <Input
           v-model="headerSearchInput"
           type="search"
           placeholder="Поиск по каталогу"
+          class="topbar__search-input"
           @focus="onSearchFocus"
           @blur="onSearchBlur"
         />
@@ -585,7 +587,7 @@ watch(headerSearchInput, (value) => {
             <button type="button" class="city-modal__close" @click="cityPickerOpen = false">×</button>
           </header>
 
-          <input
+          <Input
             v-model.trim="citySearch"
             type="search"
             placeholder="Найти город"
@@ -870,29 +872,40 @@ watch(headerSearchInput, (value) => {
   justify-self: center;
 }
 
-.topbar__search input {
+.topbar__search-input {
   width: 100%;
-  padding: 9px 44px 9px 11px;
-  border: 1px solid #d6d3cc;
-  border-radius: 10px;
-  background: #fff;
-  font: inherit;
+  min-height: 58px;
+  border-radius: 16px;
+  border-color: #d8deec;
+  background: rgb(255 255 255 / 92%);
+  padding-right: 52px;
+  font-size: 20px;
+  box-shadow: 0 8px 24px rgb(17 24 39 / 7%);
 }
 
 .topbar__search > button {
   position: absolute;
   top: 50%;
-  right: 6px;
+  right: 10px;
   transform: translateY(-50%);
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 8px;
-  background: #f2f4f8;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #d8deec;
+  border-radius: 12px;
+  background: rgb(245 248 255 / 95%);
+  color: #394766;
   display: grid;
   place-items: center;
   font: inherit;
   cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.topbar__search > button:hover {
+  background: #fff;
+  border-color: #c6d0e6;
 }
 
 .topbar__suggestions {
@@ -1114,12 +1127,9 @@ watch(headerSearchInput, (value) => {
 }
 
 .city-modal__search {
-  width: 100%;
   min-height: 50px;
-  border: 1px solid #d6d3cc;
-  border-radius: 12px;
-  padding: 0 14px;
-  font: inherit;
+  border-radius: 14px;
+  font-size: 16px;
 }
 
 .city-modal__popular {

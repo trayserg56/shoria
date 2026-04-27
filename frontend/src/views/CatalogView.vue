@@ -7,6 +7,11 @@ import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { setSeoMeta } from '@/lib/seo'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Select } from '@/components/ui/select'
 
 type Category = {
   id: number
@@ -358,14 +363,14 @@ const availableCategoryCounts = computed(() => {
 })
 
 const filterSections = ref({
-  sort: true,
-  price: true,
-  tags: true,
-  brands: true,
+  sort: false,
+  price: false,
+  tags: false,
+  brands: false,
   colors: false,
   sizes: false,
   characteristics: false,
-  categories: true,
+  categories: false,
 })
 
 function normalizeInputValue(value: unknown): string {
@@ -778,6 +783,46 @@ function shouldShowSubcategory(category: Category): boolean {
   return category.subcategories?.some((item) => shouldShowSubcategory(item)) ?? false
 }
 
+function visibleChildren(category: Category): Category[] {
+  return (category.subcategories ?? []).filter((item) => shouldShowSubcategory(item))
+}
+
+const categoryTreeRows = computed(() => {
+  const rows: Array<{
+    category: Category
+    depth: number
+    hasChildren: boolean
+    expanded: boolean
+  }> = []
+
+  const walk = (nodes: Category[], depth: number) => {
+    for (const node of nodes) {
+      const visible = depth === 0 ? shouldShowCategory(node) : shouldShowSubcategory(node)
+
+      if (!visible) {
+        continue
+      }
+
+      const children = visibleChildren(node)
+      const expanded = Boolean(categoryAccordions.value[node.slug])
+
+      rows.push({
+        category: node,
+        depth,
+        hasChildren: children.length > 0,
+        expanded,
+      })
+
+      if (children.length > 0 && expanded) {
+        walk(children, depth + 1)
+      }
+    }
+  }
+
+  walk(categories.value, 0)
+  return rows
+})
+
 function walkCategories(nodes: Category[], visit: (category: Category) => void) {
   for (const node of nodes) {
     visit(node)
@@ -801,28 +846,6 @@ function syncCategoryAccordions() {
   }
 
   categoryAccordions.value = nextState
-}
-
-function flattenedVisibleSubcategories(category: Category, depth = 1): Array<{ category: Category; depth: number }> {
-  if (!category.subcategories?.length) {
-    return []
-  }
-
-  const rows: Array<{ category: Category; depth: number }> = []
-
-  for (const subcategory of category.subcategories) {
-    if (!shouldShowSubcategory(subcategory)) {
-      continue
-    }
-
-    rows.push({ category: subcategory, depth })
-
-    if (subcategory.subcategories?.length && categoryAccordions.value[subcategory.slug]) {
-      rows.push(...flattenedVisibleSubcategories(subcategory, depth + 1))
-    }
-  }
-
-  return rows
 }
 
 function isKnownCategorySlug(slug: string): boolean {
@@ -1034,249 +1057,272 @@ onBeforeUnmount(() => {
 
     <section v-else class="catalog-layout">
       <aside class="catalog-sidebar">
-        <div class="sidebar-card">
+        <ScrollArea class="sidebar-scroll">
+          <div class="sidebar-card">
           <div class="sidebar-section">
-            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('sort')">
+            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('sort')">
               <span>Сортировка</span>
               <span class="sidebar-section__chevron">{{ filterSections.sort ? '−' : '+' }}</span>
-            </button>
+            </Button>
             <div v-if="filterSections.sort" class="sidebar-section__body">
               <label class="toolbar__select">
-                <select :value="activeSort" @change="onSortChange">
+                <Select
+                  :value="activeSort"
+                  class="toolbar__select-control"
+                  @change="onSortChange"
+                >
                   <option v-for="option in sortOptions" :key="option.value || 'default'" :value="option.value">
                     {{ option.label }}
                   </option>
-                </select>
+                </Select>
               </label>
               <div class="toolbar__quick-toggles">
-                <button
-                  class="toolbar__stock"
-                  :class="{ 'toolbar__stock--active': activeInStock }"
-                  @click="toggleInStock"
-                >
-                  Только в наличии
-                </button>
-                <button
-                  class="toolbar__stock"
-                  :class="{ 'toolbar__stock--active': activeOnSale }"
-                  @click="toggleOnSale"
-                >
-                  Только со скидкой <span class="chip-count">{{ products.filters.on_sale.count }}</span>
-                </button>
+                <label class="filter-check-item" :class="{ 'filter-check-item--active': activeInStock }" @click.prevent="toggleInStock">
+                  <div class="filter-check-item__left">
+                    <Checkbox :checked="activeInStock" class="filter-check-item__checkbox" />
+                    <span>Только в наличии</span>
+                  </div>
+                </label>
+                <label class="filter-check-item" :class="{ 'filter-check-item--active': activeOnSale }" @click.prevent="toggleOnSale">
+                  <div class="filter-check-item__left">
+                    <Checkbox :checked="activeOnSale" class="filter-check-item__checkbox" />
+                    <span>Только со скидкой</span>
+                  </div>
+                  <span class="chip-count">{{ products.filters.on_sale.count }}</span>
+                </label>
               </div>
             </div>
           </div>
 
           <div class="sidebar-section">
-            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('price')">
+            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('price')">
               <span>Цена и наличие</span>
               <span class="sidebar-section__chevron">{{ filterSections.price ? '−' : '+' }}</span>
-            </button>
+            </Button>
             <div v-if="filterSections.price" class="sidebar-section__body">
               <div class="toolbar__price">
                 <div class="toolbar__price-fields">
-                  <input v-model="priceMinInput" type="number" min="0" placeholder="от" />
-                  <input v-model="priceMaxInput" type="number" min="0" placeholder="до" />
+                  <Input v-model="priceMinInput" class="toolbar__price-input" type="number" min="0" placeholder="от" />
+                  <Input v-model="priceMaxInput" class="toolbar__price-input" type="number" min="0" placeholder="до" />
                 </div>
               </div>
             </div>
           </div>
 
           <div class="sidebar-section">
-            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('tags')">
-              <span>Теги</span>
-              <span class="sidebar-section__chevron">{{ filterSections.tags ? '−' : '+' }}</span>
-            </button>
-            <div v-if="filterSections.tags" class="sidebar-section__body">
-              <div class="tag-filters">
+            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('categories')">
+              <span>Категории</span>
+              <span class="sidebar-section__chevron">{{ filterSections.categories ? '−' : '+' }}</span>
+            </Button>
+            <div v-if="filterSections.categories" class="sidebar-section__body">
+              <div class="category-tree">
                 <button
-                  v-for="tag in availableTagOptions"
-                  :key="tag.code"
-                  class="tag-chip"
-                  :class="{ 'tag-chip--active': activeTags.includes(tag.code) }"
-                  :disabled="!isFacetValueVisible(tag.count, activeTags.includes(tag.code))"
-                  @click="toggleTagFilter(tag.code)"
+                  type="button"
+                  class="category-tree__all"
+                  :class="{ 'category-tree__all--active': !activeCategory }"
+                  @click="selectCategory()"
                 >
-                  {{ tag.label }} <span class="chip-count">{{ tag.count }}</span>
+                  <span>Все категории</span>
                 </button>
+
+                <div class="category-tree__list" role="tree" aria-label="Дерево категорий">
+                  <div
+                    v-for="row in categoryTreeRows"
+                    :key="row.category.id"
+                    class="category-tree__row"
+                    :style="{ paddingLeft: `${row.depth * 20}px` }"
+                    role="treeitem"
+                    :aria-expanded="row.hasChildren ? row.expanded : undefined"
+                  >
+                    <button
+                      v-if="row.hasChildren"
+                      type="button"
+                      class="category-tree__expander"
+                      :class="{ 'category-tree__expander--open': row.expanded }"
+                      @click="toggleCategoryAccordion(row.category.slug)"
+                    >
+                      {{ row.expanded ? '⌄' : '›' }}
+                    </button>
+                    <span v-else class="category-tree__expander-placeholder" />
+
+                    <button
+                      type="button"
+                      class="category-tree__label"
+                      :class="{ 'category-tree__label--active': activeCategory === row.category.slug }"
+                      @click="selectCategory(row.category.slug)"
+                    >
+                      <span class="category-tree__name">{{ row.category.name }}</span>
+                      <span class="category-tree__count">{{ categoryDisplayCount(row.category) }}</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           <div class="sidebar-section">
-            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('brands')">
+            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('tags')">
+              <span>Теги</span>
+              <span class="sidebar-section__chevron">{{ filterSections.tags ? '−' : '+' }}</span>
+            </Button>
+            <div v-if="filterSections.tags" class="sidebar-section__body">
+              <div class="tag-filters">
+                <label
+                  v-for="tag in availableTagOptions"
+                  :key="tag.code"
+                  class="filter-check-item"
+                  :class="{
+                    'filter-check-item--active': activeTags.includes(tag.code),
+                    'filter-check-item--disabled': !isFacetValueVisible(tag.count, activeTags.includes(tag.code)),
+                  }"
+                  @click.prevent="
+                    isFacetValueVisible(tag.count, activeTags.includes(tag.code)) && toggleTagFilter(tag.code)
+                  "
+                >
+                  <div class="filter-check-item__left">
+                    <Checkbox
+                      :checked="activeTags.includes(tag.code)"
+                      :disabled="!isFacetValueVisible(tag.count, activeTags.includes(tag.code))"
+                      class="filter-check-item__checkbox"
+                    />
+                    <span>{{ tag.label }}</span>
+                  </div>
+                  <span class="chip-count">{{ tag.count }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('brands')">
               <span>Бренды</span>
               <span class="sidebar-section__chevron">{{ filterSections.brands ? '−' : '+' }}</span>
-            </button>
+            </Button>
             <div v-if="filterSections.brands" class="sidebar-section__body">
               <div class="tag-filters">
-                <button
+                <label
                   v-for="brand in availableBrandOptions"
                   v-show="isFacetValueVisible(brand.count, activeBrands.includes(brand.value))"
                   :key="brand.value"
-                  class="tag-chip"
-                  :class="{ 'tag-chip--active': activeBrands.includes(brand.value) }"
-                  @click="toggleBrandFilter(brand.value)"
+                  class="filter-check-item"
+                  :class="{ 'filter-check-item--active': activeBrands.includes(brand.value) }"
+                  @click.prevent="toggleBrandFilter(brand.value)"
                 >
-                  {{ brand.value }} <span class="chip-count">{{ brand.count }}</span>
-                </button>
+                  <div class="filter-check-item__left">
+                    <Checkbox :checked="activeBrands.includes(brand.value)" class="filter-check-item__checkbox" />
+                    <span>{{ brand.value }}</span>
+                  </div>
+                  <span class="chip-count">{{ brand.count }}</span>
+                </label>
               </div>
             </div>
           </div>
 
           <div class="sidebar-section">
-            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('colors')">
+            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('colors')">
               <span>Цвета</span>
               <span class="sidebar-section__chevron">{{ filterSections.colors ? '−' : '+' }}</span>
-            </button>
+            </Button>
             <div v-if="filterSections.colors" class="sidebar-section__body">
               <div class="tag-filters">
-                <button
+                <label
                   v-for="color in availableColorOptions"
                   v-show="isFacetValueVisible(color.count, activeColors.includes(color.value))"
                   :key="color.value"
-                  class="tag-chip"
-                  :class="{ 'tag-chip--active': activeColors.includes(color.value) }"
-                  @click="toggleColorFilter(color.value)"
+                  class="filter-check-item"
+                  :class="{ 'filter-check-item--active': activeColors.includes(color.value) }"
+                  @click.prevent="toggleColorFilter(color.value)"
                 >
-                  {{ color.value }} <span class="chip-count">{{ color.count }}</span>
-                </button>
+                  <div class="filter-check-item__left">
+                    <Checkbox :checked="activeColors.includes(color.value)" class="filter-check-item__checkbox" />
+                    <span>{{ color.value }}</span>
+                  </div>
+                  <span class="chip-count">{{ color.count }}</span>
+                </label>
               </div>
             </div>
           </div>
 
           <div class="sidebar-section">
-            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('sizes')">
+            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('sizes')">
               <span>Размеры</span>
               <span class="sidebar-section__chevron">{{ filterSections.sizes ? '−' : '+' }}</span>
-            </button>
+            </Button>
             <div v-if="filterSections.sizes" class="sidebar-section__body">
               <div class="tag-filters">
-                <button
+                <label
                   v-for="size in availableSizeOptions"
                   v-show="isFacetValueVisible(size.count, activeSizes.includes(size.value))"
                   :key="size.value"
-                  class="tag-chip"
-                  :class="{ 'tag-chip--active': activeSizes.includes(size.value) }"
-                  @click="toggleSizeFilter(size.value)"
+                  class="filter-check-item"
+                  :class="{ 'filter-check-item--active': activeSizes.includes(size.value) }"
+                  @click.prevent="toggleSizeFilter(size.value)"
                 >
-                  {{ size.value }} <span class="chip-count">{{ size.count }}</span>
-                </button>
+                  <div class="filter-check-item__left">
+                    <Checkbox :checked="activeSizes.includes(size.value)" class="filter-check-item__checkbox" />
+                    <span>{{ size.value }}</span>
+                  </div>
+                  <span class="chip-count">{{ size.count }}</span>
+                </label>
               </div>
             </div>
           </div>
 
           <div class="sidebar-section">
-            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('characteristics')">
+            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('characteristics')">
               <span>Характеристики</span>
               <span class="sidebar-section__chevron">{{ filterSections.characteristics ? '−' : '+' }}</span>
-            </button>
+            </Button>
             <div v-if="filterSections.characteristics" class="sidebar-section__body">
               <div class="characteristics-groups">
                 <div v-for="group in availableCharacteristicGroups" :key="group.name" class="characteristics-group">
                   <p class="characteristics-group__title">{{ group.name }}</p>
                   <div class="tag-filters">
-                    <button
+                    <label
                       v-for="option in group.values"
                       v-show="isFacetValueVisible(option.count, isCharacteristicActive(group.name, option.value))"
                       :key="`${group.name}:${option.value}`"
-                      class="tag-chip"
-                      :class="{ 'tag-chip--active': isCharacteristicActive(group.name, option.value) }"
-                      @click="toggleCharacteristicFilter(group.name, option.value)"
+                      class="filter-check-item"
+                      :class="{ 'filter-check-item--active': isCharacteristicActive(group.name, option.value) }"
+                      @click.prevent="toggleCharacteristicFilter(group.name, option.value)"
                     >
-                      {{ option.value }} <span class="chip-count">{{ option.count }}</span>
-                    </button>
+                      <div class="filter-check-item__left">
+                        <Checkbox
+                          :checked="isCharacteristicActive(group.name, option.value)"
+                          class="filter-check-item__checkbox"
+                        />
+                        <span>{{ option.value }}</span>
+                      </div>
+                      <span class="chip-count">{{ option.count }}</span>
+                    </label>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="sidebar-section">
-            <button type="button" class="sidebar-section__toggle" @click="toggleFilterSection('categories')">
-              <span>Категории</span>
-              <span class="sidebar-section__chevron">{{ filterSections.categories ? '−' : '+' }}</span>
-            </button>
-            <div v-if="filterSections.categories" class="sidebar-section__body">
-              <div class="filters filters--root">
-                <button type="button" class="chip" :class="{ 'chip--active': !activeCategory }" @click="selectCategory()">
-                  Все
-                </button>
-              </div>
-
-              <div class="category-groups">
-                <div
-                  v-for="category in categories"
-                  v-show="shouldShowCategory(category)"
-                  :key="category.id"
-                  class="category-group"
-                >
-                  <div class="category-group__row">
-                    <button
-                      type="button"
-                      class="chip chip--parent"
-                      :class="{
-                        'chip--active': activeCategory === category.slug,
-                        'chip--with-children': category.subcategories?.length,
-                      }"
-                      @click="selectCategory(category.slug)"
-                    >
-                      {{ category.name }}
-                      <span class="chip-count">{{ categoryDisplayCount(category) }}</span>
-                    </button>
-                    <button
-                      v-if="category.subcategories?.length"
-                      type="button"
-                      class="subcategory-toggle"
-                      :class="{ 'subcategory-toggle--open': categoryAccordions[category.slug] }"
-                      @click="toggleCategoryAccordion(category.slug)"
-                    >
-                      {{ categoryAccordions[category.slug] ? '−' : '+' }}
-                    </button>
-                  </div>
-
-                  <div
-                    v-if="category.subcategories?.length && categoryAccordions[category.slug]"
-                    class="subcategory-list"
-                  >
-                    <button
-                      v-for="entry in flattenedVisibleSubcategories(category)"
-                      :key="entry.category.id"
-                      type="button"
-                      class="chip chip--subcategory"
-                      :class="{ 'chip--active': activeCategory === entry.category.slug }"
-                      :style="entry.depth > 1 ? { marginLeft: `${(entry.depth - 1) * 14}px` } : undefined"
-                      @click="selectCategory(entry.category.slug)"
-                    >
-                      {{ entry.category.name }}
-                      <span class="chip-count">{{ categoryDisplayCount(entry.category) }}</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <Button v-if="hasActiveFilters" type="button" variant="secondary" class="sidebar-reset" @click="resetCatalogFilters">
+              Сбросить фильтры
+            </Button>
           </div>
-
-          <button v-if="hasActiveFilters" type="button" class="sidebar-reset" @click="resetCatalogFilters">
-            Сбросить фильтры
-          </button>
-        </div>
+        </ScrollArea>
       </aside>
 
       <div class="catalog-content">
         <section v-if="childSubcategories.length" class="subcategory-strip">
           <h2>Подкатегории {{ activeCategoryNode?.name }}</h2>
           <div class="subcategory-strip__items">
-            <button
+            <Button
               v-for="subcategory in childSubcategories"
               :key="subcategory.id"
               type="button"
+              variant="outline"
               class="subcategory-strip__chip"
               :class="{ 'subcategory-strip__chip--active': activeCategory === subcategory.slug }"
               @click="selectCategory(subcategory.slug)"
             >
               {{ subcategory.name }}
-            </button>
+            </Button>
           </div>
         </section>
 
@@ -1304,7 +1350,9 @@ onBeforeUnmount(() => {
         <section v-else-if="!isLoading && !hasError" class="empty-results">
           <h2>Ничего не найдено</h2>
           <p>Попробуйте изменить поиск или сбросить фильтры каталога.</p>
-          <button v-if="hasActiveFilters" type="button" @click="resetCatalogFilters">Сбросить фильтры</button>
+          <Button v-if="hasActiveFilters" type="button" variant="secondary" @click="resetCatalogFilters">
+            Сбросить фильтры
+          </Button>
         </section>
 
         <footer v-if="products.last_page > 1" class="pagination">
@@ -1357,33 +1405,35 @@ onBeforeUnmount(() => {
   margin-top: 22px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 18px;
+  gap: 16px;
 }
 
 .category-showcase {
-  border: 1px solid #efe2d4;
-  border-radius: 24px;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
   overflow: hidden;
-  background: #fffdf9;
+  background: #fff;
   cursor: pointer;
   transition:
-    transform 0.22s ease,
-    box-shadow 0.22s ease,
-    border-color 0.22s ease;
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .category-showcase:hover,
 .category-showcase:focus-visible {
-  transform: translateY(-4px);
-  border-color: #e8c7a8;
-  box-shadow: 0 18px 36px rgb(31 34 51 / 10%);
+  transform: translateY(-2px);
+  border-color: #d1d5db;
+  box-shadow:
+    0 10px 24px rgb(15 23 42 / 8%),
+    0 2px 6px rgb(15 23 42 / 6%);
   outline: none;
 }
 
 .category-showcase__media {
   position: relative;
   aspect-ratio: 16 / 10;
-  background: linear-gradient(135deg, #f4ecdf 0%, #e9ddcd 100%);
+  background: #f8fafc;
 }
 
 .category-showcase__media img {
@@ -1401,23 +1451,23 @@ onBeforeUnmount(() => {
 }
 
 .category-showcase__content {
-  padding: 16px;
+  padding: 14px 14px 16px;
   display: grid;
-  gap: 8px;
+  gap: 7px;
 }
 
 .category-showcase__content h2 {
   margin: 0;
-  font-size: 26px;
-  line-height: 1.05;
+  font-size: 22px;
+  line-height: 1.1;
   font-family: var(--font-display);
-  letter-spacing: 0.01em;
+  letter-spacing: -0.01em;
 }
 
 .category-showcase__content p {
   margin: 0;
-  color: #5f6f88;
-  font-size: 15px;
+  color: #64748b;
+  font-size: 14px;
 }
 
 .category-showcase__cta {
@@ -1426,41 +1476,44 @@ onBeforeUnmount(() => {
   align-items: center;
   width: fit-content;
   padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid #d7c7b6;
-  color: #253049;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  color: #1f2937;
   background: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .catalog-layout {
   display: grid;
   grid-template-columns: minmax(250px, 290px) minmax(0, 1fr);
-  gap: 24px;
+  gap: 18px;
   align-items: start;
   margin-top: 22px;
 }
 
 .catalog-sidebar {
   position: sticky;
-  top: 96px;
+  top: 18px;
+}
+
+.sidebar-scroll {
+  height: calc(100vh - 32px);
+  max-height: calc(100vh - 32px);
+  min-height: 320px;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
 }
 
 .sidebar-card {
-  padding: 18px;
-  max-height: calc(100vh - 116px);
-  overflow-y: auto;
-  border: 1px solid #eadfce;
-  border-radius: 22px;
-  background:
-    linear-gradient(180deg, rgb(255 252 247 / 98%), rgb(255 246 235 / 88%));
-  box-shadow: 0 14px 42px rgb(16 24 40 / 7%);
-  backdrop-filter: blur(10px);
+  padding: 12px 10px 12px 12px;
+  overflow: hidden;
 }
 
 .sidebar-section + .sidebar-section {
-  margin-top: 18px;
+  margin-top: 10px;
 }
 
 .sidebar-section__toggle {
@@ -1469,13 +1522,15 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 2px 0;
+  padding: 3px 0;
+  min-height: 34px;
+  height: auto;
   border: 0;
   background: transparent;
-  color: #4d5d79;
+  color: #1f2937;
   font: inherit;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 700;
   text-align: left;
   cursor: pointer;
 }
@@ -1484,84 +1539,84 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid #ddcfbd;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #d1d5db;
   border-radius: 999px;
-  color: #b35a16;
-  background: linear-gradient(180deg, #fffaf3, #fff1e2);
-  box-shadow: 0 4px 10px rgb(243 91 4 / 10%);
+  color: #64748b;
+  background: #fff;
 }
 
 .sidebar-section__body {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .toolbar__select {
   display: grid;
 }
 
-.toolbar__select select {
+.toolbar__select-control {
   min-width: 220px;
-  padding: 10px 12px;
-  border: 1px solid #d6d3cc;
+  min-height: 40px;
   border-radius: 10px;
+  border-color: #d1d5db;
   background: #fff;
-  font: inherit;
+  box-shadow: none;
+}
+
+.toolbar__select-control:focus-visible {
+  border-color: #5b88ff;
 }
 
 .toolbar__quick-toggles {
-  margin-top: 10px;
+  margin-top: 8px;
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .toolbar__price {
   display: grid;
-  gap: 10px;
-  color: #63718d;
+  gap: 6px;
+  color: #64748b;
 }
 
 .toolbar__price-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 5px;
 }
 
 .toolbar__price input {
-  padding: 10px 12px;
-  border: 1px solid #d6d3cc;
+  min-height: 48px;
+}
+
+.toolbar__price-input {
   border-radius: 10px;
+  border-color: #d1d5db;
   background: #fff;
-  font: inherit;
-}
-
-.toolbar__stock {
-  width: 100%;
-  padding: 10px 14px;
-  border: 1px solid #d6d3cc;
-  border-radius: 999px;
-  background: #fff;
-  cursor: pointer;
-}
-
-.toolbar__stock--active {
-  border-color: #f35b04;
-  background: #fff2e8;
-  color: #c74803;
+  box-shadow: none;
 }
 
 .tag-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  display: grid;
+  gap: 3px;
 }
 
-.tag-chip {
-  padding: 8px 12px;
-  border: 1px solid #d6d3cc;
-  border-radius: 999px;
-  background: rgb(255 255 255 / 92%);
+.filter-check-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  min-height: 34px;
+  height: auto;
+  padding: 6px 9px;
+  color: #1f2937;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
   transition:
     border-color 0.2s ease,
@@ -1569,50 +1624,77 @@ onBeforeUnmount(() => {
     transform 0.2s ease;
 }
 
-.tag-chip:disabled {
+.filter-check-item__left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.filter-check-item__left span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-check-item__checkbox {
+  pointer-events: none;
+}
+
+.filter-check-item--disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 
-.tag-chip--active {
-  border-color: #1f2233;
-  background: #1f2233;
-  color: #fff;
+.filter-check-item:hover {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.filter-check-item--active {
+  background: #e9edf6;
+  border-color: #c5d0e4;
+  color: #0f172a;
+}
+
+.filter-check-item--active:hover {
+  background: #e9edf6;
+  border-color: #c5d0e4;
 }
 
 .chip-count {
   margin-left: 6px;
-  font-size: 12px;
-  color: #7c879f;
+  font-size: 11px;
+  color: #64748b;
 }
 
-.tag-chip--active .chip-count {
-  color: rgb(255 255 255 / 86%);
+.filter-check-item--active .chip-count {
+  color: #4c5f80;
 }
 
 .characteristics-groups {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .characteristics-group {
-  padding: 10px;
-  border: 1px solid #ecdcca;
-  border-radius: 14px;
-  background: rgb(255 253 249 / 92%);
+  padding: 7px 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
 }
 
 .characteristics-group__title {
-  margin: 0 0 8px;
-  color: #5b6a84;
-  font-size: 13px;
+  margin: 0 0 6px;
+  color: #475569;
+  font-size: 11px;
   font-weight: 700;
 }
 
 .filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .filters--root {
@@ -1620,10 +1702,10 @@ onBeforeUnmount(() => {
 }
 
 .chip {
-  padding: 8px 14px;
-  border: 1px solid #d6d3cc;
+  padding: 7px 12px;
+  border: 1px solid #d1d5db;
   border-radius: 999px;
-  background: rgb(255 255 255 / 92%);
+  background: #fff;
   cursor: pointer;
   transition:
     border-color 0.2s ease,
@@ -1633,100 +1715,163 @@ onBeforeUnmount(() => {
 }
 
 .chip--active {
-  border-color: #f35b04;
-  background: linear-gradient(180deg, #fff7ef, #ffefe0);
-  color: #c74803;
-  box-shadow: inset 0 0 0 1px rgb(243 91 4 / 10%);
-}
-
-.chip--parent {
-  flex: 1 1 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  color: #20253a;
-  font-weight: 700;
+  border-color: #0f172a;
+  background: #0f172a;
+  color: #fff;
   box-shadow: none;
 }
 
-.chip--subcategory {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 9px 13px;
-  background: #fffdf9;
-  font-size: 14px;
+.category-tree {
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  padding: 0;
 }
 
-.category-groups {
-  display: grid;
-  gap: 10px;
-}
-
-.category-group {
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid #ecdcca;
-  border-radius: 18px;
-  background: rgb(255 252 247 / 72%);
-}
-
-.category-group__row {
+.category-tree__all {
+  width: 100%;
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
-  min-width: 0;
-}
-
-.category-group__row:has(.chip--active) {
-  color: #c74803;
-}
-
-.category-group__row .chip--parent.chip--active {
-  color: #c74803;
-}
-
-.subcategory-toggle {
-  flex: 0 0 34px;
-  width: 34px;
-  height: 34px;
-  border: 1px solid #e5cdb4;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #fffaf4, #fff1e4);
-  color: #b35a16;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
   font: inherit;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 34px;
+  height: auto;
+  padding: 6px 9px;
   cursor: pointer;
-  box-shadow: 0 6px 14px rgb(243 91 4 / 8%);
+  margin-bottom: 6px;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
-.subcategory-toggle--open {
-  border-color: #f0c8ad;
-  background: linear-gradient(180deg, #fff3e8, #ffe8d6);
+.category-tree__all--active {
+  border-color: #0f172a;
+  background: #0f172a;
+  color: #fff;
 }
 
-.subcategory-list {
+.category-tree__list {
+  display: grid;
+  gap: 1px;
+}
+
+.category-tree__row {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.category-tree__expander {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.category-tree__expander:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.category-tree__expander--open {
+  color: #334155;
+}
+
+.category-tree__expander-placeholder {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+}
+
+.category-tree__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 2px 0 0 10px;
-  border-left: 2px solid #f1dfcd;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #1f2937;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 34px;
+  height: auto;
+  padding: 6px 9px;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.category-tree__label:hover {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.category-tree__label--active {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #fff;
+}
+
+.category-tree__label--active:hover {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #fff;
+}
+
+.category-tree__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-tree__count {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.category-tree__label--active .category-tree__count {
+  color: rgb(255 255 255 / 84%);
 }
 
 .sidebar-reset {
   width: 100%;
-  margin-top: 18px;
-  padding: 11px 14px;
-  border: 1px solid #f0c8ad;
-  border-radius: 12px;
-  background: #fff2e8;
-  color: #c74803;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
   font-weight: 700;
   cursor: pointer;
 }
@@ -1737,15 +1882,16 @@ onBeforeUnmount(() => {
 
 .subcategory-strip {
   margin-bottom: 16px;
-  padding: 14px;
-  border: 1px solid #ecdcca;
-  border-radius: 18px;
-  background: rgb(255 252 247 / 82%);
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
 }
 
 .subcategory-strip h2 {
   margin: 0 0 10px;
-  font-size: 20px;
+  font-size: 18px;
+  line-height: 1.2;
 }
 
 .subcategory-strip__items {
@@ -1755,31 +1901,31 @@ onBeforeUnmount(() => {
 }
 
 .subcategory-strip__chip {
-  padding: 8px 14px;
+  padding: 7px 12px;
   border-radius: 999px;
-  border: 1px solid #d6d3cc;
+  border: 1px solid #d1d5db;
   background: #fff;
-  color: #23293a;
+  color: #334155;
   cursor: pointer;
 }
 
 .subcategory-strip__chip--active {
-  border-color: #f35b04;
-  background: #fff1e6;
-  color: #c74803;
+  border-color: #0f172a;
+  background: #0f172a;
+  color: #fff;
 }
 
 .catalog-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
   gap: 16px;
 }
 
 .catalog-skeleton-card {
   overflow: hidden;
-  border: 1px solid #efe2d4;
-  border-radius: 28px;
-  background: #fffdf9;
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  background: #fff;
 }
 
 .catalog-skeleton-card__body {
@@ -1798,8 +1944,8 @@ onBeforeUnmount(() => {
 
 .pagination button {
   padding: 8px 12px;
-  border: 1px solid #d6d3cc;
-  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
   background: #fff;
   cursor: pointer;
 }
@@ -1821,8 +1967,8 @@ onBeforeUnmount(() => {
 .empty-results {
   margin-top: 18px;
   padding: 24px;
-  border: 1px solid #d6d3cc;
-  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
   background: #fff;
 }
 
@@ -1839,8 +1985,8 @@ onBeforeUnmount(() => {
 .empty-results button {
   margin-top: 14px;
   padding: 10px 14px;
-  border: 1px solid #d6d3cc;
-  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
   background: #fff;
   cursor: pointer;
 }
@@ -1854,13 +2000,17 @@ onBeforeUnmount(() => {
     position: static;
   }
 
-  .sidebar-card {
-    padding: 16px;
+  .sidebar-scroll {
+    height: auto;
     max-height: none;
     overflow: visible;
   }
 
-  .toolbar__select select {
+  .sidebar-card {
+    padding: 16px;
+  }
+
+  .toolbar__select-control {
     min-width: 100%;
   }
 

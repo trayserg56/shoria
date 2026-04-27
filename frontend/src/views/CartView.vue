@@ -5,6 +5,10 @@ import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { trackEvent } from '@/lib/analytics'
 import AppSkeleton from '@/components/AppSkeleton.vue'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { toProductRoute } from '@/lib/product-route'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { useAuthStore } from '@/stores/auth'
@@ -387,40 +391,41 @@ watch(
           <h2>Оформление</h2>
           <label>
             Имя
-            <input v-model="customerName" type="text" required />
+            <Input v-model="customerName" class="checkout__input" type="text" required />
           </label>
           <label>
             Email
-            <input v-model="customerEmail" type="email" required />
+            <Input v-model="customerEmail" class="checkout__input" type="email" required />
           </label>
           <label>
             Телефон
-            <input v-model="customerPhone" type="text" required />
+            <Input v-model="customerPhone" class="checkout__input" type="text" required />
           </label>
           <label>
             Доставка
-            <select v-model="deliveryMethod" required>
+            <Select v-model="deliveryMethod" class="checkout__select" required>
               <option v-for="method in deliveryMethods" :key="method.code" :value="method.code">
                 {{ method.name }}{{ method.is_test_mode ? ' · тест' : '' }} ({{ formatPrice(method.fee) }})
               </option>
-            </select>
+            </Select>
           </label>
           <label>
             Оплата
-            <select v-model="paymentMethod" required>
+            <Select v-model="paymentMethod" class="checkout__select" required>
               <option v-for="method in paymentMethods" :key="method.code" :value="method.code">
                 {{ method.name }}{{ method.is_test_mode ? ' · тест' : '' }}
               </option>
-            </select>
+            </Select>
           </label>
           <label>
             Промокод
-            <input v-model="promoCode" type="text" placeholder="Например, WELCOME10" />
+            <Input v-model="promoCode" class="checkout__input" type="text" placeholder="Например, WELCOME10" />
           </label>
           <label v-if="loyaltyEnabled">
             Списать баллы
-            <input
+            <Input
               v-model.number="loyaltyPointsToSpend"
+              class="checkout__input"
               type="number"
               min="0"
               :max="loyaltyMaxPoints"
@@ -436,7 +441,7 @@ watch(
           </p>
           <label>
             Комментарий
-            <textarea v-model="comment" rows="3" />
+            <Textarea v-model="comment" class="checkout__textarea" rows="3" />
           </label>
           <div class="summary summary--stack">
             <span>Товаров: {{ totalItems }}</span>
@@ -450,7 +455,7 @@ watch(
           <p v-if="hasUnavailableItems" class="error error--soft">
             {{ unavailableCartMessage }}
           </p>
-          <button type="submit" :disabled="!canCheckout">
+          <Button type="submit" class="checkout__submit" :disabled="!canCheckout">
             {{
               checkoutLoading
                 ? 'Оформляем...'
@@ -458,7 +463,7 @@ watch(
                   ? 'Недоступные товары в корзине'
                   : 'Оформить заказ'
             }}
-          </button>
+          </Button>
           <p v-if="checkoutError" class="error">{{ checkoutError }}</p>
         </template>
 
@@ -654,17 +659,30 @@ watch(
 .checkout label {
   margin-top: 10px;
   display: grid;
-  gap: 4px;
+  gap: 6px;
   font-size: 14px;
+  color: #475569;
+  font-weight: 600;
 }
 
-.checkout input,
-.checkout select,
-.checkout textarea {
-  border: 1px solid #d7d4ce;
-  border-radius: 10px;
-  padding: 10px;
-  font: inherit;
+.checkout__input {
+  min-height: 48px;
+  border-radius: 14px;
+  border-color: #d6dbe8;
+  background: rgb(255 255 255 / 92%);
+}
+
+.checkout__select {
+  min-height: 50px;
+  border-radius: 14px;
+  border-color: #d6dbe8;
+  background: rgb(255 255 255 / 92%);
+}
+
+.checkout__textarea {
+  border-radius: 14px;
+  border-color: #d6dbe8;
+  background: rgb(255 255 255 / 92%);
 }
 
 .summary {
@@ -700,19 +718,15 @@ watch(
   font-size: 12px;
 }
 
-.checkout button {
-  margin-top: 12px;
+.checkout__submit {
+  margin-top: 14px;
   width: 100%;
-  border: none;
-  border-radius: 10px;
-  padding: 11px;
-  background: #1f2233;
-  color: #fff;
-  font-weight: 700;
-  cursor: pointer;
+  min-height: 50px;
+  border-radius: 14px;
+  font-size: 16px;
 }
 
-.checkout button:disabled {
+.checkout__submit:disabled {
   opacity: 0.5;
   cursor: default;
 }
