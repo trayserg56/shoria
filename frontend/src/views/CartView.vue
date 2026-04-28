@@ -289,7 +289,7 @@ watch(
       <div class="items" :class="{ 'items--busy': isCartLoading && items.length > 0 }">
         <div v-if="showCartSkeleton" class="items-skeleton">
           <article v-for="index in 2" :key="`cart-skeleton-${index}`" class="item item--skeleton">
-            <AppSkeleton width="90px" height="90px" radius="16px" />
+            <AppSkeleton width="90px" height="90px" radius="10px" />
             <div class="item__body item__body--skeleton">
               <AppSkeleton width="48%" height="20px" />
               <AppSkeleton width="26%" height="14px" />
@@ -328,7 +328,7 @@ watch(
 
         <div v-if="isCartLoading && items.length > 0" class="items-overlay" aria-hidden="true">
           <article v-for="index in Math.min(items.length, 2)" :key="`cart-overlay-${index}`" class="item item--skeleton">
-            <AppSkeleton width="90px" height="90px" radius="16px" />
+            <AppSkeleton width="90px" height="90px" radius="10px" />
             <div class="item__body item__body--skeleton">
               <AppSkeleton width="44%" height="20px" />
               <AppSkeleton width="24%" height="14px" />

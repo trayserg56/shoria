@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import AuthModal from '@/components/AuthModal.vue'
 import { Input } from '@/components/ui/input'
 import { captureFirstTouchAttribution } from '@/lib/attribution'
@@ -24,6 +25,7 @@ const { isAuthenticated, user } = storeToRefs(authStore)
 const route = useRoute()
 const router = useRouter()
 const authModalOpen = ref(false)
+const isHeaderLoading = ref(true)
 const currentYear = new Date().getFullYear()
 const headerSearchInput = ref((route.query.q as string | undefined) ?? '')
 const categoryMenuRef = ref<HTMLDetailsElement | null>(null)
@@ -363,8 +365,13 @@ onMounted(async () => {
   captureFirstTouchAttribution()
   wishlistStore.hydrate()
   compareStore.hydrate()
-  await Promise.all([authStore.loadMe(), loadNavigationMenu(), loadHeaderCategories(), loadCitySelection()])
-  await cartStore.loadCart()
+
+  try {
+    await Promise.all([authStore.loadMe(), loadNavigationMenu(), loadHeaderCategories(), loadCitySelection()])
+    await cartStore.loadCart()
+  } finally {
+    isHeaderLoading.value = false
+  }
 })
 
 watch(
@@ -501,90 +508,118 @@ onBeforeUnmount(() => {
 <template>
   <div class="app-shell">
     <header class="topbar">
-      <button type="button" class="topbar__city" @click="openCityPicker">
-        <span class="topbar__city-icon">📍</span>
-        <span>{{ cityLabel }}</span>
-      </button>
-      <RouterLink to="/" class="brand">Shoria</RouterLink>
-      <nav class="topbar__nav">
-        <details v-if="headerCategories.length" ref="categoryMenuRef" class="topbar__categories">
-          <summary class="topbar__categories-summary">Категории</summary>
-          <div class="topbar__categories-dropdown">
-            <div v-for="category in headerCategories" :key="`header-category-${category.id}`" class="topbar__category-group">
-              <RouterLink :to="`/catalog/${category.slug}`" class="topbar__category-parent">
-                {{ category.name }}
-              </RouterLink>
-              <div v-if="category.subcategories?.length" class="topbar__subcategory-list">
-                <RouterLink
-                  v-for="subcategory in category.subcategories"
-                  :key="`header-subcategory-${subcategory.id}`"
-                  :to="`/catalog/${category.slug}/${subcategory.slug}`"
-                  class="topbar__subcategory-item"
-                >
-                  {{ subcategory.name }}
+      <template v-if="!isHeaderLoading">
+        <button type="button" class="topbar__city" @click="openCityPicker">
+          <span class="topbar__city-icon">📍</span>
+          <span>{{ cityLabel }}</span>
+        </button>
+        <RouterLink to="/" class="brand">Shoria</RouterLink>
+        <nav class="topbar__nav">
+          <details v-if="headerCategories.length" ref="categoryMenuRef" class="topbar__categories">
+            <summary class="topbar__categories-summary">Категории</summary>
+            <div class="topbar__categories-dropdown">
+              <div v-for="category in headerCategories" :key="`header-category-${category.id}`" class="topbar__category-group">
+                <RouterLink :to="`/catalog/${category.slug}`" class="topbar__category-parent">
+                  {{ category.name }}
                 </RouterLink>
+                <div v-if="category.subcategories?.length" class="topbar__subcategory-list">
+                  <RouterLink
+                    v-for="subcategory in category.subcategories"
+                    :key="`header-subcategory-${subcategory.id}`"
+                    :to="`/catalog/${category.slug}/${subcategory.slug}`"
+                    class="topbar__subcategory-item"
+                  >
+                    {{ subcategory.name }}
+                  </RouterLink>
+                </div>
               </div>
             </div>
-          </div>
-        </details>
-        <template v-for="item in headerMenuItems" :key="`header-${item.id}`">
-          <a
-            v-if="item.is_external"
-            :href="item.path"
-            :target="item.open_in_new_tab ? '_blank' : undefined"
-            :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
-          >
-            {{ item.label }}
-          </a>
-          <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
-        </template>
-        <RouterLink v-if="isAuthenticated" to="/account">Профиль</RouterLink>
-        <button v-else type="button" class="auth-btn" @click="authModalOpen = true">Вход / Регистрация</button>
-      </nav>
-      <form class="topbar__search" @submit.prevent="submitHeaderSearch">
-        <Input
-          v-model="headerSearchInput"
-          type="search"
-          placeholder="Поиск по каталогу"
-          class="topbar__search-input"
-          @focus="onSearchFocus"
-          @blur="onSearchBlur"
-        />
-        <button type="submit" aria-label="Искать">
-          <span>🔍</span>
-        </button>
-        <div v-if="isSearchFocused && searchSuggestions.length" class="topbar__suggestions">
-          <button
-            v-for="item in searchSuggestions"
-            :key="item.id"
-            type="button"
-            class="topbar__suggestion"
-            @mousedown.prevent="openSuggestion(item)"
-          >
-            <img :src="resolveImageSrc(item.image_url)" :alt="item.name" loading="lazy" @error="applyImageFallback" />
-            <span class="topbar__suggestion-body">
-              <strong>{{ item.name }}</strong>
-              <small>{{ item.category?.name ?? 'Sneakers' }}</small>
-            </span>
+          </details>
+          <template v-for="item in headerMenuItems" :key="`header-${item.id}`">
+            <a
+              v-if="item.is_external"
+              :href="item.path"
+              :target="item.open_in_new_tab ? '_blank' : undefined"
+              :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
+            >
+              {{ item.label }}
+            </a>
+            <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
+          </template>
+          <RouterLink v-if="isAuthenticated" to="/account">Профиль</RouterLink>
+          <button v-else type="button" class="auth-btn" @click="authModalOpen = true">Вход / Регистрация</button>
+        </nav>
+        <form class="topbar__search" @submit.prevent="submitHeaderSearch">
+          <Input
+            v-model="headerSearchInput"
+            type="search"
+            placeholder="Поиск по каталогу"
+            class="topbar__search-input"
+            @focus="onSearchFocus"
+            @blur="onSearchBlur"
+          />
+          <button type="submit" aria-label="Искать">
+            <span>🔍</span>
           </button>
+          <div v-if="isSearchFocused && searchSuggestions.length" class="topbar__suggestions">
+            <button
+              v-for="item in searchSuggestions"
+              :key="item.id"
+              type="button"
+              class="topbar__suggestion"
+              @mousedown.prevent="openSuggestion(item)"
+            >
+              <img :src="resolveImageSrc(item.image_url)" :alt="item.name" loading="lazy" @error="applyImageFallback" />
+              <span class="topbar__suggestion-body">
+                <strong>{{ item.name }}</strong>
+                <small>{{ item.category?.name ?? 'Sneakers' }}</small>
+              </span>
+            </button>
+          </div>
+        </form>
+        <div class="topbar__actions">
+          <RouterLink class="icon-pill icon-pill--wishlist" to="/wishlist" aria-label="Избранное">
+            <span class="icon-pill__icon">❤</span>
+            <span class="icon-pill__count">{{ wishlistTotalItems }}</span>
+          </RouterLink>
+          <RouterLink class="icon-pill icon-pill--compare" to="/compare" aria-label="Сравнение">
+            <span class="icon-pill__icon">⚖</span>
+            <span class="icon-pill__count">{{ compareTotalItems }}</span>
+          </RouterLink>
+          <RouterLink class="icon-pill icon-pill--cart" to="/cart" aria-label="Корзина">
+            <span class="icon-pill__icon">🛒</span>
+            <span class="icon-pill__count">{{ totalItems }}</span>
+          </RouterLink>
+          <span v-if="isAuthenticated && user" class="user-pill">{{ user.name }}</span>
         </div>
-      </form>
-      <div class="topbar__actions">
-        <RouterLink class="icon-pill icon-pill--wishlist" to="/wishlist" aria-label="Избранное">
-          <span class="icon-pill__icon">❤</span>
-          <span class="icon-pill__count">{{ wishlistTotalItems }}</span>
-        </RouterLink>
-        <RouterLink class="icon-pill icon-pill--compare" to="/compare" aria-label="Сравнение">
-          <span class="icon-pill__icon">⚖</span>
-          <span class="icon-pill__count">{{ compareTotalItems }}</span>
-        </RouterLink>
-        <RouterLink class="icon-pill icon-pill--cart" to="/cart" aria-label="Корзина">
-          <span class="icon-pill__icon">🛒</span>
-          <span class="icon-pill__count">{{ totalItems }}</span>
-        </RouterLink>
-        <span v-if="isAuthenticated && user" class="user-pill">{{ user.name }}</span>
-      </div>
-      </header>
+      </template>
+      <template v-else>
+        <div class="topbar__city topbar__city--skeleton">
+          <AppSkeleton inline width="100%" height="22px" radius="8px" />
+        </div>
+        <div class="brand brand--skeleton">
+          <AppSkeleton inline width="132px" height="42px" radius="10px" />
+        </div>
+        <div class="topbar__nav topbar__nav--skeleton">
+          <AppSkeleton inline width="102px" height="36px" radius="999px" />
+          <AppSkeleton inline width="88px" height="36px" radius="999px" />
+          <AppSkeleton inline width="82px" height="36px" radius="999px" />
+          <AppSkeleton inline width="154px" height="38px" radius="999px" />
+        </div>
+        <div class="topbar__search topbar__search--skeleton">
+          <AppSkeleton inline width="100%" height="58px" radius="16px" />
+          <span class="topbar__search-button-skeleton">
+            <AppSkeleton inline width="38px" height="38px" radius="12px" />
+          </span>
+        </div>
+        <div class="topbar__actions topbar__actions--skeleton">
+          <AppSkeleton inline width="42px" height="42px" radius="12px" />
+          <AppSkeleton inline width="42px" height="42px" radius="12px" />
+          <AppSkeleton inline width="42px" height="42px" radius="12px" />
+          <AppSkeleton inline width="72px" height="36px" radius="999px" />
+        </div>
+      </template>
+    </header>
       <Teleport to="body">
         <div v-if="cityPickerOpen" class="city-modal" @click.self="cityPickerOpen = false">
           <section class="city-modal__card">
@@ -748,6 +783,11 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
+.topbar__city--skeleton {
+  width: 160px;
+  height: 22px;
+}
+
 .brand {
   grid-area: brand;
   color: #1f2233;
@@ -757,6 +797,13 @@ onBeforeUnmount(() => {
   line-height: 1;
 }
 
+.brand--skeleton {
+  display: flex;
+  align-items: center;
+  min-width: 132px;
+  height: 42px;
+}
+
 .topbar__nav {
   grid-area: nav;
   display: flex;
@@ -764,6 +811,10 @@ onBeforeUnmount(() => {
   justify-self: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.topbar__nav--skeleton {
+  gap: 8px;
 }
 
 .topbar__nav a {
@@ -871,11 +922,31 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.topbar__actions--skeleton {
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
 .topbar__search {
   grid-area: search;
   position: relative;
   width: min(760px, 100%);
   justify-self: center;
+}
+
+.topbar__search--skeleton {
+  height: 58px;
+  pointer-events: none;
+}
+
+.topbar__search-button-skeleton {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 38px;
+  height: 38px;
+  transform: translateY(-50%);
 }
 
 .topbar__search-input {

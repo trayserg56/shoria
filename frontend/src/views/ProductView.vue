@@ -815,16 +815,38 @@ watch(
   <main class="product-page">
     <section v-if="isLoading && !product" class="product-layout product-layout--skeleton" aria-hidden="true">
       <div class="gallery gallery--skeleton">
-        <AppSkeleton width="100%" height="560px" radius="22px" />
+        <AppSkeleton class="gallery__main-skeleton" width="100%" height="min(62vw, 560px)" radius="0" />
+        <div class="gallery__thumbs gallery__thumbs--skeleton">
+          <AppSkeleton
+            v-for="index in 4"
+            :key="`gallery-thumb-skeleton-${index}`"
+            width="100%"
+            height="68px"
+            radius="10px"
+          />
+        </div>
       </div>
       <article class="details details--skeleton">
-        <AppSkeleton width="24%" height="14px" />
-        <AppSkeleton width="58%" height="46px" />
+        <AppSkeleton width="24%" height="12px" />
+        <AppSkeleton width="72%" height="54px" />
         <AppSkeleton width="28%" height="14px" />
-        <AppSkeleton width="32%" height="28px" />
+        <div class="details__tags details__tags--skeleton">
+          <AppSkeleton width="70px" height="28px" radius="999px" />
+          <AppSkeleton width="86px" height="28px" radius="999px" />
+        </div>
+        <AppSkeleton width="42%" height="36px" />
         <AppSkeleton width="38%" height="16px" />
         <AppSkeleton width="100%" height="16px" />
         <AppSkeleton width="88%" height="16px" />
+        <div class="sizes__grid sizes__grid--skeleton">
+          <AppSkeleton
+            v-for="index in 4"
+            :key="`size-skeleton-${index}`"
+            width="86px"
+            height="44px"
+            radius="12px"
+          />
+        </div>
         <AppSkeleton width="100%" height="54px" radius="16px" />
       </article>
     </section>
@@ -1169,6 +1191,14 @@ watch(
   box-shadow: 0 12px 40px rgb(16 24 40 / 9%);
 }
 
+.gallery--skeleton {
+  overflow: hidden;
+}
+
+.gallery__main-skeleton {
+  display: block;
+}
+
 .gallery__main {
   width: 100%;
   height: min(62vw, 560px);
@@ -1181,6 +1211,10 @@ watch(
   grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
   gap: 8px;
   padding: 10px;
+}
+
+.gallery__thumbs--skeleton {
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
 }
 
 .thumb {
@@ -1254,6 +1288,10 @@ watch(
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
+}
+
+.details__tags--skeleton {
+  margin-top: 0;
 }
 
 .details__tag {
@@ -1364,6 +1402,10 @@ watch(
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
   gap: 8px;
+}
+
+.sizes__grid--skeleton {
+  grid-template-columns: repeat(auto-fit, minmax(86px, max-content));
 }
 
 .sizes__grid--colors {

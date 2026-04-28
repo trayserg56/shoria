@@ -1042,7 +1042,16 @@ onBeforeUnmount(() => {
 
     <section v-if="isCategoryLanding && isLoading" class="catalog-landing" aria-hidden="true">
       <article v-for="index in 8" :key="`category-landing-skeleton-${index}`" class="category-showcase category-showcase--skeleton">
-        <AppSkeleton width="100%" height="100%" />
+        <div class="category-showcase__media">
+          <AppSkeleton width="100%" height="100%" radius="0" />
+          <div class="category-showcase__overlay category-showcase__overlay--skeleton">
+            <div class="category-showcase__text">
+              <AppSkeleton width="42%" height="28px" />
+              <AppSkeleton width="26%" height="18px" />
+            </div>
+            <AppSkeleton width="34px" height="34px" radius="999px" />
+          </div>
+        </div>
       </article>
     </section>
 
@@ -1378,15 +1387,21 @@ onBeforeUnmount(() => {
         <section v-if="isLoading" class="catalog-grid" aria-hidden="true">
           <article v-for="index in 6" :key="`catalog-skeleton-${index}`" class="catalog-skeleton-card">
             <div class="catalog-skeleton-card__media">
-              <AppSkeleton width="100%" height="100%" radius="20px 20px 0 0" />
+              <AppSkeleton width="100%" height="100%" radius="12px" />
+              <div class="catalog-skeleton-card__rail">
+                <AppSkeleton width="36px" height="36px" radius="10px" />
+                <AppSkeleton width="36px" height="36px" radius="10px" />
+              </div>
             </div>
             <div class="catalog-skeleton-card__body">
-              <AppSkeleton width="44%" height="14px" />
-              <AppSkeleton width="70%" height="18px" />
-              <AppSkeleton width="38%" height="16px" />
-              <AppSkeleton width="86%" height="16px" />
-              <AppSkeleton width="46%" height="16px" />
-              <AppSkeleton width="100%" height="44px" radius="12px" />
+              <AppSkeleton width="64%" height="24px" />
+              <AppSkeleton width="34%" height="13px" />
+              <AppSkeleton width="30%" height="13px" />
+              <AppSkeleton width="76%" height="22px" />
+              <AppSkeleton width="58%" height="14px" />
+            </div>
+            <div class="catalog-skeleton-card__actions">
+              <AppSkeleton width="128px" height="34px" radius="10px" />
             </div>
           </article>
         </section>
@@ -1487,11 +1502,16 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.category-showcase--skeleton :deep(.app-skeleton) {
+.category-showcase--skeleton .category-showcase__media > :deep(.app-skeleton) {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
-  aspect-ratio: 5 / 3;
-  border-radius: 0;
+  height: 100%;
+}
+
+.category-showcase__overlay--skeleton {
+  background: linear-gradient(180deg, transparent 25%, rgb(15 23 42 / 55%) 100%);
 }
 
 .category-showcase__media {
@@ -2071,22 +2091,45 @@ onBeforeUnmount(() => {
 }
 
 .catalog-skeleton-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   overflow: hidden;
   border: 1px solid #e5e7eb;
-  border-radius: 20px;
+  border-radius: 16px;
   background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
+  padding: 10px;
 }
 
 .catalog-skeleton-card__media {
   position: relative;
   aspect-ratio: 4 / 3;
+  border: 1px solid rgb(226 232 240 / 90%);
+  border-radius: 12px;
   overflow: hidden;
+}
+
+.catalog-skeleton-card__rail {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  gap: 5px;
 }
 
 .catalog-skeleton-card__body {
   display: grid;
-  gap: 10px;
-  padding: 14px 14px 16px;
+  flex: 1;
+  gap: 6px;
+  padding: 10px 2px 6px;
+}
+
+.catalog-skeleton-card__actions {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  padding: 0 2px 2px;
 }
 
 .pagination {

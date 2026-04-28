@@ -60,10 +60,12 @@ onMounted(loadBrands)
     </header>
 
     <section v-if="isLoading" class="brands-grid" aria-hidden="true">
-      <article v-for="index in 12" :key="`brand-skeleton-${index}`" class="brand-card">
-        <AppSkeleton width="50%" height="26px" />
-        <AppSkeleton width="40%" height="14px" />
-        <AppSkeleton width="120px" height="40px" radius="999px" />
+      <article v-for="index in 12" :key="`brand-skeleton-${index}`" class="brand-card brand-card--skeleton">
+        <AppSkeleton class="brand-card__image brand-card__image--skeleton" width="100%" height="160px" radius="0" />
+        <div class="brand-card__body">
+          <AppSkeleton width="58%" height="28px" />
+          <AppSkeleton width="34%" height="16px" />
+        </div>
       </article>
     </section>
 
@@ -169,6 +171,14 @@ onMounted(loadBrands)
 
 .brand-card:hover {
   border-color: var(--color-accent);
+}
+
+.brand-card--skeleton {
+  pointer-events: none;
+}
+
+.brand-card__image--skeleton {
+  display: block;
 }
 
 .empty {

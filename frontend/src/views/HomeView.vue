@@ -345,12 +345,22 @@ async function subscribeToNewsletter() {
         </header>
         <div class="slider">
           <article v-for="index in 4" :key="`featured-skeleton-${index}`" class="slider-card slider-card--skeleton">
-            <AppSkeleton width="100%" height="260px" radius="28px 28px 0 0" />
+            <div class="slider-card__skeleton-media">
+              <AppSkeleton width="100%" height="100%" radius="12px" />
+              <div class="slider-card__skeleton-rail">
+                <AppSkeleton width="36px" height="36px" radius="10px" />
+                <AppSkeleton width="36px" height="36px" radius="10px" />
+              </div>
+            </div>
             <div class="slider-card__skeleton-body">
-              <AppSkeleton width="28%" height="14px" />
-              <AppSkeleton width="56%" height="24px" />
-              <AppSkeleton width="34%" height="24px" />
-              <AppSkeleton width="100%" height="52px" radius="16px" />
+              <AppSkeleton width="64%" height="24px" />
+              <AppSkeleton width="32%" height="13px" />
+              <AppSkeleton width="26%" height="13px" />
+              <AppSkeleton width="70%" height="22px" />
+              <AppSkeleton width="54%" height="14px" />
+            </div>
+            <div class="slider-card__skeleton-actions">
+              <AppSkeleton width="128px" height="34px" radius="10px" />
             </div>
           </article>
         </div>
@@ -746,17 +756,45 @@ async function subscribeToNewsletter() {
 }
 
 .slider-card--skeleton {
-  flex: 0 0 clamp(260px, 28vw, 340px);
-  border-radius: 28px;
-  background: #fffdf9;
-  border: 1px solid #efe2d4;
+  display: flex;
+  flex: 0 0 clamp(230px, 24vw, 300px);
+  flex-direction: column;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
   overflow: hidden;
+}
+
+.slider-card__skeleton-media {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border: 1px solid color-mix(in srgb, var(--border), transparent 35%);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.slider-card__skeleton-rail {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  gap: 5px;
 }
 
 .slider-card__skeleton-body {
   display: grid;
-  gap: 12px;
-  padding: 18px;
+  flex: 1;
+  gap: 6px;
+  padding: 10px 2px 6px;
+}
+
+.slider-card__skeleton-actions {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  padding: 0 2px 2px;
 }
 
 .trust--skeleton .trust-card--skeleton {
