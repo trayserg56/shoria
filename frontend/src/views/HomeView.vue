@@ -387,10 +387,6 @@ async function subscribeToNewsletter() {
 
     <template v-else>
     <section class="hero-block">
-      <div class="section__head-actions">
-        <button type="button" class="slider-nav" @click="scrollSlider(heroSlider, 'prev')">←</button>
-        <button type="button" class="slider-nav" @click="scrollSlider(heroSlider, 'next')">→</button>
-      </div>
       <div ref="heroSlider" class="slider">
         <article
           v-for="(banner, index) in heroBanners"
@@ -415,6 +411,10 @@ async function subscribeToNewsletter() {
             </div>
           </component>
         </article>
+      </div>
+      <div class="hero-block__nav">
+        <button type="button" class="slider-nav slider-nav--hero" @click="scrollSlider(heroSlider, 'prev')">←</button>
+        <button type="button" class="slider-nav slider-nav--hero" @click="scrollSlider(heroSlider, 'next')">→</button>
       </div>
     </section>
 
@@ -648,6 +648,15 @@ async function subscribeToNewsletter() {
   margin-bottom: 16px;
 }
 
+.hero-block__nav {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 3;
+  display: flex;
+  gap: 8px;
+}
+
 .hero {
   position: relative;
   flex: 0 0 100%;
@@ -737,6 +746,13 @@ async function subscribeToNewsletter() {
   border-radius: 50%;
   background: #fff;
   cursor: pointer;
+}
+
+.slider-nav--hero {
+  border-color: rgb(255 255 255 / 46%);
+  background: rgb(255 255 255 / 18%);
+  color: #fff;
+  backdrop-filter: blur(10px);
 }
 
 .slider {

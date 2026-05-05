@@ -18,7 +18,7 @@ type ServicePagePayload = {
 
 const route = useRoute()
 const page = ref<ServicePagePayload | null>(null)
-const isLoading = ref(false)
+const isLoading = ref(true)
 const hasError = ref(false)
 const contentHtml = computed(() => page.value?.content?.trim() || '<p>Контент скоро появится.</p>')
 
@@ -89,7 +89,11 @@ watch(
 <template>
   <main class="service-page">
     <article v-if="isLoading && !page" class="service-page__skeleton" aria-hidden="true">
-      <AppSkeleton width="34%" height="14px" />
+      <nav class="service-page__breadcrumbs" aria-label="Breadcrumbs">
+        <AppSkeleton width="58px" height="18px" />
+        <span>/</span>
+        <AppSkeleton width="190px" height="18px" />
+      </nav>
       <AppSkeleton width="42%" height="46px" />
       <AppSkeleton width="72%" height="20px" />
       <AppSkeleton width="100%" height="340px" radius="20px" />
@@ -189,4 +193,3 @@ watch(
   margin: 0 0 14px;
 }
 </style>
-

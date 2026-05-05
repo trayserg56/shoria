@@ -321,8 +321,14 @@ class ProductController extends Controller
             ->joinSub($unionCategorySql, 'product_categories', function ($join): void {
                 $join->on('product_categories.product_id', '=', 'base_products.id');
             })
-            ->selectRaw('product_categories.category_id as category_id, COUNT(DISTINCT base_products.id) as aggregate')
-            ->groupBy('product_categories.category_id')
+            ->join('categories as product_category_nodes', 'product_category_nodes.id', '=', 'product_categories.category_id')
+            ->join('categories as counted_categories', function ($join): void {
+                $join
+                    ->on('counted_categories.id', '=', 'product_categories.category_id')
+                    ->orOn('counted_categories.id', '=', 'product_category_nodes.parent_id');
+            })
+            ->selectRaw('counted_categories.id as category_id, COUNT(DISTINCT base_products.id) as aggregate')
+            ->groupBy('counted_categories.id')
             ->get();
 
         $categoryCounts = $categoryCountsRows

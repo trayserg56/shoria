@@ -22,12 +22,19 @@ import LoyaltyProgramView from '../views/LoyaltyProgramView.vue'
 import ServicePageView from '../views/ServicePageView.vue'
 import WishlistView from '../views/WishlistView.vue'
 
+if (typeof window !== 'undefined') {
+  if ('scrollRestoration' in window.history) {
+    window.history.scrollRestoration = 'manual'
+  }
+}
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   scrollBehavior(to, from, savedPosition) {
     const catalogRouteNames = new Set(['catalog', 'catalog-category', 'catalog-subcategory', 'catalog-deep'])
     const isCatalogRoute = catalogRouteNames.has(String(to.name ?? '')) && catalogRouteNames.has(String(from.name ?? ''))
     const isSameCatalogPath = isCatalogRoute && to.path === from.path
+    const isCatalogPageChange = isSameCatalogPath && String(to.query.page ?? '1') !== String(from.query.page ?? '1')
     const isProductRoute =
       (to.name === 'product' || to.name === 'product-legacy')
       && (from.name === 'product' || from.name === 'product-legacy')
@@ -40,7 +47,11 @@ const router = createRouter({
       return savedPosition
     }
 
-    // Keep scroll position when catalog query params change (filters/sort/pagination).
+    if (isCatalogPageChange) {
+      return { top: 0, left: 0 }
+    }
+
+    // Keep scroll position when catalog query params change (filters/sort).
     // Using route name is safer than path matching and avoids rare edge-cases with URL normalization.
     if (isSameCatalogPath) {
       return false

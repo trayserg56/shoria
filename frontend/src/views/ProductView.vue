@@ -140,7 +140,7 @@ const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
 
 const product = ref<ProductPayload | null>(null)
-const isLoading = ref(false)
+const isLoading = ref(true)
 const hasError = ref(false)
 const addError = ref('')
 const compareMessage = ref('')
@@ -149,6 +149,7 @@ const selectedVariantId = ref<number | null>(null)
 const selectedColorLabel = ref<string | null>(null)
 const recommendations = ref<RecommendedProduct[]>([])
 const recommendationsSlider = ref<HTMLElement | null>(null)
+const isRecommendationsLoading = ref(false)
 const isCartBusy = ref(false)
 const reviews = ref<ProductReviewPayload[]>([])
 const reviewsMeta = ref({
@@ -462,6 +463,7 @@ async function loadProduct() {
   }
 
   isLoading.value = true
+  isRecommendationsLoading.value = true
 
   try {
     const variantQuery = currentVariantSlug.value
@@ -469,10 +471,6 @@ async function loadProduct() {
       : ''
 
     product.value = await fetchJson<ProductPayload>(`/api/products/${slug.value}${variantQuery}`)
-    const recommendationsPayload = await fetchJson<RecommendationsPayload>(
-      `/api/products/${slug.value}/recommendations`,
-    )
-    recommendations.value = recommendationsPayload.data
     hasError.value = false
     activeImageIndex.value = 0
     const initialVariant = resolveInitialVariant(product.value)
@@ -482,7 +480,21 @@ async function loadProduct() {
     reviewSuccess.value = ''
     reviewRating.value = product.value.my_review?.rating ?? 0
     reviewText.value = product.value.my_review?.review_text ?? ''
-    await loadReviews(1)
+    isLoading.value = false
+
+    const recommendationsPromise = fetchJson<RecommendationsPayload>(`/api/products/${slug.value}/recommendations`)
+      .then((recommendationsPayload) => {
+        recommendations.value = recommendationsPayload.data
+      })
+      .catch((error) => {
+        console.error(error)
+        recommendations.value = []
+      })
+      .finally(() => {
+        isRecommendationsLoading.value = false
+      })
+
+    await Promise.all([recommendationsPromise, loadReviews(1)])
     const actualCategorySlug = product.value.category?.slug ?? ''
     const selectedVariantSlug = initialVariant?.slug ?? null
 
@@ -587,6 +599,7 @@ async function loadProduct() {
     }
     clearStructuredData()
   } finally {
+    isRecommendationsLoading.value = false
     isLoading.value = false
   }
 }
@@ -813,6 +826,16 @@ watch(
 
 <template>
   <main class="product-page">
+    <nav v-if="isLoading && !product" class="breadcrumbs" aria-label="Breadcrumbs" aria-hidden="true">
+      <AppSkeleton width="58px" height="18px" />
+      <span>/</span>
+      <AppSkeleton width="64px" height="18px" />
+      <span>/</span>
+      <AppSkeleton width="112px" height="18px" />
+      <span>/</span>
+      <AppSkeleton width="180px" height="18px" />
+    </nav>
+
     <section v-if="isLoading && !product" class="product-layout product-layout--skeleton" aria-hidden="true">
       <div class="gallery gallery--skeleton">
         <AppSkeleton class="gallery__main-skeleton" width="100%" height="min(62vw, 560px)" radius="0" />
@@ -1034,7 +1057,35 @@ watch(
       </article>
     </section>
 
-    <section v-if="recommendations.length" class="recommendations">
+    <section v-if="isRecommendationsLoading" class="recommendations recommendations--skeleton" aria-hidden="true">
+      <header class="recommendations__header">
+        <AppSkeleton width="260px" height="40px" />
+        <AppSkeleton width="280px" height="16px" />
+      </header>
+      <div class="recommendations__slider">
+        <article v-for="index in 4" :key="`recommendation-skeleton-${index}`" class="slider-card slider-card--skeleton">
+          <div class="slider-card__skeleton-media">
+            <AppSkeleton width="100%" height="100%" radius="12px" />
+            <div class="slider-card__skeleton-rail">
+              <AppSkeleton width="36px" height="36px" radius="10px" />
+              <AppSkeleton width="36px" height="36px" radius="10px" />
+            </div>
+          </div>
+          <div class="slider-card__skeleton-body">
+            <AppSkeleton width="64%" height="24px" />
+            <AppSkeleton width="32%" height="13px" />
+            <AppSkeleton width="26%" height="13px" />
+            <AppSkeleton width="70%" height="22px" />
+            <AppSkeleton width="54%" height="14px" />
+          </div>
+          <div class="slider-card__skeleton-actions">
+            <AppSkeleton width="128px" height="34px" radius="10px" />
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section v-else-if="recommendations.length" class="recommendations">
       <header class="recommendations__header">
         <h2>Рекомендуем посмотреть</h2>
         <p>Похожие интересы других покупателей.</p>
@@ -1056,15 +1107,24 @@ watch(
 
     <section v-if="product" class="details__reviews product-reviews">
       <div class="details__reviews-head">
-        <h3>Отзывы покупателей</h3>
-        <p>
+        <template v-if="isReviewsLoading">
+          <AppSkeleton width="220px" height="26px" />
+          <AppSkeleton width="180px" height="16px" />
+          <div v-if="product.has_variants" class="details__reviews-tabs details__reviews-tabs--skeleton">
+            <AppSkeleton width="96px" height="34px" radius="999px" />
+            <AppSkeleton width="104px" height="34px" radius="999px" />
+          </div>
+        </template>
+        <template v-else>
+          <h3>Отзывы покупателей</h3>
+          <p>
           <template v-if="product.reviews_summary.count > 0">
             {{ product.reviews_summary.average?.toFixed(1) ?? '—' }} из 5 ·
             {{ product.reviews_summary.count }} отзывов
           </template>
           <template v-else>Пока отзывов нет — будьте первым.</template>
-        </p>
-        <div v-if="product.has_variants" class="details__reviews-tabs">
+          </p>
+          <div v-if="product.has_variants" class="details__reviews-tabs">
           <button
             type="button"
             class="details__reviews-tab"
@@ -1082,11 +1142,12 @@ watch(
           >
             Этот вариант
           </button>
-        </div>
+          </div>
+        </template>
       </div>
 
       <form
-        v-if="isAuthenticated && (product.can_review || product.my_review)"
+        v-if="!isReviewsLoading && isAuthenticated && (product.can_review || product.my_review)"
         class="review-form"
         @submit.prevent="submitReview"
       >
@@ -1121,14 +1182,15 @@ watch(
           <p v-if="reviewSuccess" class="review-form__status review-form__status--success">{{ reviewSuccess }}</p>
         </div>
       </form>
-      <p v-else-if="isAuthenticated" class="details__reviews-note">
+      <p v-else-if="!isReviewsLoading && isAuthenticated" class="details__reviews-note">
         Оставить отзыв можно только после покупки этого товара.
       </p>
-      <p v-else class="details__reviews-note">
+      <p v-else-if="!isReviewsLoading" class="details__reviews-note">
         Войдите в аккаунт, чтобы оставлять отзывы к купленным товарам.
       </p>
 
       <div v-if="isReviewsLoading" class="details__reviews-skeleton" aria-hidden="true">
+        <AppSkeleton width="68%" height="18px" />
         <AppSkeleton width="100%" height="84px" radius="14px" />
         <AppSkeleton width="100%" height="84px" radius="14px" />
       </div>
@@ -1804,6 +1866,48 @@ watch(
 
 .slider-card {
   flex: 0 0 clamp(230px, 24vw, 300px);
+}
+
+.slider-card--skeleton {
+  display: flex;
+  flex: 0 0 clamp(230px, 24vw, 300px);
+  flex-direction: column;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
+  overflow: hidden;
+}
+
+.slider-card__skeleton-media {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border: 1px solid color-mix(in srgb, var(--border), transparent 35%);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.slider-card__skeleton-rail {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  gap: 5px;
+}
+
+.slider-card__skeleton-body {
+  display: grid;
+  flex: 1;
+  gap: 6px;
+  padding: 10px 2px 6px;
+}
+
+.slider-card__skeleton-actions {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  padding: 0 2px 2px;
 }
 
 .section__head-actions {

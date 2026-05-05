@@ -107,8 +107,9 @@ const products = ref<PaginatedProducts>({
     },
   },
 })
-const isLoading = ref(false)
+const isLoading = ref(true)
 const hasError = ref(false)
+const hasLoadedProducts = ref(false)
 const priceMinInput = ref((route.query.price_min as string | undefined) ?? '')
 const priceMaxInput = ref((route.query.price_max as string | undefined) ?? '')
 let priceApplyTimeout: ReturnType<typeof setTimeout> | null = null
@@ -255,6 +256,20 @@ const childSubcategories = computed(() => {
 
   return activeCategoryNode.value.subcategories
 })
+const isInitialCatalogLoad = computed(() => isLoading.value && !hasLoadedProducts.value)
+const shouldShowSubcategorySkeleton = computed(
+  () =>
+    isLoading.value &&
+    !isCategoryLanding.value &&
+    (childSubcategories.value.length > 0 || isInitialCatalogLoad.value),
+)
+const subcategorySkeletonCount = computed(() => {
+  if (childSubcategories.value.length > 0) {
+    return Math.min(childSubcategories.value.length, 3)
+  }
+
+  return 3
+})
 const breadcrumbItems = computed(() => {
   if (!activeCategoryPathNodes.value.length) {
     return []
@@ -354,6 +369,23 @@ const availableCharacteristicGroups = computed(() => {
     }))
     .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
 })
+const showTagFilterSection = computed(() =>
+  availableTagOptions.value.some((tag) => isFacetValueVisible(tag.count, activeTags.value.includes(tag.code))),
+)
+const showBrandFilterSection = computed(() =>
+  availableBrandOptions.value.some((brand) => isFacetValueVisible(brand.count, activeBrands.value.includes(brand.value))),
+)
+const showColorFilterSection = computed(() =>
+  availableColorOptions.value.some((color) => isFacetValueVisible(color.count, activeColors.value.includes(color.value))),
+)
+const showSizeFilterSection = computed(() =>
+  availableSizeOptions.value.some((size) => isFacetValueVisible(size.count, activeSizes.value.includes(size.value))),
+)
+const showCharacteristicsFilterSection = computed(() =>
+  availableCharacteristicGroups.value.some((group) =>
+    group.values.some((option) => isFacetValueVisible(option.count, isCharacteristicActive(group.name, option.value))),
+  ),
+)
 const availableCategoryCounts = computed(() => {
   return products.value.filters.categories.reduce<Record<string, number>>((acc, item) => {
     acc[item.slug] = item.count
@@ -397,6 +429,7 @@ async function loadProducts() {
         data: [],
         filters: landingPreview.filters,
       }
+      hasLoadedProducts.value = true
       hasError.value = false
     } catch (error) {
       console.error(error)
@@ -415,6 +448,7 @@ async function loadProducts() {
           on_sale: { count: 0 },
         },
       }
+      hasLoadedProducts.value = true
     } finally {
       isLoading.value = false
     }
@@ -481,6 +515,7 @@ async function loadProducts() {
 
   try {
     products.value = await fetchJson<PaginatedProducts>(`/api/products${suffix}`)
+    hasLoadedProducts.value = true
     hasError.value = false
     void trackEvent('view_catalog', {
       category: activeCategory.value || 'all',
@@ -767,10 +802,15 @@ function categoryCountBySlug(slug: string): number {
 }
 
 function categoryDisplayCount(category: Category): number {
-  const own = categoryCountBySlug(category.slug)
-  const children = category.subcategories?.reduce((sum, item) => sum + categoryDisplayCount(item), 0) ?? 0
+  return categoryCountBySlug(category.slug)
+}
 
-  return own + children
+function categoryBranchHasProducts(category: Category): boolean {
+  if (categoryDisplayCount(category) > 0) {
+    return true
+  }
+
+  return category.subcategories?.some((item) => categoryBranchHasProducts(item)) ?? false
 }
 
 function shouldShowCategory(category: Category): boolean {
@@ -778,7 +818,7 @@ function shouldShowCategory(category: Category): boolean {
     return true
   }
 
-  if (categoryDisplayCount(category) > 0) {
+  if (categoryBranchHasProducts(category)) {
     return true
   }
 
@@ -790,7 +830,7 @@ function shouldShowSubcategory(category: Category): boolean {
     return true
   }
 
-  if (categoryDisplayCount(category) > 0) {
+  if (categoryBranchHasProducts(category)) {
     return true
   }
 
@@ -1023,7 +1063,14 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="catalog">
-    <nav class="breadcrumbs" aria-label="Breadcrumbs">
+    <nav v-if="isInitialCatalogLoad && activeCategorySegments.length" class="breadcrumbs" aria-label="Breadcrumbs" aria-hidden="true">
+      <AppSkeleton width="58px" height="18px" />
+      <span>/</span>
+      <AppSkeleton width="64px" height="18px" />
+      <span>/</span>
+      <AppSkeleton width="124px" height="18px" />
+    </nav>
+    <nav v-else class="breadcrumbs" aria-label="Breadcrumbs">
       <RouterLink to="/">Главная</RouterLink>
       <span>/</span>
       <RouterLink to="/catalog">Каталог</RouterLink>
@@ -1087,7 +1134,16 @@ onBeforeUnmount(() => {
       <aside class="catalog-sidebar">
         <ScrollArea class="sidebar-scroll">
           <div class="sidebar-card">
-          <div class="sidebar-section">
+            <div v-if="isInitialCatalogLoad" class="sidebar-skeleton" aria-hidden="true">
+              <div v-for="index in 7" :key="`filter-skeleton-${index}`" class="sidebar-skeleton__section">
+                <AppSkeleton width="52%" height="18px" />
+                <AppSkeleton width="20px" height="20px" radius="999px" />
+              </div>
+              <AppSkeleton width="100%" height="44px" radius="8px" />
+            </div>
+
+          <template v-else>
+            <div class="sidebar-section">
             <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('sort')">
               <span>Сортировка</span>
               <span class="sidebar-section__chevron">{{ filterSections.sort ? '−' : '+' }}</span>
@@ -1188,7 +1244,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="sidebar-section">
+          <div v-if="showTagFilterSection" class="sidebar-section">
             <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('tags')">
               <span>Теги</span>
               <span class="sidebar-section__chevron">{{ filterSections.tags ? '−' : '+' }}</span>
@@ -1221,7 +1277,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="sidebar-section">
+          <div v-if="showBrandFilterSection" class="sidebar-section">
             <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('brands')">
               <span>Бренды</span>
               <span class="sidebar-section__chevron">{{ filterSections.brands ? '−' : '+' }}</span>
@@ -1246,7 +1302,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="sidebar-section">
+          <div v-if="showColorFilterSection" class="sidebar-section">
             <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('colors')">
               <span>Цвета</span>
               <span class="sidebar-section__chevron">{{ filterSections.colors ? '−' : '+' }}</span>
@@ -1271,7 +1327,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="sidebar-section">
+          <div v-if="showSizeFilterSection" class="sidebar-section">
             <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('sizes')">
               <span>Размеры</span>
               <span class="sidebar-section__chevron">{{ filterSections.sizes ? '−' : '+' }}</span>
@@ -1296,7 +1352,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="sidebar-section">
+          <div v-if="showCharacteristicsFilterSection" class="sidebar-section">
             <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('characteristics')">
               <span>Характеристики</span>
               <span class="sidebar-section__chevron">{{ filterSections.characteristics ? '−' : '+' }}</span>
@@ -1332,15 +1388,16 @@ onBeforeUnmount(() => {
             <Button v-if="hasActiveFilters" type="button" variant="secondary" class="sidebar-reset" @click="resetCatalogFilters">
               Сбросить фильтры
             </Button>
+          </template>
           </div>
         </ScrollArea>
       </aside>
 
       <div class="catalog-content">
-        <section v-if="isLoading && childSubcategories.length" class="subcategory-strip" aria-hidden="true">
+        <section v-if="shouldShowSubcategorySkeleton" class="subcategory-strip" aria-hidden="true">
           <div class="subcategory-strip__grid">
             <article
-              v-for="index in Math.min(childSubcategories.length, 3)"
+              v-for="index in subcategorySkeletonCount"
               :key="`subcategory-skeleton-${index}`"
               class="subcategory-card subcategory-card--skeleton"
             >
@@ -1583,9 +1640,8 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-scroll {
-  height: calc(100vh - 32px);
+  height: auto;
   max-height: calc(100vh - 32px);
-  min-height: 320px;
   border: 1px solid #e5e7eb;
   border-radius: 16px;
   background: #fff;
@@ -1634,6 +1690,19 @@ onBeforeUnmount(() => {
 
 .sidebar-section__body {
   margin-top: 8px;
+}
+
+.sidebar-skeleton {
+  display: grid;
+  gap: 14px;
+}
+
+.sidebar-skeleton__section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  gap: 12px;
 }
 
 .toolbar__select {
@@ -2060,10 +2129,16 @@ onBeforeUnmount(() => {
 }
 
 .subcategory-card--skeleton {
+  aspect-ratio: 1 / 1;
+  background: #f1f5f9;
   pointer-events: none;
 }
 
-.subcategory-card--skeleton :deep(.app-skeleton) {
+.subcategory-card--skeleton > :deep(.app-skeleton) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   border-radius: 0;
 }
 

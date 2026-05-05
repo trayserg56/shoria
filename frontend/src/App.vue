@@ -595,16 +595,16 @@ onBeforeUnmount(() => {
       </template>
       <template v-else>
         <div class="topbar__city topbar__city--skeleton">
-          <AppSkeleton inline width="100%" height="22px" radius="8px" />
+          <AppSkeleton inline width="72px" height="24px" radius="8px" />
         </div>
         <div class="brand brand--skeleton">
-          <AppSkeleton inline width="132px" height="42px" radius="10px" />
+          <AppSkeleton inline width="126px" height="42px" radius="8px" />
         </div>
         <div class="topbar__nav topbar__nav--skeleton">
-          <AppSkeleton inline width="102px" height="36px" radius="999px" />
-          <AppSkeleton inline width="88px" height="36px" radius="999px" />
-          <AppSkeleton inline width="82px" height="36px" radius="999px" />
-          <AppSkeleton inline width="154px" height="38px" radius="999px" />
+          <AppSkeleton inline width="104px" height="40px" radius="999px" />
+          <AppSkeleton inline width="86px" height="40px" radius="999px" />
+          <AppSkeleton inline width="92px" height="40px" radius="999px" />
+          <AppSkeleton inline width="86px" height="40px" radius="999px" />
         </div>
         <div class="topbar__search topbar__search--skeleton">
           <AppSkeleton inline width="100%" height="58px" radius="16px" />
@@ -616,7 +616,7 @@ onBeforeUnmount(() => {
           <AppSkeleton inline width="42px" height="42px" radius="12px" />
           <AppSkeleton inline width="42px" height="42px" radius="12px" />
           <AppSkeleton inline width="42px" height="42px" radius="12px" />
-          <AppSkeleton inline width="72px" height="36px" radius="999px" />
+          <AppSkeleton inline width="82px" height="36px" radius="999px" />
         </div>
       </template>
     </header>
@@ -784,8 +784,8 @@ onBeforeUnmount(() => {
 }
 
 .topbar__city--skeleton {
-  width: 160px;
-  height: 22px;
+  width: 72px;
+  height: 24px;
 }
 
 .brand {
@@ -800,7 +800,7 @@ onBeforeUnmount(() => {
 .brand--skeleton {
   display: flex;
   align-items: center;
-  min-width: 132px;
+  min-width: 126px;
   height: 42px;
 }
 

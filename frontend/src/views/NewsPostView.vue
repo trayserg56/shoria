@@ -59,7 +59,7 @@ type NewsPostPayload = {
 
 const route = useRoute()
 const post = ref<NewsPostPayload | null>(null)
-const isLoading = ref(false)
+const isLoading = ref(true)
 const hasError = ref(false)
 const contentHtml = computed(() => post.value?.content?.trim() || '<p>Контент скоро появится.</p>')
 const contentTypeMeta = computed(() => resolveNewsTypeMeta(post.value?.content_type))
@@ -136,7 +136,13 @@ watch(
 <template>
   <main class="news-post-page">
     <article v-if="isLoading && !post" class="news-article-skeleton" aria-hidden="true">
-      <AppSkeleton width="32%" height="14px" />
+      <nav class="breadcrumbs" aria-label="Breadcrumbs">
+        <AppSkeleton width="58px" height="18px" />
+        <span>/</span>
+        <AppSkeleton width="64px" height="18px" />
+        <span>/</span>
+        <AppSkeleton width="210px" height="18px" />
+      </nav>
       <AppSkeleton width="16%" height="14px" />
       <AppSkeleton width="132px" height="28px" radius="999px" />
       <AppSkeleton width="72%" height="52px" />

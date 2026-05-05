@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Category;
 use App\Models\Product;
 use Database\Seeders\ShopDemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -49,5 +50,28 @@ class ProductApiTest extends TestCase
             collect($payload['variants'])->firstWhere('slug', 'sunset-eu-40')['slug'] ?? null,
         );
         $this->assertNotEmpty($payload['images'] ?? []);
+    }
+
+    public function test_parent_category_facet_count_matches_unique_catalog_results(): void
+    {
+        $this->seed(ShopDemoSeeder::class);
+
+        $running = Category::query()->where('slug', 'running')->firstOrFail();
+        $roadRunning = Category::query()->where('slug', 'road-running')->firstOrFail();
+        $roadProduct = Product::query()->where('category_id', $roadRunning->id)->firstOrFail();
+
+        $roadProduct->categories()->syncWithoutDetaching([$running->id]);
+
+        $catalogResponse = $this->getJson('/api/products?category=running');
+        $catalogResponse->assertOk();
+
+        $facetsResponse = $this->getJson('/api/products');
+        $facetsResponse->assertOk();
+
+        $runningFacet = collect($facetsResponse->json('filters.categories'))
+            ->firstWhere('slug', 'running');
+
+        $this->assertNotNull($runningFacet);
+        $this->assertSame($catalogResponse->json('total'), $runningFacet['count']);
     }
 }
