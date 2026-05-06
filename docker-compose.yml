@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    pull_policy: if_not_present
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-shoria}
       POSTGRES_USER: ${POSTGRES_USER:-shoria}
@@ -17,6 +18,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    pull_policy: if_not_present
     ports:
       - "${REDIS_PORT:-6379}:6379"
 
@@ -52,6 +54,7 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1.7
+    pull_policy: if_not_present
     ports:
       - "${MEILISEARCH_PORT:-7700}:7700"
     environment:
@@ -90,6 +93,7 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
+    pull_policy: if_not_present
     ports:
       - "${HTTP_PORT:-8080}:80"
     volumes:
