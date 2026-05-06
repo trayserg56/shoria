@@ -23,6 +23,7 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 
 class ShopDemoSeeder extends Seeder
 {
@@ -371,6 +372,18 @@ HTML,
             $category->save();
 
             $categories->put($category->slug, $category);
+        }
+
+        if (Schema::hasColumn('categories', 'icon_url')) {
+            $menuIcons = [
+                'lifestyle' => '/category-menu-icons/lifestyle.svg',
+                'running' => '/category-menu-icons/running.svg',
+                'street' => '/category-menu-icons/street.svg',
+                'premium' => '/category-menu-icons/premium.svg',
+            ];
+            foreach ($menuIcons as $slug => $path) {
+                Category::query()->where('slug', $slug)->update(['icon_url' => $path]);
+            }
         }
 
         Banner::query()->firstOrCreate([
@@ -726,14 +739,9 @@ HTML,
                 'brand' => $product->brand ?: ($item['brand'] ?? 'Shoria'),
                 'seo_title' => $product->seo_title ?: ($item['seo_title'] ?? null),
                 'seo_description' => $product->seo_description ?: ($item['seo_description'] ?? null),
+                'characteristics' => $this->buildProductCharacteristics($item),
             ]);
             $product->save();
-
-            $currentCharacteristics = is_array($product->characteristics) ? $product->characteristics : [];
-            if ($currentCharacteristics === []) {
-                $product->characteristics = $this->buildProductCharacteristics($item);
-                $product->save();
-            }
 
             $categorySlugs = collect([
                 $item['category_slug'] ?? null,
@@ -977,8 +985,11 @@ HTML,
             ['group' => 'Общие характеристики', 'name' => 'Артикул', 'value' => $sku],
             ['group' => 'Общие характеристики', 'name' => 'Бренд', 'value' => $brand],
             ['group' => 'Общие характеристики', 'name' => 'Страна бренда', 'value' => 'США'],
-            ['group' => 'Общие характеристики', 'name' => 'Материал верха', 'value' => 'Текстиль / синтетика'],
+            ['group' => 'Общие характеристики', 'name' => 'Материал верха', 'value' => 'Текстиль'],
+            ['group' => 'Общие характеристики', 'name' => 'Материал верха', 'value' => 'Синтетика'],
+            ['group' => 'Общие характеристики', 'name' => 'Материал верха', 'value' => 'Сетка'],
             ['group' => 'Общие характеристики', 'name' => 'Материал подошвы', 'value' => 'Резина'],
+            ['group' => 'Общие характеристики', 'name' => 'Материал подошвы', 'value' => 'Пена EVA'],
         ];
 
         $categorySpecific = match ($categorySlug) {
@@ -1001,6 +1012,8 @@ HTML,
             default => [
                 ['group' => 'Общие характеристики', 'name' => 'Тип', 'value' => 'Lifestyle'],
                 ['group' => 'Дополнительно', 'name' => 'Назначение', 'value' => 'На каждый день'],
+                ['group' => 'Дополнительно', 'name' => 'Применение', 'value' => 'Город'],
+                ['group' => 'Дополнительно', 'name' => 'Применение', 'value' => 'Зал'],
             ],
         };
 

@@ -71,6 +71,32 @@ class CategoryForm
                                         }
                                     })
                                     ->helperText('Можно оставить URL выше или загрузить файл (до 2MB). Изображение будет оптимизировано.'),
+                                Forms\Components\TextInput::make('icon_url')
+                                    ->label('URL иконки для меню каталога')
+                                    ->maxLength(2048)
+                                    ->columnSpanFull()
+                                    ->helperText('Маленькое изображение слева от названия в выпадающем «Каталог». Либо URL, либо файл ниже.'),
+                                Forms\Components\FileUpload::make('icon_file')
+                                    ->label('Или загрузить иконку')
+                                    ->image()
+                                    ->maxSize(512)
+                                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
+                                    ->imageEditor()
+                                    ->imageResizeMode('contain')
+                                    ->imageResizeTargetWidth(256)
+                                    ->imageResizeTargetHeight(256)
+                                    ->imageResizeUpscale(false)
+                                    ->disk('public')
+                                    ->directory('categories/icons')
+                                    ->visibility('public')
+                                    ->dehydrated(false)
+                                    ->columnSpanFull()
+                                    ->afterStateUpdated(function ($state, callable $set): void {
+                                        if (is_string($state) && trim($state) !== '') {
+                                            $set('icon_url', $state);
+                                        }
+                                    })
+                                    ->helperText('До 512 KB, до 256×256 px. PNG, JPEG или WebP. Сохраняется в storage; в БД — путь для публичного URL.'),
                                 Forms\Components\Toggle::make('is_featured')
                                     ->default(false),
                                 Forms\Components\Toggle::make('is_active')

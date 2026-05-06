@@ -11,6 +11,7 @@ import AccountReviewsView from '../views/AccountReviewsView.vue'
 import BrandsView from '../views/BrandsView.vue'
 import CatalogView from '../views/CatalogView.vue'
 import CartView from '../views/CartView.vue'
+import CheckoutView from '../views/CheckoutView.vue'
 import CompareView from '../views/CompareView.vue'
 import HomeView from '../views/HomeView.vue'
 import NewsListView from '../views/NewsListView.vue'
@@ -21,6 +22,7 @@ import ProductView from '../views/ProductView.vue'
 import LoyaltyProgramView from '../views/LoyaltyProgramView.vue'
 import ServicePageView from '../views/ServicePageView.vue'
 import WishlistView from '../views/WishlistView.vue'
+import AuthOAuthCallbackView from '../views/AuthOAuthCallbackView.vue'
 
 if (typeof window !== 'undefined') {
   if ('scrollRestoration' in window.history) {
@@ -188,6 +190,16 @@ const router = createRouter({
       },
     },
     {
+      path: '/checkout',
+      name: 'checkout',
+      component: CheckoutView,
+      meta: {
+        seoTitle: 'Оформление заказа — Shoria',
+        seoDescription: 'Оформление заказа Shoria: доставка и оплата.',
+        seoRobots: 'noindex,nofollow',
+      },
+    },
+    {
       path: '/wishlist',
       name: 'wishlist',
       component: WishlistView,
@@ -214,6 +226,16 @@ const router = createRouter({
       meta: {
         seoTitle: 'Заказ оформлен — Shoria',
         seoDescription: 'Подтверждение оформления заказа.',
+        seoRobots: 'noindex,nofollow',
+      },
+    },
+    {
+      path: '/auth/oauth-callback',
+      name: 'auth-oauth-callback',
+      component: AuthOAuthCallbackView,
+      meta: {
+        seoTitle: 'Вход через ВКонтакте — Shoria',
+        seoDescription: '',
         seoRobots: 'noindex,nofollow',
       },
     },

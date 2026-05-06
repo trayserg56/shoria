@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useCartStore } from '@/stores/cart'
 import { useAuthStore } from '@/stores/auth'
+import { useOneClickCheckoutModalStore } from '@/stores/one-click-checkout-modal'
 import { useWishlistStore, type WishlistItem } from '@/stores/wishlist'
 import { useCompareStore, type CompareItem } from '@/stores/compare'
 import { trackEvent } from '@/lib/analytics'
@@ -13,8 +14,10 @@ import { buildCatalogPath } from '@/lib/catalog-path'
 import { toProductRoute } from '@/lib/product-route'
 import { clearStructuredData, setSeoMeta, setStructuredData } from '@/lib/seo'
 import { saveRecentlyViewed } from '@/lib/recently-viewed'
-import AppSkeleton from '@/components/AppSkeleton.vue'
+import { toast } from '@/lib/toast'
+import { characteristicsCatalogRoute } from '@/lib/catalog-characteristics'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
+import ProductImageLightbox from '@/components/ProductImageLightbox.vue'
 import {
   buildBreadcrumbStructuredData,
   buildProductStructuredData,
@@ -48,7 +51,7 @@ type ProductPayload = {
   characteristics: Array<{
     group: string | null
     name: string
-    value: string
+    values: string[]
   }>
   seo_title: string | null
   seo_description: string | null
@@ -144,6 +147,7 @@ const { items: cartItems } = storeToRefs(cartStore)
 const { isAuthenticated } = storeToRefs(authStore)
 const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
+const oneClickModalStore = useOneClickCheckoutModalStore()
 
 const product = ref<ProductPayload | null>(null)
 const isLoading = ref(true)
@@ -169,11 +173,24 @@ const reviewText = ref('')
 const reviewError = ref('')
 const reviewSuccess = ref('')
 const reviewsScope = ref<'all' | 'variant'>('all')
+const imageLightboxOpen = ref(false)
 
 const slug = computed(() => String(route.params.slug ?? ''))
 const currentCategorySlug = computed(() => String(route.params.categorySlug ?? ''))
 const currentVariantSlug = computed(() => String(route.params.variantSlug ?? '').trim())
 const activeImage = computed(() => product.value?.images[activeImageIndex.value] ?? null)
+const imageLightboxSlides = computed(() => {
+  if (!product.value?.images?.length) {
+    return []
+  }
+
+  const name = product.value.name
+
+  return product.value.images.map((img) => ({
+    url: img.url,
+    alt: img.alt ?? name,
+  }))
+})
 const selectedVariant = computed(
   () => product.value?.variants.find((variant) => variant.id === selectedVariantId.value) ?? null,
 )
@@ -258,14 +275,33 @@ const productCategoryBreadcrumbItems = computed((): Array<{ name: string; path: 
   return []
 })
 
+function characteristicRowValues(item: {
+  name: string
+  values?: unknown
+  value?: unknown
+}): string[] {
+  if (Array.isArray(item.values) && item.values.length > 0) {
+    return item.values.map((x) => String(x).trim()).filter(Boolean)
+  }
+
+  const v = typeof item.value === 'string' ? item.value.trim() : ''
+
+  return v !== '' ? [v] : []
+}
+
 const groupedCharacteristics = computed(() => {
   if (!product.value?.characteristics?.length) {
     return []
   }
 
-  const groups = new Map<string, Array<{ name: string; value: string }>>()
+  const groups = new Map<string, Array<{ name: string; values: string[] }>>()
 
   for (const item of product.value.characteristics) {
+    const values = characteristicRowValues(item)
+    if (values.length === 0) {
+      continue
+    }
+
     const groupName = item.group?.trim() || 'Характеристики'
 
     if (!groups.has(groupName)) {
@@ -274,7 +310,7 @@ const groupedCharacteristics = computed(() => {
 
     groups.get(groupName)?.push({
       name: item.name,
-      value: item.value,
+      values,
     })
   }
 
@@ -300,6 +336,20 @@ function formatReviewDate(value: string) {
 
 function renderStars(value: number) {
   return '★'.repeat(value) + '☆'.repeat(Math.max(0, 5 - value))
+}
+
+function reviewInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) {
+    const a = parts[0]?.[0]
+    const b = parts[1]?.[0]
+    if (a && b) {
+      return (a + b).toUpperCase()
+    }
+  }
+
+  const compact = name.trim().replace(/\s+/g, '')
+  return compact.slice(0, 2).toUpperCase() || '?'
 }
 
 function formatReviewCount(value: number) {
@@ -625,6 +675,41 @@ async function loadProduct() {
   }
 }
 
+async function oneClickBuy() {
+  if (!product.value) {
+    return
+  }
+
+  if (product.value.has_variants && !selectedVariantId.value) {
+    addError.value = 'Выберите размер перед быстрым заказом.'
+    return
+  }
+
+  if (effectiveStock.value <= 0) {
+    return
+  }
+
+  addError.value = ''
+
+  if (!isAuthenticated.value) {
+    toast.info('Войдите в аккаунт, чтобы купить в 1 клик.')
+    await router.replace({
+      query: { ...route.query, auth: '1' },
+    })
+    return
+  }
+
+  oneClickModalStore.open({
+    productName: product.value.name,
+    productSlug: product.value.slug,
+    productVariantId: selectedVariantId.value ?? undefined,
+    qty: 1,
+    productPrice: effectivePrice.value,
+    currency: product.value.currency,
+    source: 'product_page',
+  })
+}
+
 async function addToCart() {
   if (!product.value) {
     return
@@ -903,13 +988,20 @@ watch(
       </nav>
 
       <div class="gallery">
-        <img
+        <button
           v-if="activeImage"
-          class="gallery__main"
-          :src="resolveImageSrc(activeImage.url)"
-          :alt="activeImage.alt ?? product.name"
-          @error="applyImageFallback"
-        />
+          type="button"
+          class="gallery__main-trigger"
+          :aria-label="`Открыть фото на весь экран (${activeImageIndex + 1} из ${product.images.length})`"
+          @click="imageLightboxOpen = true"
+        >
+          <img
+            class="gallery__main"
+            :src="resolveImageSrc(activeImage.url)"
+            :alt="activeImage.alt ?? product.name"
+            @error="applyImageFallback"
+          />
+        </button>
         <div class="gallery__thumbs">
           <button
             v-for="(image, index) in product.images"
@@ -923,6 +1015,13 @@ watch(
           </button>
         </div>
       </div>
+
+      <ProductImageLightbox
+        v-model="imageLightboxOpen"
+        :slides="imageLightboxSlides"
+        :anchor-index="activeImageIndex"
+        @sync-index="activeImageIndex = $event"
+      />
 
       <article class="details">
         <p class="details__category">{{ product.category?.name ?? 'Sneakers' }}</p>
@@ -1008,61 +1107,93 @@ watch(
             <ul>
               <li v-for="(row, index) in group.items" :key="`char-row-${group.name}-${index}`">
                 <span class="details__characteristics-name">{{ row.name }}</span>
-                <span class="details__characteristics-dots" />
-                <span class="details__characteristics-value">{{ row.value }}</span>
+                <span class="details__characteristics-dots" aria-hidden="true" />
+                <div class="details__characteristics-values-cell">
+                  <template v-for="(val, vIndex) in row.values" :key="`${row.name}-${vIndex}-${val}`">
+                    <RouterLink
+                      class="details__characteristics-value-link"
+                      :to="
+                        characteristicsCatalogRoute(row.name, val, {
+                          categorySlug: product.category?.slug ?? null,
+                        })
+                      "
+                      :title="`Подобрать товары: ${row.name} — ${val}`"
+                    >
+                      {{ val }}
+                    </RouterLink>
+                    <span
+                      v-if="vIndex < row.values.length - 1"
+                      class="details__characteristics-value-sep"
+                      aria-hidden="true"
+                    >
+                      ,&nbsp;
+                    </span>
+                  </template>
+                </div>
               </li>
             </ul>
           </article>
         </section>
 
-        <div class="cta-row">
-          <button
-            v-if="currentCartQty === 0"
-            type="button"
-            class="buy-button"
-            :disabled="effectiveStock <= 0 || isCartBusy"
-            @click="addToCart"
-          >
-            {{
-              effectiveStock <= 0
-                ? 'Нет в наличии'
-                : isCartBusy
-                  ? 'Добавляем...'
-                  : 'Добавить в корзину'
-            }}
-          </button>
-          <div v-else class="buy-stepper">
-            <div class="buy-stepper__controls">
-              <button type="button" :disabled="isCartBusy" @click="changeCartQty('dec')">−</button>
-              <strong>{{ currentCartQty }}</strong>
-              <button type="button" :disabled="isCartBusy" @click="changeCartQty('inc')">+</button>
+        <div class="cta-stack">
+          <div class="cta-row">
+            <button
+              v-if="currentCartQty === 0"
+              type="button"
+              class="buy-button"
+              :disabled="effectiveStock <= 0 || isCartBusy"
+              @click="addToCart"
+            >
+              {{
+                effectiveStock <= 0
+                  ? 'Нет в наличии'
+                  : isCartBusy
+                    ? 'Добавляем...'
+                    : 'Добавить в корзину'
+              }}
+            </button>
+            <div v-else class="buy-stepper">
+              <div class="buy-stepper__controls">
+                <button type="button" :disabled="isCartBusy" @click="changeCartQty('dec')">−</button>
+                <strong>{{ currentCartQty }}</strong>
+                <button type="button" :disabled="isCartBusy" @click="changeCartQty('inc')">+</button>
+              </div>
             </div>
+            <button
+              type="button"
+              class="icon-button icon-button--wishlist"
+              :class="{ 'icon-button--active': isWishlisted }"
+              :aria-label="isWishlisted ? 'Убрать из избранного' : 'Добавить в избранное'"
+              @click="toggleWishlist"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 20.7l-1.1-1C6 15.2 3 12.5 3 9.2 3 6.5 5.1 4.4 7.8 4.4c1.5 0 3 .7 4 1.9 1-1.2 2.5-1.9 4-1.9 2.7 0 4.8 2.1 4.8 4.8 0 3.3-3 6-7.9 10.5l-1.1 1z"
+                />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="icon-button icon-button--compare"
+              :class="{ 'icon-button--active': isCompared }"
+              :aria-label="isCompared ? 'Убрать из сравнения' : 'Добавить в сравнение'"
+              @click="toggleCompare"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M10 3H5a2 2 0 0 0-2 2v5h2V5h5V3zm9 11v5a2 2 0 0 1-2 2h-5v-2h5v-5h2zM3 14v5a2 2 0 0 0 2 2h5v-2H5v-5H3zm16-9h-5V3h5a2 2 0 0 1 2 2v5h-2V5zM8 8h2v8H8V8zm6 0h2v8h-2V8z"
+                />
+              </svg>
+            </button>
           </div>
           <button
+            v-if="effectiveStock > 0"
             type="button"
-            class="icon-button icon-button--wishlist"
-            :class="{ 'icon-button--active': isWishlisted }"
-            :aria-label="isWishlisted ? 'Убрать из избранного' : 'Добавить в избранное'"
-            @click="toggleWishlist"
+            class="one-click-btn"
+            :disabled="isCartBusy"
+            @click="oneClickBuy"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M12 20.7l-1.1-1C6 15.2 3 12.5 3 9.2 3 6.5 5.1 4.4 7.8 4.4c1.5 0 3 .7 4 1.9 1-1.2 2.5-1.9 4-1.9 2.7 0 4.8 2.1 4.8 4.8 0 3.3-3 6-7.9 10.5l-1.1 1z"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            class="icon-button icon-button--compare"
-            :class="{ 'icon-button--active': isCompared }"
-            :aria-label="isCompared ? 'Убрать из сравнения' : 'Добавить в сравнение'"
-            @click="toggleCompare"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M10 3H5a2 2 0 0 0-2 2v5h2V5h5V3zm9 11v5a2 2 0 0 1-2 2h-5v-2h5v-5h2zM3 14v5a2 2 0 0 0 2 2h5v-2H5v-5H3zm16-9h-5V3h5a2 2 0 0 1 2 2v5h-2V5zM8 8h2v8H8V8zm6 0h2v8h-2V8z"
-              />
-            </svg>
+            Купить в 1 клик
           </button>
         </div>
         <p v-if="addError" class="status status--warn">{{ addError }}</p>
@@ -1072,7 +1203,6 @@ watch(
     <section v-if="isRecommendationsLoading" class="recommendations recommendations--skeleton" aria-hidden="true">
       <header class="recommendations__header">
         <AppSkeleton width="260px" height="40px" />
-        <AppSkeleton width="280px" height="16px" />
       </header>
       <div class="recommendations__slider">
         <article v-for="index in 4" :key="`recommendation-skeleton-${index}`" class="slider-card slider-card--skeleton">
@@ -1100,7 +1230,6 @@ watch(
     <section v-else-if="recommendations.length" class="recommendations">
       <header class="recommendations__header">
         <h2>Рекомендуем посмотреть</h2>
-        <p>Похожие интересы других покупателей.</p>
       </header>
       <div class="section__head-actions">
         <button type="button" class="slider-nav" @click="scrollSlider(recommendationsSlider, 'prev')">←</button>
@@ -1128,14 +1257,24 @@ watch(
           </div>
         </template>
         <template v-else>
-          <h3>Отзывы покупателей</h3>
-          <p>
-          <template v-if="product.reviews_summary.count > 0">
-            {{ product.reviews_summary.average?.toFixed(1) ?? '—' }} из 5 ·
-            {{ product.reviews_summary.count }} отзывов
-          </template>
-          <template v-else>Пока отзывов нет — будьте первым.</template>
-          </p>
+          <div class="reviews-head">
+            <div class="reviews-head__titles">
+              <h3>Отзывы покупателей</h3>
+              <p v-if="product.reviews_summary.count > 0" class="reviews-head__sub">
+                {{ formatReviewCount(product.reviews_summary.count) }}
+              </p>
+              <p v-else class="reviews-head__sub">Пока отзывов нет — будьте первым.</p>
+            </div>
+            <div
+              v-if="product.reviews_summary.count > 0"
+              class="reviews-head__badge"
+            >
+              <span class="reviews-head__badge-score">{{
+                product.reviews_summary.average != null ? product.reviews_summary.average.toFixed(1) : '—'
+              }}</span>
+              <span class="reviews-head__badge-label">из 5</span>
+            </div>
+          </div>
           <div v-if="product.has_variants" class="details__reviews-tabs">
           <button
             type="button"
@@ -1208,20 +1347,27 @@ watch(
       </div>
 
       <ul v-else-if="reviews.length" class="details__reviews-list">
-        <li v-for="review in reviews" :key="`product-review-${review.id}`" class="details__review">
-          <div class="details__review-head">
-            <strong>{{ review.author_name }}</strong>
-            <span class="details__review-stars">{{ renderStars(review.rating) }}</span>
+        <li v-for="review in reviews" :key="`product-review-${review.id}`" class="details__review review-card">
+          <div class="review-card__avatar" aria-hidden="true">{{ reviewInitials(review.author_name) }}</div>
+          <div class="review-card__main">
+            <div class="review-card__top">
+              <div class="review-card__who">
+                <strong class="review-card__name">{{ review.author_name }}</strong>
+                <p class="details__review-target review-card__target">
+                  {{ review.target?.product_name ?? product.name }}
+                  <template v-if="review.target?.variant_label"> · {{ review.target.variant_label }}</template>
+                </p>
+              </div>
+              <span class="details__review-stars review-card__stars" :title="`${review.rating} из 5`">{{
+                renderStars(review.rating)
+              }}</span>
+            </div>
+            <p class="details__review-text">{{ review.review_text }}</p>
+            <p class="details__review-meta review-card__meta">
+              <span>{{ formatReviewDate(review.updated_at || review.created_at) }}</span>
+              <span v-if="review.is_verified_purchase" class="details__review-verified">Покупка подтверждена</span>
+            </p>
           </div>
-          <p class="details__review-target">
-            {{ review.target?.product_name ?? product.name }}
-            <template v-if="review.target?.variant_label"> · {{ review.target.variant_label }}</template>
-          </p>
-          <p class="details__review-text">{{ review.review_text }}</p>
-          <p class="details__review-meta">
-            <span>{{ formatReviewDate(review.updated_at || review.created_at) }}</span>
-            <span v-if="review.is_verified_purchase" class="details__review-verified">Покупка подтверждена</span>
-          </p>
         </li>
       </ul>
     </section>
@@ -1273,11 +1419,30 @@ watch(
   display: block;
 }
 
+.gallery__main-trigger {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: zoom-in;
+  border-radius: 0 0 20px 20px;
+  overflow: hidden;
+}
+
+.gallery__main-trigger:focus-visible {
+  outline: 2px solid var(--color-accent, #bf4b08);
+  outline-offset: -2px;
+}
+
 .gallery__main {
   width: 100%;
   height: min(62vw, 560px);
   object-fit: cover;
   display: block;
+  /* Скругление только у кадра: ниже — превью, контейнер .gallery режет верх целиком */
+  border-radius: 0 0 20px 20px;
 }
 
 .gallery__thumbs {
@@ -1438,21 +1603,60 @@ watch(
   grid-template-columns: auto 1fr auto;
   align-items: end;
   gap: 8px;
+  padding: 0;
 }
 
 .details__characteristics-name {
-  color: #5b6479;
+  color: #4f5a74;
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
 }
 
 .details__characteristics-dots {
-  border-bottom: 1px solid #d8d4cd;
-  transform: translateY(-4px);
+  border-bottom: 1px dotted color-mix(in srgb, #4f5a74, transparent 52%);
+  margin: 0 6px 5px;
+  min-width: 12px;
+  height: 0;
+  align-self: end;
 }
 
-.details__characteristics-value {
-  color: #1f2233;
+.details__characteristics-values-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0 2px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.details__characteristics-value-link {
+  overflow-wrap: anywhere;
+  word-break: normal;
   font-weight: 600;
-  text-align: right;
+  color: #1f2233;
+  text-decoration: underline solid;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, #1f2233, transparent 12%);
+  border-radius: 2px;
+  outline-offset: 2px;
+  transition: color 0.15s ease;
+}
+
+.details__characteristics-value-link:hover {
+  color: #1d4ed8;
+  text-decoration-color: color-mix(in srgb, #1d4ed8, transparent 35%);
+}
+
+.details__characteristics-value-sep {
+  color: inherit;
+  font-weight: 600;
+  user-select: none;
+}
+
+.details__characteristics-value-link:focus-visible {
+  color: #1d4ed8;
 }
 
 .sizes {
@@ -1531,43 +1735,85 @@ watch(
 
 .details__reviews {
   margin-top: 18px;
-  padding: 14px;
+  padding: clamp(16px, 2.5vw, 22px);
   border-radius: 16px;
-  background: #fff8f1;
-  border: 1px solid #f3e4d5;
+  background: var(--card);
+  border: 1px solid var(--border);
   display: grid;
-  gap: 10px;
+  gap: 16px;
 }
 
 .product-reviews {
   margin-top: 24px;
 }
 
-.details__reviews-head h3 {
-  font-size: 22px;
+.reviews-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
-.details__reviews-head p {
-  margin-top: 3px;
-  color: #5f6b86;
+.reviews-head__titles h3 {
+  font-size: clamp(18px, 2.2vw, 22px);
+  font-weight: 700;
+  color: var(--foreground);
+  letter-spacing: -0.02em;
+}
+
+.reviews-head__sub {
+  margin-top: 4px;
+  color: var(--muted-foreground);
   font-size: 14px;
+  line-height: 1.35;
+}
+
+.reviews-head__badge {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+}
+
+.reviews-head__badge-score {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.reviews-head__badge-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+  margin-top: 2px;
 }
 
 .details__reviews-tabs {
-  margin-top: 10px;
+  margin-top: 4px;
   display: inline-flex;
   gap: 8px;
   padding: 4px;
-  border: 1px solid #d7dbe8;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #fff;
+  background: var(--muted);
 }
 
 .details__reviews-tab {
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #4f5a74;
+  color: var(--muted-foreground);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -1576,8 +1822,8 @@ watch(
 }
 
 .details__reviews-tab--active {
-  background: #1f2233;
-  color: #fff;
+  background: var(--foreground);
+  color: var(--background);
 }
 
 .details__reviews-tab:disabled {
@@ -1586,13 +1832,17 @@ watch(
 }
 
 .details__reviews-note {
-  color: #5f6b86;
+  color: var(--muted-foreground);
   font-size: 14px;
+  line-height: 1.45;
 }
 
 .review-form {
   display: grid;
   gap: 10px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
 
 .review-form__title {
@@ -1606,10 +1856,10 @@ watch(
 }
 
 .review-form__star {
-  border: 1px solid #d7d4ce;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
-  color: #b3ac9f;
+  background: var(--card);
+  color: var(--muted-foreground);
   width: 40px;
   height: 36px;
   font-size: 20px;
@@ -1618,16 +1868,16 @@ watch(
 }
 
 .review-form__star--active {
-  border-color: #f35b04;
-  color: #f35b04;
-  background: #fff2e8;
+  border-color: var(--foreground);
+  color: var(--foreground);
+  background: var(--muted);
 }
 
 .review-form__textarea {
   width: 100%;
-  border: 1px solid #d7d4ce;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--card);
   padding: 10px 12px;
   color: var(--color-text);
   font: inherit;
@@ -1643,12 +1893,14 @@ watch(
 }
 
 .review-form__submit {
-  border: 1px solid #d7d4ce;
+  border: 1px solid var(--foreground);
   border-radius: 12px;
-  background: #fff;
+  background: var(--foreground);
+  color: var(--background);
   min-height: 40px;
   padding: 0 14px;
   font: inherit;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -1676,55 +1928,110 @@ watch(
 
 .details__reviews-list {
   display: grid;
-  gap: 8px;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.details__review {
-  border: 1px solid #ecdcc9;
-  background: #fff;
-  border-radius: 12px;
-  padding: 10px 12px;
+.details__review.review-card {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.review-card__avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--foreground);
+  background: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.review-card__main {
+  min-width: 0;
   display: grid;
   gap: 8px;
 }
 
-.details__review-head {
+.review-card__top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
+}
+
+.review-card__who {
+  min-width: 0;
+}
+
+.review-card__name {
+  font-size: 15px;
+  color: var(--foreground);
+}
+
+.review-card__target {
+  margin-top: 2px;
+}
+
+.review-card__stars {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1.2;
 }
 
 .details__review-stars {
-  color: #c74803;
-  letter-spacing: 0.06em;
-  font-size: 13px;
+  color: var(--foreground);
+  letter-spacing: 0.04em;
+  opacity: 0.85;
 }
 
 .details__review-text {
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
+  color: var(--foreground);
+  margin: 0;
 }
 
 .details__review-target {
   margin: 0;
-  color: #67738e;
+  color: var(--muted-foreground);
   font-size: 13px;
+}
+
+.review-card__meta {
+  margin: 0;
 }
 
 .details__review-meta {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  color: #73809a;
+  align-items: center;
+  color: var(--muted-foreground);
   font-size: 12px;
 }
 
 .details__review-verified {
   border-radius: 999px;
-  background: #ecf8ef;
-  color: #185f2d;
-  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, #185f2d 25%, var(--border));
+  background: color-mix(in srgb, #ecf8ef 85%, var(--card));
+  color: #14532d;
+  padding: 3px 10px;
+  font-weight: 600;
+  font-size: 11px;
 }
 
 .buy-button {
@@ -1744,11 +2051,39 @@ watch(
   cursor: default;
 }
 
+.cta-stack {
+  margin-top: 18px;
+  display: grid;
+  gap: 10px;
+}
+
 .cta-row {
   display: flex;
   align-items: end;
   gap: 10px;
-  margin-top: 18px;
+}
+
+.one-click-btn {
+  width: 100%;
+  border-radius: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--card-fg, #1f2233);
+  background: transparent;
+  color: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.one-click-btn:hover:not(:disabled) {
+  border-color: rgb(31 34 51 / 72%);
+  background: rgb(247 246 242);
+}
+
+.one-click-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .buy-stepper {

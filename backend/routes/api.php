@@ -28,7 +28,9 @@ Route::middleware('throttle:public-api')->group(function (): void {
     Route::get('/products', [ProductController::class, 'index']);
     Route::get('/search/suggest', [ProductController::class, 'suggest']);
     Route::get('/recommendations/personal', [ProductController::class, 'personalRecommendations']);
+    Route::get('/recommendations/cart', [ProductController::class, 'cartRecommendations']);
     Route::get('/products/{slug}/recommendations', [ProductController::class, 'recommendations']);
+    Route::get('/products/{slug}/similar', [ProductController::class, 'similar']);
     Route::get('/products/{slug}/reviews', [ProductReviewController::class, 'index']);
     Route::get('/products/{slug}', [ProductController::class, 'show']);
     Route::get('/news/{slug}', [NewsController::class, 'show']);
@@ -66,6 +68,8 @@ Route::post('/auth/register', [AuthController::class, 'register'])
     ->middleware('throttle:auth-register');
 Route::post('/auth/login', [AuthController::class, 'login'])
     ->middleware('throttle:auth-login');
+Route::post('/auth/oauth/exchange', [AuthController::class, 'exchangeOAuthCode'])
+    ->middleware('throttle:auth-oauth-exchange');
 Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])
     ->middleware('throttle:auth-recovery');
 Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])
@@ -81,4 +85,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/auth/email/verification-notification', [AuthController::class, 'resendVerificationEmail'])
         ->middleware('throttle:6,1');
     Route::get('/loyalty/me', [LoyaltyController::class, 'me']);
+    Route::post('/checkout/one-click', [CheckoutController::class, 'oneClick'])
+        ->middleware('throttle:checkout-one-click');
+    Route::get('/checkout/one-click/suggestions', [CheckoutController::class, 'oneClickSuggestions']);
 });

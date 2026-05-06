@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { getOAuthBackendBaseUrl } from '@/lib/api'
 
 type Mode = 'register' | 'login' | 'forgot'
 
@@ -14,6 +15,11 @@ const emit = defineEmits<{
 }>()
 
 const authStore = useAuthStore()
+
+const vkOAuthHref = computed(() => {
+  const base = getOAuthBackendBaseUrl().replace(/\/$/, '')
+  return base ? `${base}/oauth/vk/redirect` : ''
+})
 
 const mode = ref<Mode>('register')
 const isSubmitting = ref(false)
@@ -155,19 +161,25 @@ async function submitForgotPassword() {
         </button>
       </form>
 
-      <form v-else-if="mode === 'login'" class="form" @submit.prevent="submitLogin">
-        <label>
-          Email
-          <input v-model="loginEmail" type="email" required />
-        </label>
-        <label>
-          Пароль
-          <input v-model="loginPassword" type="password" required />
-        </label>
-        <button type="submit" :disabled="isSubmitting">
-          {{ isSubmitting ? 'Входим...' : 'Войти' }}
-        </button>
-      </form>
+      <template v-else-if="mode === 'login'">
+        <form class="form" @submit.prevent="submitLogin">
+          <label>
+            Email
+            <input v-model="loginEmail" type="email" required />
+          </label>
+          <label>
+            Пароль
+            <input v-model="loginPassword" type="password" required />
+          </label>
+          <button type="submit" :disabled="isSubmitting">
+            {{ isSubmitting ? 'Входим...' : 'Войти' }}
+          </button>
+        </form>
+
+        <div v-if="vkOAuthHref" class="social-login">
+          <a class="vk-link" :href="vkOAuthHref">Войти через ВКонтакте</a>
+        </div>
+      </template>
 
       <form v-else class="form" @submit.prevent="submitForgotPassword">
         <label>
@@ -272,6 +284,30 @@ h2 {
 .form button:disabled {
   opacity: 0.7;
   cursor: not-allowed;
+}
+
+.social-login {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e8e5df;
+}
+
+.vk-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: rgb(39 136 229);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  font-size: 0.9375rem;
+}
+
+.vk-link:hover {
+  filter: brightness(1.06);
 }
 
 .switches {

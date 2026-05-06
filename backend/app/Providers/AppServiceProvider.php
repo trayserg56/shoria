@@ -13,8 +13,11 @@ use App\Support\Payments\Gateways\TBankPaymentGateway;
 use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use SocialiteProviders\Manager\SocialiteWasCalled;
+use SocialiteProviders\VKontakte\VKontakteExtendSocialite;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -47,6 +50,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Event::listen(SocialiteWasCalled::class, [VKontakteExtendSocialite::class, 'handle']);
+
         RateLimiter::for('public-api', function (Request $request): Limit {
             return Limit::perMinute((int) env('RATE_LIMIT_PUBLIC_API', 180))
                 ->by($request->user()?->id ? 'user:'.$request->user()->id : 'ip:'.$request->ip());
@@ -57,6 +62,11 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute((int) env('RATE_LIMIT_AUTH_LOGIN', 10))
                 ->by($request->ip().'|'.$email);
+        });
+
+        RateLimiter::for('auth-oauth-exchange', function (Request $request): Limit {
+            return Limit::perMinute((int) env('RATE_LIMIT_AUTH_OAUTH_EXCHANGE', 20))
+                ->by($request->ip());
         });
 
         RateLimiter::for('auth-register', function (Request $request): Limit {
@@ -84,6 +94,13 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('cart-write', function (Request $request): Limit {
             return Limit::perMinute((int) env('RATE_LIMIT_CART_WRITE', 120))
                 ->by($request->ip().'|'.(string) $request->input('session_id', 'na'));
+        });
+
+        RateLimiter::for('checkout-one-click', function (Request $request): Limit {
+            $userId = $request->user('sanctum')?->id;
+
+            return Limit::perMinute((int) env('RATE_LIMIT_CHECKOUT_ONE_CLICK', 8))
+                ->by($userId ? 'user:'.$userId : 'ip:'.$request->ip());
         });
 
         RateLimiter::for('checkout-write', function (Request $request): Limit {

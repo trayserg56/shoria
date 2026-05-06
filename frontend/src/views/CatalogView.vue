@@ -9,10 +9,7 @@ import { setSeoMeta } from '@/lib/seo'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Select } from '@/components/ui/select'
 
 type Category = {
   id: number
@@ -20,6 +17,7 @@ type Category = {
   slug: string
   description?: string | null
   image_url?: string | null
+  icon_url?: string | null
   seo_title?: string | null
   seo_description?: string | null
   subcategories?: Category[]
@@ -405,7 +403,12 @@ function normalizeInputValue(value: unknown): string {
 }
 
 async function loadCategories() {
-  categories.value = await fetchJson<Category[]>('/api/categories')
+  try {
+    categories.value = await fetchJson<Category[]>('/api/categories')
+  } catch (error) {
+    console.error('Failed to load categories', error)
+    categories.value = []
+  }
 }
 
 async function loadProducts() {
@@ -972,7 +975,12 @@ onBeforeUnmount(() => {
       </article>
     </section>
 
-    <section v-else-if="isCategoryLanding" class="catalog-landing">
+    <section v-else-if="isCategoryLanding && !categories.length && !isLoading" class="catalog-empty-landing">
+      <p>Не удалось загрузить категории. Проверьте соединение или попробуйте позже.</p>
+      <RouterLink to="/catalog">Обновить страницу</RouterLink>
+    </section>
+
+    <section v-else-if="isCategoryLanding && categories.length" class="catalog-landing">
       <article
         v-for="category in categories"
         :key="category.id"
@@ -1018,24 +1026,45 @@ onBeforeUnmount(() => {
               <span>Сортировка</span>
             </div>
             <div class="sidebar-section__body">
-              <label class="toolbar__select">
-                <Select
-                  :model-value="activeSort"
+              <div class="toolbar__select">
+                <select
+                  id="catalog-sort"
                   class="toolbar__select-control"
-                  :options="sortOptions"
-                  @update:model-value="onSortChange"
-                />
-              </label>
+                  aria-label="Сортировка"
+                  :value="activeSort"
+                  @change="onSortChange(($event.target as HTMLSelectElement).value)"
+                >
+                  <option
+                    v-for="opt in sortOptions"
+                    :key="opt.value === '' ? '_default' : opt.value"
+                    :value="opt.value"
+                  >
+                    {{ opt.label }}
+                  </option>
+                </select>
+              </div>
               <div class="toolbar__quick-toggles">
                 <label class="filter-check-item" :class="{ 'filter-check-item--active': activeInStock }" @click.prevent="toggleInStock">
                   <div class="filter-check-item__left">
-                    <Checkbox :checked="activeInStock" class="filter-check-item__checkbox" />
+                    <input
+                      type="checkbox"
+                      class="filter-native-checkbox"
+                      :checked="activeInStock"
+                      tabindex="-1"
+                      aria-hidden="true"
+                    />
                     <span>Только в наличии</span>
                   </div>
                 </label>
                 <label class="filter-check-item" :class="{ 'filter-check-item--active': activeOnSale }" @click.prevent="toggleOnSale">
                   <div class="filter-check-item__left">
-                    <Checkbox :checked="activeOnSale" class="filter-check-item__checkbox" />
+                    <input
+                      type="checkbox"
+                      class="filter-native-checkbox"
+                      :checked="activeOnSale"
+                      tabindex="-1"
+                      aria-hidden="true"
+                    />
                     <span>Только со скидкой</span>
                   </div>
                   <span class="chip-count">{{ products.filters.on_sale.count }}</span>
@@ -1053,11 +1082,27 @@ onBeforeUnmount(() => {
                 <div class="toolbar__price-fields">
                   <div class="toolbar__price-field">
                     <span class="toolbar__price-label">От, ₽</span>
-                    <Input v-model="priceMinInput" class="toolbar__price-input" type="number" min="0" placeholder="" />
+                    <input
+                      v-model="priceMinInput"
+                      class="toolbar__price-input"
+                      type="number"
+                      min="0"
+                      inputmode="numeric"
+                      autocomplete="off"
+                      placeholder=""
+                    />
                   </div>
                   <div class="toolbar__price-field">
                     <span class="toolbar__price-label">До, ₽</span>
-                    <Input v-model="priceMaxInput" class="toolbar__price-input" type="number" min="0" placeholder="" />
+                    <input
+                      v-model="priceMaxInput"
+                      class="toolbar__price-input"
+                      type="number"
+                      min="0"
+                      inputmode="numeric"
+                      autocomplete="off"
+                      placeholder=""
+                    />
                   </div>
                 </div>
               </div>
@@ -1083,10 +1128,13 @@ onBeforeUnmount(() => {
                   "
                 >
                   <div class="filter-check-item__left">
-                    <Checkbox
+                    <input
+                      type="checkbox"
+                      class="filter-native-checkbox"
                       :checked="activeTags.includes(tag.code)"
                       :disabled="!isFacetValueVisible(tag.count, activeTags.includes(tag.code))"
-                      class="filter-check-item__checkbox"
+                      tabindex="-1"
+                      aria-hidden="true"
                     />
                     <span>{{ tag.label }}</span>
                   </div>
@@ -1111,7 +1159,13 @@ onBeforeUnmount(() => {
                   @click.prevent="toggleBrandFilter(brand.value)"
                 >
                   <div class="filter-check-item__left">
-                    <Checkbox :checked="activeBrands.includes(brand.value)" class="filter-check-item__checkbox" />
+                    <input
+                      type="checkbox"
+                      class="filter-native-checkbox"
+                      :checked="activeBrands.includes(brand.value)"
+                      tabindex="-1"
+                      aria-hidden="true"
+                    />
                     <span>{{ brand.value }}</span>
                   </div>
                   <span class="chip-count">{{ brand.count }}</span>
@@ -1135,7 +1189,13 @@ onBeforeUnmount(() => {
                   @click.prevent="toggleColorFilter(color.value)"
                 >
                   <div class="filter-check-item__left">
-                    <Checkbox :checked="activeColors.includes(color.value)" class="filter-check-item__checkbox" />
+                    <input
+                      type="checkbox"
+                      class="filter-native-checkbox"
+                      :checked="activeColors.includes(color.value)"
+                      tabindex="-1"
+                      aria-hidden="true"
+                    />
                     <span>{{ color.value }}</span>
                   </div>
                   <span class="chip-count">{{ color.count }}</span>
@@ -1159,7 +1219,13 @@ onBeforeUnmount(() => {
                   @click.prevent="toggleSizeFilter(size.value)"
                 >
                   <div class="filter-check-item__left">
-                    <Checkbox :checked="activeSizes.includes(size.value)" class="filter-check-item__checkbox" />
+                    <input
+                      type="checkbox"
+                      class="filter-native-checkbox"
+                      :checked="activeSizes.includes(size.value)"
+                      tabindex="-1"
+                      aria-hidden="true"
+                    />
                     <span>{{ size.value }}</span>
                   </div>
                   <span class="chip-count">{{ size.count }}</span>
@@ -1186,9 +1252,12 @@ onBeforeUnmount(() => {
                       @click.prevent="toggleCharacteristicFilter(group.name, option.value)"
                     >
                       <div class="filter-check-item__left">
-                        <Checkbox
+                        <input
+                          type="checkbox"
+                          class="filter-native-checkbox"
                           :checked="isCharacteristicActive(group.name, option.value)"
-                          class="filter-check-item__checkbox"
+                          tabindex="-1"
+                          aria-hidden="true"
                         />
                         <span>{{ option.value }}</span>
                       </div>
@@ -1263,6 +1332,7 @@ onBeforeUnmount(() => {
               <div class="catalog-skeleton-card__rail">
                 <AppSkeleton width="36px" height="36px" radius="10px" />
                 <AppSkeleton width="36px" height="36px" radius="10px" />
+                <AppSkeleton width="36px" height="36px" radius="10px" />
               </div>
             </div>
             <div class="catalog-skeleton-card__body">
@@ -1334,6 +1404,27 @@ onBeforeUnmount(() => {
   font-family: var(--font-display);
   font-size: clamp(44px, 7vw, 84px);
   line-height: 0.9;
+}
+
+.catalog-empty-landing {
+  margin-top: 22px;
+  padding: 28px 20px;
+  border-radius: 16px;
+  border: 1px dashed var(--border);
+  background: var(--muted);
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.catalog-empty-landing p {
+  margin: 0 0 12px;
+}
+
+.catalog-empty-landing a {
+  font-weight: 600;
+  color: var(--foreground);
 }
 
 .catalog-landing {
@@ -1526,14 +1617,25 @@ onBeforeUnmount(() => {
   width: 100%;
   min-width: 0;
   min-height: 38px;
+  padding: 0 32px 0 10px;
+  box-sizing: border-box;
   border-radius: 8px;
-  border-color: var(--border);
-  background: var(--background);
-  box-shadow: none;
+  border: 1px solid var(--border);
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.25;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
 }
 
-.toolbar__select-control:focus-visible {
-  border-color: color-mix(in srgb, var(--foreground), transparent 70%);
+.toolbar__select-control:focus {
+  outline: none;
+  border-color: var(--foreground);
 }
 
 .toolbar__quick-toggles {
@@ -1574,10 +1676,23 @@ onBeforeUnmount(() => {
 }
 
 .toolbar__price-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 8px 10px;
   border-radius: 8px;
-  border-color: var(--border);
+  border: 1px solid var(--border);
   background: var(--background);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.25;
   box-shadow: none;
+}
+
+.toolbar__price-input:focus {
+  outline: none;
+  border-color: var(--foreground);
 }
 
 .tag-filters {
@@ -1621,8 +1736,18 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.filter-check-item__checkbox {
+.filter-native-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: #09090b;
   pointer-events: none;
+}
+
+.filter-check-item--disabled .filter-native-checkbox {
+  opacity: 0.5;
 }
 
 .filter-check-item--disabled {
@@ -1636,15 +1761,14 @@ onBeforeUnmount(() => {
 }
 
 .filter-check-item--active {
-  background: color-mix(in srgb, var(--primary), transparent 94%);
+  background: transparent;
   border-color: transparent;
   color: var(--foreground);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 0 var(--primary);
 }
 
 .filter-check-item--active:hover {
-  background: color-mix(in srgb, var(--primary), transparent 92%);
+  background: color-mix(in srgb, var(--muted), transparent 40%);
   border-color: transparent;
 }
 

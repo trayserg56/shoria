@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'vkontakte' => [
+        'client_id' => env('VKONTAKTE_CLIENT_ID'),
+        'client_secret' => env('VKONTAKTE_CLIENT_SECRET'),
+        'redirect' => env('VKONTAKTE_REDIRECT_URI', rtrim((string) env('APP_URL', ''), '/').'/oauth/vk/callback'),
+    ],
+
 ];

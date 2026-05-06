@@ -55,6 +55,21 @@ export function getApiBaseUrl() {
   return configured
 }
 
+/** Laravel origin for browser redirects (OAuth). Uses VITE_API_URL; в dev без неё — localhost:8080 под Docker/nginx. */
+export function getOAuthBackendBaseUrl(): string {
+  const configured = getApiBaseUrl()
+
+  if (configured) {
+    return configured
+  }
+
+  if (import.meta.env.DEV) {
+    return 'http://localhost:8080'
+  }
+
+  return ''
+}
+
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAuthToken()
   apiPendingRequests.value += 1

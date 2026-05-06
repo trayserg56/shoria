@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cart;
+use App\Models\CartItem;
 use App\Models\Category;
 use App\Models\PaymentProvider;
 use App\Models\PaymentTransaction;
@@ -21,6 +22,7 @@ use App\Support\Payments\PaymentGatewayRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -341,6 +343,193 @@ class CheckoutController extends Controller
             'items_count' => $order->items->sum('qty'),
             'loyalty_account' => $user ? $this->loyaltyProgram->userSnapshot($user->fresh(), $loyaltySetting) : null,
         ], 201);
+    }
+
+    public function oneClick(Request $request): JsonResponse
+    {
+        $user = $this->resolveAuthenticatedUser($request);
+
+        if (! $user instanceof User) {
+            return response()->json([
+                'message' => 'Unauthenticated.',
+            ], 401);
+        }
+
+        $input = $request->validate([
+            'product_slug' => ['required', 'string', 'max:255'],
+            'product_variant_id' => ['nullable', 'integer', 'exists:product_variants,id'],
+            'qty' => ['nullable', 'integer', 'min:1', 'max:99'],
+            'attribution' => ['nullable', 'array'],
+            'delivery_method' => ['nullable', 'string', 'max:32'],
+            'payment_method' => ['nullable', 'string', 'max:64'],
+        ]);
+
+        $qty = (int) ($input['qty'] ?? 1);
+
+        $defaults = $this->resolveOneClickCheckoutDefaults($user);
+
+        if (
+            isset($input['delivery_method'])
+            && trim((string) $input['delivery_method']) !== ''
+        ) {
+            $deliveryCode = $this->resolveDeliveryMethod(trim((string) $input['delivery_method']))->code;
+        } else {
+            $deliveryCode = $defaults['delivery_method'];
+        }
+
+        if (
+            isset($input['payment_method'])
+            && trim((string) $input['payment_method']) !== ''
+        ) {
+            $paymentMethod = trim((string) $input['payment_method']);
+        } else {
+            $paymentMethod = $defaults['payment_method'];
+        }
+
+        Validator::make(
+            ['payment_method' => $paymentMethod],
+            ['payment_method' => ['required', 'string', Rule::in($this->allowedPaymentMethodCodes())]],
+        )->validate();
+
+        $this->resolvePaymentProvider($paymentMethod);
+
+        $cart = Cart::query()
+            ->with('items')
+            ->where('status', 'open')
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (! $cart) {
+            $cart = Cart::query()->create([
+                'user_id' => $user->id,
+                'session_id' => 'user:'.$user->id,
+                'status' => 'open',
+                'currency' => 'RUB',
+                'subtotal' => 0,
+                'total' => 0,
+            ]);
+        }
+
+        $snapshot = $cart->items
+            ->map(fn (CartItem $item): array => $item->only([
+                'product_id',
+                'product_variant_id',
+                'product_name',
+                'product_slug',
+                'variant_label',
+                'image_url',
+                'qty',
+                'unit_price',
+                'total_price',
+            ]))
+            ->all();
+
+        $cart->items()->delete();
+        $cart->forceFill([
+            'subtotal' => 0,
+            'total' => 0,
+        ])->save();
+
+        $addBody = json_encode([
+            'product_slug' => $input['product_slug'],
+            'product_variant_id' => $input['product_variant_id'] ?? null,
+            'qty' => $qty,
+        ], JSON_THROW_ON_ERROR);
+
+        $cartRequest = Request::create('/api/cart/items', 'POST', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_ACCEPT' => 'application/json',
+        ], $addBody);
+
+        $authHeader = $request->header('Authorization');
+
+        if ($authHeader !== null && $authHeader !== '') {
+            $cartRequest->headers->set('Authorization', $authHeader);
+        }
+
+        $cartRequest->setUserResolver(static function ($guard = null) use ($user): User {
+            return $user;
+        });
+
+        /** @var JsonResponse $cartResponse */
+        $cartResponse = app(CartController::class)->addItem($cartRequest);
+
+        if ($cartResponse->getStatusCode() !== 200) {
+            $this->replaceCartItemsPayload($cart, $snapshot);
+
+            return $cartResponse;
+        }
+
+        $checkoutPayload = [
+            'customer_name' => $defaults['customer_name'],
+            'customer_email' => $defaults['customer_email'],
+            'customer_phone' => $defaults['customer_phone'],
+            'delivery_method' => $deliveryCode,
+            'payment_method' => $paymentMethod,
+            'promo_code' => null,
+            'loyalty_points_to_spend' => 0,
+            'comment' => null,
+            'attribution' => $input['attribution'] ?? null,
+        ];
+
+        $checkoutBody = json_encode($checkoutPayload, JSON_THROW_ON_ERROR);
+        $checkoutRequest = Request::create('/api/checkout', 'POST', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_ACCEPT' => 'application/json',
+        ], $checkoutBody);
+
+        if ($authHeader !== null && $authHeader !== '') {
+            $checkoutRequest->headers->set('Authorization', $authHeader);
+        }
+
+        $checkoutRequest->setUserResolver(static function ($guard = null) use ($user): User {
+            return $user;
+        });
+
+        try {
+            $response = $this->store($checkoutRequest);
+
+            if (! $response instanceof JsonResponse) {
+                throw new \RuntimeException('checkout store returned unexpected response');
+            }
+
+            if ($response->getStatusCode() !== 201) {
+                $cart->refresh();
+                $this->replaceCartItemsPayload($cart, $snapshot);
+
+                return $response;
+            }
+
+            if ($snapshot !== []) {
+                $this->createFreshOpenCartFromSnapshot($user, $snapshot);
+            }
+
+            return $response;
+        } catch (\Throwable $e) {
+            $cart->refresh();
+            $this->replaceCartItemsPayload($cart, $snapshot);
+
+            throw $e;
+        }
+    }
+
+    public function oneClickSuggestions(Request $request): JsonResponse
+    {
+        $user = $this->resolveAuthenticatedUser($request);
+
+        if (! $user instanceof User) {
+            return response()->json([
+                'message' => 'Unauthenticated.',
+            ], 401);
+        }
+
+        $lastOrder = Order::query()
+            ->where('user_id', $user->id)
+            ->where('order_status', '!=', 'cancelled')
+            ->orderByDesc('placed_at')
+            ->first();
+
+        return response()->json($this->resolveOneClickDeliveryAndPaymentSuggestions($lastOrder));
     }
 
     public function preview(Request $request): JsonResponse
@@ -906,6 +1095,164 @@ class CheckoutController extends Controller
         $tokenable = $accessToken->tokenable;
 
         return $tokenable instanceof User ? $tokenable : null;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $snapshot
+     */
+    private function replaceCartItemsPayload(Cart $cart, array $snapshot): void
+    {
+        $cart->items()->delete();
+
+        foreach ($snapshot as $row) {
+            CartItem::query()->create([
+                ...$row,
+                'cart_id' => $cart->id,
+            ]);
+        }
+
+        $cart->refresh();
+        $subtotal = (float) $cart->items->sum(fn (CartItem $item) => (float) $item->total_price);
+        $cart->forceFill([
+            'subtotal' => $subtotal,
+            'total' => $subtotal,
+        ])->save();
+    }
+
+    /**
+     * Восстановить предыдущую корзину в новой open-сессии после успешного 1‑клик заказа.
+     *
+     * @param  array<int, array<string, mixed>>  $snapshot
+     */
+    private function createFreshOpenCartFromSnapshot(User $user, array $snapshot): void
+    {
+        if ($snapshot === []) {
+            return;
+        }
+
+        $newCart = Cart::query()->create([
+            'user_id' => $user->id,
+            'session_id' => 'user:'.$user->id,
+            'status' => 'open',
+            'currency' => 'RUB',
+            'subtotal' => 0,
+            'total' => 0,
+        ]);
+
+        foreach ($snapshot as $row) {
+            CartItem::query()->create([
+                ...$row,
+                'cart_id' => $newCart->id,
+            ]);
+        }
+
+        $newCart->refresh();
+        $subtotal = (float) $newCart->items->sum(fn (CartItem $item) => (float) $item->total_price);
+        $newCart->forceFill([
+            'subtotal' => $subtotal,
+            'total' => $subtotal,
+        ])->save();
+    }
+
+    /**
+     * @return array{delivery_method: string, payment_method: string}
+     */
+    private function resolveOneClickDeliveryAndPaymentSuggestions(?Order $lastOrder): array
+    {
+        $deliveryCode = null;
+
+        if ($lastOrder instanceof Order) {
+            $method = DeliveryMethod::query()
+                ->with('provider')
+                ->where('is_active', true)
+                ->where('code', $lastOrder->delivery_method)
+                ->first();
+
+            if ($method && $this->isDeliveryMethodAvailable($method)) {
+                $deliveryCode = $method->code;
+            }
+        }
+
+        if ($deliveryCode === null) {
+            $first = DeliveryMethod::query()
+                ->with('provider')
+                ->where('is_active', true)
+                ->orderBy('sort_order')
+                ->get()
+                ->first(fn (DeliveryMethod $method) => $this->isDeliveryMethodAvailable($method));
+
+            if (! $first instanceof DeliveryMethod) {
+                throw ValidationException::withMessages([
+                    'delivery_method' => 'Нет доступных способов доставки.',
+                ]);
+            }
+
+            $deliveryCode = $first->code;
+        }
+
+        $paymentMethod = 'card';
+
+        if (
+            $lastOrder instanceof Order
+            && in_array($lastOrder->payment_method, ['card', 'cash'], true)
+        ) {
+            try {
+                $this->resolvePaymentProvider($lastOrder->payment_method);
+                $paymentMethod = $lastOrder->payment_method;
+            } catch (ValidationException) {
+                $paymentMethod = 'card';
+            }
+        }
+
+        return [
+            'delivery_method' => $deliveryCode,
+            'payment_method' => $paymentMethod,
+        ];
+    }
+
+    /**
+     * @return array{customer_name: string, customer_email: string, customer_phone: string, delivery_method: string, payment_method: string}
+     */
+    private function resolveOneClickCheckoutDefaults(User $user): array
+    {
+        /** @var Order|null $lastOrder */
+        $lastOrder = Order::query()
+            ->where('user_id', $user->id)
+            ->where('order_status', '!=', 'cancelled')
+            ->orderByDesc('placed_at')
+            ->first();
+
+        $dp = $this->resolveOneClickDeliveryAndPaymentSuggestions($lastOrder);
+
+        $name = trim((string) (($lastOrder?->customer_name) ?? $user->name));
+        $email = trim(strtolower((string) $user->email));
+        $phone = trim((string) (($lastOrder?->customer_phone) ?? ($user->phone ?? '')));
+
+        if ($name === '') {
+            throw ValidationException::withMessages([
+                'customer_name' => 'Заполните имя в профиле или оформите заказ через корзину один раз.',
+            ]);
+        }
+
+        if ($email === '') {
+            throw ValidationException::withMessages([
+                'customer_email' => 'Не удалось получить email из профиля.',
+            ]);
+        }
+
+        if ($phone === '') {
+            throw ValidationException::withMessages([
+                'customer_phone' => 'Укажите телефон в кабинете или оформите заказ через корзину.',
+            ]);
+        }
+
+        return [
+            'customer_name' => $name,
+            'customer_email' => $email,
+            'customer_phone' => mb_substr($phone, 0, 30),
+            'delivery_method' => $dp['delivery_method'],
+            'payment_method' => $dp['payment_method'],
+        ];
     }
 
     private function generateOrderNumber(): string

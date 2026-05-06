@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import { toProductRoute } from '@/lib/product-route'
 import { openProductQuickView } from '@/lib/product-quick-view'
+import { toast } from '@/lib/toast'
+import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
+import { useOneClickCheckoutModalStore } from '@/stores/one-click-checkout-modal'
 import { useWishlistStore, type WishlistItem } from '@/stores/wishlist'
 import { useCompareStore, type CompareItem } from '@/stores/compare'
 
@@ -47,10 +50,14 @@ const props = withDefaults(
 )
 
 const cartStore = useCartStore()
+const authStore = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const { items: cartItems } = storeToRefs(cartStore)
+const { isAuthenticated } = storeToRefs(authStore)
 const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
+const oneClickModalStore = useOneClickCheckoutModalStore()
 const isCartBusy = ref(false)
 const isImageBroken = ref(false)
 const isImageLoading = ref(true)
@@ -86,6 +93,13 @@ const currentCartQty = computed(() =>
   cartItems.value
     .filter((item) => item.product_id === props.product.id)
     .reduce((total, item) => total + item.qty, 0),
+)
+
+const productRoute = computed(() =>
+  toProductRoute({
+    slug: props.product.slug,
+    category: props.product.category ?? null,
+  }),
 )
 
 function formatPrice(value: number, currency: string) {
@@ -148,11 +162,23 @@ function onQuickViewClick() {
   openProductQuickView(props.product.slug, props.product.category?.slug ?? null, props.source)
 }
 
-function onProductClick() {
+function trackSelectProductAnalytics() {
   void trackEvent('select_product', {
     source: props.source,
     slug: props.product.slug,
   })
+}
+
+function onCardNavigate(
+  event: MouseEvent,
+  navigate: (e?: MouseEvent) => void | Promise<unknown>,
+) {
+  if ((event.target as HTMLElement).closest('.product-card__interaction')) {
+    return
+  }
+
+  trackSelectProductAnalytics()
+  void navigate(event)
 }
 
 function toWishlistItem(): WishlistItem {
@@ -201,6 +227,29 @@ function toggleCompare() {
     source: props.source,
     slug: props.product.slug,
     action: result.active ? 'added' : 'removed',
+  })
+}
+
+async function oneClickBuy() {
+  if (isOutOfStock.value) {
+    return
+  }
+
+  if (!isAuthenticated.value) {
+    toast.info('Войдите в аккаунт, чтобы купить в 1 клик.')
+    await router.replace({
+      query: { ...route.query, auth: '1' },
+    })
+    return
+  }
+
+  oneClickModalStore.open({
+    productName: props.product.name,
+    productSlug: props.product.slug,
+    qty: 1,
+    productPrice: props.product.price,
+    currency: props.product.currency,
+    source: props.source,
   })
 }
 
@@ -309,124 +358,145 @@ watch(
 </script>
 
 <template>
-  <article class="unified-product-card">
-    <div class="product-card__media">
-      <RouterLink class="product-link" :to="toProductRoute(product)" @click="onProductClick">
-        <AppSkeleton
-          v-if="showImageSkeleton && isImageLoading"
-          class="product-card__image-skeleton"
-          width="100%"
-          height="100%"
-          radius="12px"
-        />
-        <img
-          :src="productImageUrl"
-          :alt="product.name"
-          loading="lazy"
-          :class="{ 'product-card__image--hidden': showImageSkeleton && isImageLoading }"
-          @error="onProductImageError"
-          @load="onProductImageLoad"
-        />
-      </RouterLink>
-      <button type="button" class="product-card__quickview" @click.stop="onQuickViewClick">
-        Быстрый просмотр
-      </button>
-      <div v-if="product.tags?.length" class="product-card__tags">
-        <span
-          v-for="tag in product.tags"
-          :key="`${product.id}-${tag.code}`"
-          class="tag-badge"
-          :class="tagCodeClass(tag.code)"
-        >
-          {{ tag.label }}
-        </span>
-      </div>
-      <div class="product-card__rail">
+  <RouterLink :to="productRoute" custom v-slot="{ navigate }">
+    <article
+      class="unified-product-card"
+      @click="onCardNavigate($event, navigate)"
+    >
+      <div class="product-card__media">
+        <div class="product-link">
+          <AppSkeleton
+            v-if="showImageSkeleton && isImageLoading"
+            class="product-card__image-skeleton"
+            width="100%"
+            height="100%"
+            radius="12px"
+          />
+          <img
+            :src="productImageUrl"
+            :alt="product.name"
+            loading="lazy"
+            :class="{ 'product-card__image--hidden': showImageSkeleton && isImageLoading }"
+            @error="onProductImageError"
+            @load="onProductImageLoad"
+          />
+        </div>
         <button
           type="button"
-          class="rail-btn"
-          :class="{ 'rail-btn--active': isWishlisted }"
-          :aria-label="isWishlisted ? 'Убрать из избранного' : 'Добавить в избранное'"
-          @click="toggleWishlist"
+          class="product-card__quickview product-card__interaction"
+          @click.prevent.stop="onQuickViewClick"
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M12 20.7l-1.1-1C6 15.2 3 12.5 3 9.2 3 6.5 5.1 4.4 7.8 4.4c1.5 0 3 .7 4 1.9 1-1.2 2.5-1.9 4-1.9 2.7 0 4.8 2.1 4.8 4.8 0 3.3-3 6-7.9 10.5l-1.1 1z"
-            />
-          </svg>
+          Быстрый просмотр
         </button>
-        <button
-          type="button"
-          class="rail-btn"
-          :class="{ 'rail-btn--active': isCompared }"
-          :aria-label="isCompared ? 'Убрать из сравнения' : 'Добавить в сравнение'"
-          @click="toggleCompare"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M10 3H5a2 2 0 0 0-2 2v5h2V5h5V3zm9 11v5a2 2 0 0 1-2 2h-5v-2h5v-5h2zM3 14v5a2 2 0 0 0 2 2h5v-2H5v-5H3zm16-9h-5V3h5a2 2 0 0 1 2 2v5h-2V5zM8 8h2v8H8V8zm6 0h2v8h-2V8z"
-            />
-          </svg>
-        </button>
-      </div>
-    </div>
-    <div class="product-card__content">
-      <div class="price-row">
-        <strong>{{ formatPricePerUnit(product.price, product.currency) }}</strong>
-        <span v-if="product.old_price" class="product-card__old-price">
-          {{ formatPrice(product.old_price, product.currency) }}
-        </span>
-        <span v-if="discountPercent" class="product-card__discount-pill">-{{ discountPercent }}%</span>
-      </div>
-      <p class="product-card__reward">+{{ loyaltyReward }} на счет</p>
-      <button
-        v-if="product.brand"
-        type="button"
-        class="product-card__brand-link"
-        @click.stop="openBrandCatalog(product.brand)"
-      >
-        {{ product.brand }}
-      </button>
-      <RouterLink class="product-card__title-link" :to="toProductRoute(product)" @click="onProductClick">
-        <h3>{{ product.name }}</h3>
-      </RouterLink>
-      <div class="product-card__meta-row">
-        <span v-if="(product.reviews_summary?.count ?? 0) > 0" class="product-card__meta-item">
-          ★ {{ formatRating(product.reviews_summary?.average) }} · {{ formatReviewsCount(product.reviews_summary?.count ?? 0) }}
-        </span>
-        <span class="product-card__meta-item" :class="{ 'product-card__meta-item--ok': !isOutOfStock }">
-          <template v-if="!isOutOfStock">✓ </template>{{ isOutOfStock ? 'Нет в наличии' : 'В наличии' }}
-        </span>
-      </div>
-    </div>
-
-    <div class="product-card__actions">
-      <button
-        v-if="currentCartQty === 0 && !isOutOfStock"
-        type="button"
-        class="action action--cart"
-        :disabled="isCartBusy"
-        @click="addToCart"
-      >
-        {{ isCartBusy ? 'Добавляем...' : 'В корзину' }}
-      </button>
-      <button
-        v-else-if="currentCartQty === 0"
-        type="button"
-        class="action action--wishlist"
-        @click="toggleWishlist"
-      >
-        {{ isWishlisted ? 'В избранном' : 'В избранное' }}
-      </button>
-      <div v-else class="cart-stepper">
-        <div class="cart-stepper__controls">
-          <button type="button" :disabled="isCartBusy" @click="decreaseCartQty">−</button>
-          <strong>{{ currentCartQty }}</strong>
-          <button type="button" :disabled="isCartBusy" @click="increaseCartQty">+</button>
+        <div v-if="product.tags?.length" class="product-card__tags">
+          <span
+            v-for="tag in product.tags"
+            :key="`${product.id}-${tag.code}`"
+            class="tag-badge"
+            :class="tagCodeClass(tag.code)"
+          >
+            {{ tag.label }}
+          </span>
+        </div>
+        <div class="product-card__rail product-card__interaction">
+          <button
+            type="button"
+            class="rail-btn"
+            :class="{ 'rail-btn--active': isWishlisted }"
+            :aria-label="isWishlisted ? 'Убрать из избранного' : 'Добавить в избранное'"
+            @click.stop.prevent="toggleWishlist"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 20.7l-1.1-1C6 15.2 3 12.5 3 9.2 3 6.5 5.1 4.4 7.8 4.4c1.5 0 3 .7 4 1.9 1-1.2 2.5-1.9 4-1.9 2.7 0 4.8 2.1 4.8 4.8 0 3.3-3 6-7.9 10.5l-1.1 1z"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="rail-btn"
+            :class="{ 'rail-btn--active': isCompared }"
+            :aria-label="isCompared ? 'Убрать из сравнения' : 'Добавить в сравнение'"
+            @click.stop.prevent="toggleCompare"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M10 3H5a2 2 0 0 0-2 2v5h2V5h5V3zm9 11v5a2 2 0 0 1-2 2h-5v-2h5v-5h2zM3 14v5a2 2 0 0 0 2 2h5v-2H5v-5H3zm16-9h-5V3h5a2 2 0 0 1 2 2v5h-2V5zM8 8h2v8H8V8zm6 0h2v8h-2V8z"
+              />
+            </svg>
+          </button>
+          <button
+            v-if="!isOutOfStock"
+            type="button"
+            class="rail-btn"
+            aria-label="Купить в один клик"
+            title="Купить в один клик"
+            @click.stop.prevent="oneClickBuy"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M13 3L5 17h8l-1.5 4L19 11h-7.8L13 3z"
+              />
+            </svg>
+          </button>
         </div>
       </div>
-    </div>
-  </article>
+      <div class="product-card__content">
+        <div class="price-row">
+          <strong>{{ formatPricePerUnit(product.price, product.currency) }}</strong>
+          <span v-if="product.old_price" class="product-card__old-price">
+            {{ formatPrice(product.old_price, product.currency) }}
+          </span>
+          <span v-if="discountPercent" class="product-card__discount-pill">-{{ discountPercent }}%</span>
+        </div>
+        <p class="product-card__reward">+{{ loyaltyReward }} на счет</p>
+        <button
+          v-if="product.brand"
+          type="button"
+          class="product-card__brand-link product-card__interaction"
+          @click.stop.prevent="openBrandCatalog(product.brand)"
+        >
+          {{ product.brand }}
+        </button>
+        <h3 class="product-card__title">{{ product.name }}</h3>
+        <div class="product-card__meta-row">
+          <span v-if="(product.reviews_summary?.count ?? 0) > 0" class="product-card__meta-item">
+            ★ {{ formatRating(product.reviews_summary?.average) }} · {{ formatReviewsCount(product.reviews_summary?.count ?? 0) }}
+          </span>
+          <span class="product-card__meta-item" :class="{ 'product-card__meta-item--ok': !isOutOfStock }">
+            <template v-if="!isOutOfStock">✓ </template>{{ isOutOfStock ? 'Нет в наличии' : 'В наличии' }}
+          </span>
+        </div>
+      </div>
+
+      <div class="product-card__actions product-card__interaction">
+        <button
+          v-if="currentCartQty === 0 && !isOutOfStock"
+          type="button"
+          class="action action--cart"
+          :disabled="isCartBusy"
+          @click.stop.prevent="addToCart"
+        >
+          {{ isCartBusy ? 'Добавляем...' : 'В корзину' }}
+        </button>
+        <button
+          v-else-if="currentCartQty === 0"
+          type="button"
+          class="action action--wishlist"
+          @click.stop.prevent="toggleWishlist"
+        >
+          {{ isWishlisted ? 'В избранном' : 'В избранное' }}
+        </button>
+        <div v-else class="cart-stepper">
+          <div class="cart-stepper__controls">
+            <button type="button" :disabled="isCartBusy" @click.stop.prevent="decreaseCartQty">−</button>
+            <strong>{{ currentCartQty }}</strong>
+            <button type="button" :disabled="isCartBusy" @click.stop.prevent="increaseCartQty">+</button>
+          </div>
+        </div>
+      </div>
+    </article>
+  </RouterLink>
 </template>
 
 <style scoped>
@@ -437,6 +507,7 @@ watch(
   border-radius: 14px;
   background: #fff;
   border: 1px solid var(--border);
+  cursor: pointer;
   /* без «серой подложки»: лёгкая тень только по контуру */
   box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
   padding: 0;
@@ -601,6 +672,11 @@ watch(
   background: #fff;
 }
 
+.rail-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .product-card__content {
   display: grid;
   gap: 8px;
@@ -632,18 +708,16 @@ watch(
   text-align: left;
   cursor: pointer;
   line-height: 1.2;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
 }
 
 .product-card__brand-link:hover {
   color: var(--foreground);
 }
 
-.product-card__title-link {
-  color: inherit;
-  text-decoration: none;
-}
-
-.product-card__title-link h3 {
+.product-card__title {
   margin: 0;
   font-size: clamp(15px, 1.05vw, 17px);
   font-weight: 600;
@@ -827,7 +901,7 @@ watch(
     padding: 0 12px 12px;
   }
 
-  .product-card__title-link h3 {
+  .product-card__title {
     font-size: 15px;
   }
 

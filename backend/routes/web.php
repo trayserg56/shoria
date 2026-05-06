@@ -1,7 +1,8 @@
 <?php
 
-use App\Http\Controllers\SeoController;
+use App\Http\Controllers\OAuthController;
 use App\Http\Controllers\PublicStorageController;
+use App\Http\Controllers\SeoController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -19,6 +20,11 @@ Route::get('/sitemap.xml', [SeoController::class, 'sitemap']);
 Route::get('/storage/{path}', [PublicStorageController::class, 'show'])
     ->where('path', '.*');
 
+Route::middleware('web')->group(function (): void {
+    Route::get('/oauth/vk/redirect', [OAuthController::class, 'redirectToVk'])->name('oauth.vk.redirect');
+    Route::get('/oauth/vk/callback', [OAuthController::class, 'handleVkCallback'])->name('oauth.vk.callback');
+});
+
 Route::get('/{path}', function (string $path) {
     $publicAssetPath = public_path($path);
     if (is_file($publicAssetPath)) {
@@ -31,4 +37,4 @@ Route::get('/{path}', function (string $path) {
     }
 
     abort(404);
-})->where('path', '^(?!api|admin|storage|livewire|sanctum).*$');
+})->where('path', '^(?!api|admin|storage|livewire|sanctum|oauth).*$');

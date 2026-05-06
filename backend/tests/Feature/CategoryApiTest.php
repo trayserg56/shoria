@@ -30,6 +30,8 @@ class CategoryApiTest extends TestCase
             ->firstWhere('slug', 'running');
 
         $this->assertNotNull($runningCategory);
+        $this->assertArrayHasKey('icon_url', $runningCategory);
+        $this->assertSame('/category-menu-icons/running.svg', $runningCategory['icon_url']);
         $this->assertContains('road-running', collect($runningCategory['subcategories'])->pluck('slug')->all());
         $this->assertSame('Running кроссовки — Shoria', $runningCategory['seo_title']);
     }

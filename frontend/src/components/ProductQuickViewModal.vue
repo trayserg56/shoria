@@ -1,14 +1,22 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import { X } from 'lucide-vue-next'
 import { closeProductQuickView, productQuickViewState } from '@/lib/product-quick-view'
 import { fetchJson } from '@/lib/api'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { toProductRoute } from '@/lib/product-route'
 import { trackEvent } from '@/lib/analytics'
+import { toast } from '@/lib/toast'
+import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
+import { useWishlistStore, type WishlistItem } from '@/stores/wishlist'
+import { useCompareStore, type CompareItem } from '@/stores/compare'
+import { useOneClickCheckoutModalStore } from '@/stores/one-click-checkout-modal'
 import Loader from '@/components/ui/loader/Loader.vue'
+import ProductImageLightbox from '@/components/ProductImageLightbox.vue'
+import { characteristicsCatalogRoute } from '@/lib/catalog-characteristics'
 
 type ProductImage = {
   url: string
@@ -46,9 +54,21 @@ type ProductPayload = {
   selected_variant_slug: string | null
   variants: ProductVariantPayload[]
   images: ProductImage[]
+  characteristics?: Array<{
+    group: string | null
+    name: string
+    values: string[]
+  }>
 }
 
 const cartStore = useCartStore()
+const authStore = useAuthStore()
+const router = useRouter()
+const route = useRoute()
+const oneClickModalStore = useOneClickCheckoutModalStore()
+const wishlistStore = useWishlistStore()
+const compareStore = useCompareStore()
+const { isAuthenticated } = storeToRefs(authStore)
 
 const product = ref<ProductPayload | null>(null)
 const isLoading = ref(false)
@@ -56,6 +76,8 @@ const hasError = ref(false)
 const selectedVariantId = ref<number | null>(null)
 const activeImageIndex = ref(0)
 const isCartBusy = ref(false)
+const quickActionError = ref('')
+const qvImageLightboxOpen = ref(false)
 
 const isOpen = computed(() => productQuickViewState.value !== null)
 
@@ -82,6 +104,67 @@ const displayImages = computed((): ProductImage[] => {
 })
 
 const activeImage = computed(() => displayImages.value[activeImageIndex.value] ?? null)
+
+const qvLightboxSlides = computed(() => {
+  if (!product.value) {
+    return []
+  }
+
+  const name = product.value.name
+
+  return displayImages.value.map((img) => ({
+    url: img.url,
+    alt: img.alt || name,
+  }))
+})
+
+const isWishlisted = computed(() => (product.value ? wishlistStore.has(product.value.id) : false))
+const isCompared = computed(() => (product.value ? compareStore.has(product.value.id) : false))
+
+function characteristicRowValues(item: {
+  name: string
+  values?: unknown
+  value?: unknown
+}): string[] {
+  if (Array.isArray(item.values) && item.values.length > 0) {
+    return item.values.map((x) => String(x).trim()).filter(Boolean)
+  }
+
+  const v = typeof item.value === 'string' ? item.value.trim() : ''
+
+  return v !== '' ? [v] : []
+}
+
+const groupedCharacteristics = computed(() => {
+  if (!product.value?.characteristics?.length) {
+    return []
+  }
+
+  const groups = new Map<string, Array<{ name: string; values: string[] }>>()
+
+  for (const item of product.value.characteristics) {
+    const values = characteristicRowValues(item)
+    if (values.length === 0) {
+      continue
+    }
+
+    const groupName = item.group?.trim() || 'Характеристики'
+
+    if (!groups.has(groupName)) {
+      groups.set(groupName, [])
+    }
+
+    groups.get(groupName)?.push({
+      name: item.name,
+      values,
+    })
+  }
+
+  return Array.from(groups.entries()).map(([name, items]) => ({
+    name,
+    items,
+  }))
+})
 
 const descriptionPreview = computed(() => {
   const raw = product.value?.description?.trim()
@@ -139,6 +222,7 @@ async function loadProduct(slug: string) {
   product.value = null
   selectedVariantId.value = null
   activeImageIndex.value = 0
+  qvImageLightboxOpen.value = false
 
   try {
     const data = await fetchJson<ProductPayload>(`/api/products/${encodeURIComponent(slug)}`)
@@ -168,6 +252,7 @@ watch(
       hasError.value = false
       selectedVariantId.value = null
       activeImageIndex.value = 0
+      qvImageLightboxOpen.value = false
 
       return
     }
@@ -179,18 +264,47 @@ watch(
 
 watch(selectedVariantId, () => {
   activeImageIndex.value = 0
+  quickActionError.value = ''
+  qvImageLightboxOpen.value = false
 })
+
+function lockBodyScroll() {
+  const html = document.documentElement
+  const body = document.body
+  const gap = Math.max(0, window.innerWidth - html.clientWidth)
+
+  html.style.overflow = 'hidden'
+  body.style.overflow = 'hidden'
+
+  if (gap > 0) {
+    body.style.paddingRight = `${gap}px`
+  }
+}
+
+function unlockBodyScroll() {
+  document.documentElement.style.overflow = ''
+  document.body.style.overflow = ''
+  document.body.style.paddingRight = ''
+}
 
 watch(isOpen, (open) => {
   if (open) {
     window.addEventListener('keydown', onEscape)
-  } else {
-    window.removeEventListener('keydown', onEscape)
+    lockBodyScroll()
+    return
   }
+
+  quickActionError.value = ''
+  window.removeEventListener('keydown', onEscape)
+  unlockBodyScroll()
 })
 
 function onEscape(e: KeyboardEvent) {
   if (e.key === 'Escape') {
+    if (qvImageLightboxOpen.value) {
+      qvImageLightboxOpen.value = false
+      return
+    }
     e.preventDefault()
     close()
   }
@@ -198,6 +312,7 @@ function onEscape(e: KeyboardEvent) {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onEscape)
+  unlockBodyScroll()
 })
 
 function close() {
@@ -234,6 +349,105 @@ async function addToCart() {
 function selectVariant(v: ProductVariantPayload) {
   selectedVariantId.value = v.id
 }
+
+function toWishlistItem(): WishlistItem {
+  const p = product.value
+  if (!p) {
+    throw new Error('product')
+  }
+
+  return {
+    id: p.id,
+    slug: p.slug,
+    name: p.name,
+    price: effectivePrice.value,
+    old_price: p.old_price,
+    stock: effectiveStock.value,
+    currency: p.currency,
+    image_url: displayImages.value[0]?.url ?? null,
+    category: p.category,
+  }
+}
+
+function toCompareItem(): CompareItem {
+  const p = product.value
+  if (!p) {
+    throw new Error('product')
+  }
+
+  return {
+    id: p.id,
+    slug: p.slug,
+    name: p.name,
+    price: effectivePrice.value,
+    old_price: p.old_price,
+    currency: p.currency,
+    image_url: displayImages.value[0]?.url ?? null,
+    stock: effectiveStock.value,
+    category: p.category,
+    tags: p.tags,
+  }
+}
+
+function toggleWishlist() {
+  if (!product.value) {
+    return
+  }
+
+  const added = wishlistStore.toggle(toWishlistItem())
+
+  void trackEvent('toggle_wishlist', {
+    source: 'quick_view',
+    slug: product.value.slug,
+    action: added ? 'added' : 'removed',
+  })
+}
+
+function toggleCompare() {
+  if (!product.value) {
+    return
+  }
+
+  const result = compareStore.toggle(toCompareItem())
+
+  void trackEvent('toggle_compare', {
+    source: 'quick_view',
+    slug: product.value.slug,
+    action: result.active ? 'added' : 'removed',
+  })
+}
+
+async function oneClickBuy() {
+  quickActionError.value = ''
+
+  if (!product.value || effectiveStock.value <= 0) {
+    return
+  }
+
+  if (product.value.has_variants && product.value.variants.length > 0 && !selectedVariantId.value) {
+    quickActionError.value = 'Выберите вариант перед быстрым заказом.'
+    return
+  }
+
+  if (!isAuthenticated.value) {
+    toast.info('Войдите в аккаунт, чтобы купить в 1 клик.')
+
+    await router.replace({
+      query: { ...route.query, auth: '1' },
+    })
+    return
+  }
+
+  oneClickModalStore.open({
+    productName: product.value.name,
+    productSlug: product.value.slug,
+    productVariantId: selectedVariant.value?.id,
+    qty: 1,
+    productPrice: effectivePrice.value,
+    currency: product.value.currency,
+    source: 'quick_view',
+  })
+}
 </script>
 
 <template>
@@ -264,15 +478,66 @@ function selectVariant(v: ProductVariantPayload) {
         <template v-else-if="product">
           <div class="qv-grid">
             <div class="qv-media">
-              <div class="qv-main-image">
-                <img
-                  v-if="activeImage"
-                  :src="resolveImageSrc(activeImage.url)"
-                  :alt="activeImage.alt || product.name"
-                  loading="eager"
-                  decoding="async"
-                  @error="applyImageFallback"
-                />
+              <div class="qv-media-inner">
+                <div class="qv-main-image qv-main-image-trigger-wrapper">
+                  <button
+                    v-if="activeImage"
+                    type="button"
+                    class="qv-main-image-trigger"
+                    :aria-label="`Открыть фото на весь экран (${activeImageIndex + 1} из ${displayImages.length})`"
+                    @click.stop="qvImageLightboxOpen = true"
+                  >
+                    <img
+                      :src="resolveImageSrc(activeImage.url)"
+                      :alt="activeImage.alt || product.name"
+                      loading="eager"
+                      decoding="async"
+                      @error="applyImageFallback"
+                    />
+                  </button>
+                </div>
+                <div class="qv-media-rail">
+                  <button
+                    type="button"
+                    class="qv-rail-btn"
+                    :class="{ 'qv-rail-btn--active': isWishlisted }"
+                    :aria-label="isWishlisted ? 'Убрать из избранного' : 'Добавить в избранное'"
+                    title="Избранное"
+                    @click.stop="toggleWishlist"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M12 20.7l-1.1-1C6 15.2 3 12.5 3 9.2 3 6.5 5.1 4.4 7.8 4.4c1.5 0 3 .7 4 1.9 1-1.2 2.5-1.9 4-1.9 2.7 0 4.8 2.1 4.8 4.8 0 3.3-3 6-7.9 10.5l-1.1 1z"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="qv-rail-btn"
+                    :class="{ 'qv-rail-btn--active': isCompared }"
+                    :aria-label="isCompared ? 'Убрать из сравнения' : 'Добавить в сравнение'"
+                    title="Сравнение"
+                    @click.stop="toggleCompare"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M10 3H5a2 2 0 0 0-2 2v5h2V5h5V3zm9 11v5a2 2 0 0 1-2 2h-5v-2h5v-5h2zM3 14v5a2 2 0 0 0 2 2h5v-2H5v-5H3zm16-9h-5V3h5a2 2 0 0 1 2 2v5h-2V5zM8 8h2v8H8V8zm6 0h2v8h-2V8z"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    v-if="effectiveStock > 0"
+                    type="button"
+                    class="qv-rail-btn"
+                    aria-label="Купить в один клик"
+                    title="Купить в один клик"
+                    @click.stop="oneClickBuy"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M13 3L5 17h8l-1.5 4L19 11h-7.8L13 3z" />
+                    </svg>
+                  </button>
+                </div>
               </div>
               <div v-if="displayImages.length > 1" class="qv-thumbs" role="tablist" aria-label="Фото товара">
                 <button
@@ -290,8 +555,24 @@ function selectVariant(v: ProductVariantPayload) {
             </div>
 
             <div class="qv-body">
-              <p v-if="product.brand" class="qv-brand">{{ product.brand }}</p>
-              <h2 id="qv-title" class="qv-title">{{ product.name }}</h2>
+              <p v-if="product.brand" class="qv-brand">
+                <RouterLink
+                  :to="productRoute"
+                  class="qv-brand-link"
+                  @click="close"
+                >
+                  {{ product.brand }}
+                </RouterLink>
+              </p>
+              <h2 id="qv-title" class="qv-title">
+                <RouterLink
+                  :to="productRoute"
+                  class="qv-title-link"
+                  @click="close"
+                >
+                  {{ product.name }}
+                </RouterLink>
+              </h2>
 
               <div class="qv-price-row">
                 <strong>{{ formatPrice(effectivePrice, product.currency) }}</strong>
@@ -325,7 +606,53 @@ function selectVariant(v: ProductVariantPayload) {
                 {{ descriptionPreview }}
               </div>
 
+              <section v-if="groupedCharacteristics.length" class="qv-characteristics">
+                <h3 class="qv-characteristics__heading">Характеристики</h3>
+                <article
+                  v-for="group in groupedCharacteristics"
+                  :key="`qv-char-${group.name}`"
+                  class="qv-characteristics__group"
+                >
+                  <h4 v-if="group.name !== 'Характеристики'" class="qv-characteristics__group-title">
+                    {{ group.name }}
+                  </h4>
+                  <ul class="qv-characteristics__list">
+                    <li
+                      v-for="(row, index) in group.items"
+                      :key="`qv-char-row-${group.name}-${index}`"
+                      class="qv-characteristics__row"
+                    >
+                      <span class="qv-characteristics__name">{{ row.name }}</span>
+                      <div class="qv-characteristics__values-cell">
+                        <template v-for="(val, vIndex) in row.values" :key="`${row.name}-${vIndex}-${val}`">
+                          <RouterLink
+                            class="qv-characteristics__value-link"
+                            :to="
+                              characteristicsCatalogRoute(row.name, val, {
+                                categorySlug: product.category?.slug,
+                              })
+                            "
+                            :title="`Подобрать товары: ${row.name} — ${val}`"
+                            @click="close"
+                          >
+                            {{ val }}
+                          </RouterLink>
+                          <span
+                            v-if="vIndex < row.values.length - 1"
+                            class="qv-characteristics__value-sep"
+                            aria-hidden="true"
+                          >
+                            ,&nbsp;
+                          </span>
+                        </template>
+                      </div>
+                    </li>
+                  </ul>
+                </article>
+              </section>
+
               <div class="qv-actions">
+                <p v-if="quickActionError" class="qv-action-error">{{ quickActionError }}</p>
                 <button
                   type="button"
                   class="qv-btn qv-btn--primary"
@@ -334,16 +661,21 @@ function selectVariant(v: ProductVariantPayload) {
                 >
                   {{ isCartBusy ? 'Добавляем…' : 'В корзину' }}
                 </button>
-                <RouterLink :to="productRoute" class="qv-btn qv-btn--outline" @click="close">
-                  Открыть карточку
-                </RouterLink>
               </div>
             </div>
           </div>
         </template>
       </div>
     </div>
-  </Teleport>
+      <ProductImageLightbox
+        v-if="product && isOpen"
+        v-model="qvImageLightboxOpen"
+        :slides="qvLightboxSlides"
+        :anchor-index="activeImageIndex"
+        :lock-body-scroll="false"
+        @sync-index="activeImageIndex = $event"
+      />
+    </Teleport>
 </template>
 
 <style scoped>
@@ -356,17 +688,70 @@ function selectVariant(v: ProductVariantPayload) {
   padding: 16px;
   background: rgb(15 23 42 / 48%);
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .qv-dialog {
   position: relative;
   width: min(960px, 100%);
-  max-height: min(92vh, 900px);
+  max-height: min(92dvh, 900px);
   overflow: auto;
   border-radius: 16px;
   background: var(--card, #fff);
   border: 1px solid var(--border, #e5e7eb);
   box-shadow: 0 24px 64px rgb(15 23 42 / 18%);
+}
+
+@media (min-width: 801px) {
+  .qv-dialog {
+    height: calc(100dvh - 32px);
+    max-height: calc(100dvh - 32px);
+    min-height: min(440px, calc(100dvh - 32px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .qv-dialog > .qv-state,
+  .qv-dialog > .qv-grid {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .qv-grid {
+    overflow: hidden;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .qv-media {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .qv-media-inner {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  .qv-thumbs {
+    flex-shrink: 0;
+  }
+
+  .qv-body {
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
 }
 
 .qv-close {
@@ -421,8 +806,11 @@ function selectVariant(v: ProductVariantPayload) {
 
 .qv-media {
   border-right: 1px solid var(--border, #e5e7eb);
-  padding: 16px;
-  background: var(--muted, #f9fafb);
+  padding: 12px;
+  background: var(--card, #fff);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 @media (max-width: 800px) {
@@ -432,25 +820,96 @@ function selectVariant(v: ProductVariantPayload) {
   }
 }
 
+.qv-media-inner {
+  position: relative;
+}
+
+.qv-main-image-trigger-wrapper {
+  border: none;
+}
+
+.qv-main-image-trigger {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: zoom-in;
+  height: 100%;
+}
+
+.qv-main-image-trigger:focus-visible {
+  outline: 2px solid var(--primary, #1d4ed8);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
 .qv-main-image {
   aspect-ratio: 1;
   border-radius: 12px;
   overflow: hidden;
-  background: #fff;
-  border: 1px solid var(--border);
+  clip-path: inset(0 round 12px);
+  background: transparent;
+  border: none;
 }
 
-.qv-main-image img {
+.qv-main-image img,
+.qv-main-image-trigger img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  object-position: top center;
+}
+
+.qv-media-rail {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 2;
+  display: grid;
+  gap: 6px;
+}
+
+.qv-rail-btn {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border), transparent 10%);
+  background: rgb(255 255 255 / 96%);
+  color: #9ca3af;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 6%);
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.qv-rail-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
+
+.qv-rail-btn--active {
+  color: var(--primary, #1d4ed8);
+  border-color: color-mix(in srgb, var(--primary), transparent 65%);
+  background: #fff;
+}
+
+.qv-rail-btn:hover {
+  color: var(--primary, #1d4ed8);
 }
 
 .qv-thumbs {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 10px;
 }
 
 .qv-thumb {
@@ -491,12 +950,44 @@ function selectVariant(v: ProductVariantPayload) {
   color: var(--muted-foreground);
 }
 
+.qv-brand-link {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.qv-brand-link:hover {
+  color: var(--primary, #1d4ed8);
+}
+
+.qv-brand-link:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary), transparent 35%);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .qv-title {
   margin: 0;
   font-size: clamp(20px, 2.4vw, 26px);
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.02em;
+}
+
+.qv-title-link {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.qv-title-link:hover {
+  color: var(--primary, #1d4ed8);
+}
+
+.qv-title-link:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary), transparent 35%);
+  outline-offset: 3px;
+  border-radius: 4px;
 }
 
 .qv-price-row {
@@ -586,12 +1077,120 @@ function selectVariant(v: ProductVariantPayload) {
   opacity: 0.92;
 }
 
+.qv-characteristics {
+  margin: 8px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, #e5e7eb);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding-inline-end: max(14px, 0.75rem);
+}
+
+@media (max-width: 800px) {
+  .qv-characteristics {
+    max-height: min(240px, 35vh);
+  }
+}
+
+.qv-characteristics__heading {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.qv-characteristics__group + .qv-characteristics__group {
+  margin-top: 12px;
+}
+
+.qv-characteristics__group-title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.qv-characteristics__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qv-characteristics__row {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px 20px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.qv-characteristics__name {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 50%;
+  color: #5b6479;
+}
+
+.qv-characteristics__values-cell {
+  flex: 0 1 auto;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 2px;
+  justify-content: flex-end;
+  align-items: baseline;
+  align-content: baseline;
+  min-width: 0;
+  max-width: 50%;
+  margin: -4px -2px -4px auto;
+  padding: 4px 2px;
+  text-align: right;
+}
+
+.qv-characteristics__value-link {
+  display: inline;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  font-weight: 600;
+  color: #1f2233;
+  text-decoration: underline solid;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, #1f2233, transparent 12%);
+  border-radius: 2px;
+  outline-offset: 2px;
+  transition: color 0.15s ease;
+}
+
+.qv-characteristics__value-link:hover {
+  color: var(--primary, #1d4ed8);
+  text-decoration-color: color-mix(in srgb, var(--primary), transparent 35%);
+}
+
+.qv-characteristics__value-sep {
+  color: inherit;
+  font-weight: 600;
+  user-select: none;
+}
+
 .qv-actions {
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-top: auto;
   padding-top: 8px;
+}
+
+.qv-action-error {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #c2410c;
 }
 
 .qv-btn {
@@ -626,14 +1225,30 @@ function selectVariant(v: ProductVariantPayload) {
   cursor: not-allowed;
 }
 
-.qv-btn--outline {
-  background: transparent;
-  border-color: var(--border);
-  color: var(--foreground);
-}
+/* На десктопе блок фото по высоте контента — иначе contain + высокая обёртка дают «ровный»
+   низ картинки без видимых нижних скруглений */
+@media (min-width: 801px) {
+  .qv-main-image {
+    flex: 0 0 auto;
+    width: 100%;
+    min-height: 0;
+    aspect-ratio: unset;
+    overflow: hidden;
+    border-radius: 12px;
+    clip-path: inset(0 round 12px);
+  }
 
-.qv-btn--outline:hover {
-  border-color: color-mix(in srgb, var(--primary), transparent 50%);
-  color: var(--primary);
+  .qv-main-image img,
+  .qv-main-image-trigger img {
+    height: auto;
+    max-height: none;
+  }
+
+  /* flex: min-height: 0 иначе overflow не даёт скролл; max-height только на мобилке */
+  .qv-characteristics {
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: none;
+  }
 }
 </style>

@@ -14,6 +14,7 @@ type CartItem = {
   product_name: string
   variant_label: string | null
   image_url: string | null
+  brand: string | null
   qty: number
   unit_price: number
   total_price: number
@@ -248,7 +249,6 @@ type OrderDetails = {
 export const useCartStore = defineStore('cart', () => {
   const cart = ref<CartPayload | null>(null)
   const isLoading = ref(false)
-  const lastOrder = ref<CheckoutResponse | null>(null)
   const orderHistory = ref<OrderSummary[]>([])
   const orderHistoryMeta = ref({
     currentPage: 1,
@@ -352,19 +352,47 @@ export const useCartStore = defineStore('cart', () => {
     }
   }
 
-  async function removeItem(itemId: number) {
+  async function removeItem(itemId: number, options?: { quiet?: boolean }) {
     const previous = cart.value?.items.find((i) => i.id === itemId)
     const previousName = previous?.product_name
+    const quiet = options?.quiet === true
     isLoading.value = true
 
     try {
       cart.value = await requestJson<CartPayload>(`/api/cart/items/${itemId}?session_id=${encodeURIComponent(sessionId)}`, {
         method: 'DELETE',
       })
-      toast.success(previousName ? `«${previousName}» убрано из корзины` : 'Удалено из корзины')
+      if (!quiet) {
+        toast.success(previousName ? `«${previousName}» убрано из корзины` : 'Удалено из корзины')
+      }
     } catch (error) {
       console.error(error)
       toast.error('Не удалось удалить из корзины')
+      throw error
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  async function clearCart() {
+    const ids = (cart.value?.items ?? []).map((i) => i.id)
+    if (ids.length === 0) {
+      return
+    }
+
+    isLoading.value = true
+
+    try {
+      for (const id of ids) {
+        cart.value = await requestJson<CartPayload>(`/api/cart/items/${id}?session_id=${encodeURIComponent(sessionId)}`, {
+          method: 'DELETE',
+        })
+      }
+
+      toast.success('Корзина очищена')
+    } catch (error) {
+      console.error(error)
+      toast.error('Не удалось очистить корзину')
       throw error
     } finally {
       isLoading.value = false
@@ -381,7 +409,47 @@ export const useCartStore = defineStore('cart', () => {
       }),
     })
 
-    lastOrder.value = order
+    await loadCart()
+
+    return order
+  }
+
+  async function fetchOneClickSuggestions() {
+    return requestJson<{ delivery_method: string; payment_method: string }>(
+      '/api/checkout/one-click/suggestions',
+    )
+  }
+
+  async function oneClickCheckout(payload: {
+    product_slug: string
+    product_variant_id?: number | null
+    qty?: number
+    delivery_method?: string
+    payment_method?: string
+  }) {
+    const body: Record<string, unknown> = {
+      product_slug: payload.product_slug,
+      qty: payload.qty ?? 1,
+      attribution: captureFirstTouchAttribution(),
+    }
+
+    if (payload.product_variant_id != null) {
+      body.product_variant_id = payload.product_variant_id
+    }
+
+    if (payload.delivery_method != null && payload.delivery_method !== '') {
+      body.delivery_method = payload.delivery_method
+    }
+
+    if (payload.payment_method != null && payload.payment_method !== '') {
+      body.payment_method = payload.payment_method
+    }
+
+    const order = await requestJson<CheckoutResponse>('/api/checkout/one-click', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+
     await loadCart()
 
     return order
@@ -463,7 +531,6 @@ export const useCartStore = defineStore('cart', () => {
     subtotal,
     total,
     isLoading,
-    lastOrder,
     orderHistory,
     orderHistoryMeta,
     checkoutOptions,
@@ -475,6 +542,9 @@ export const useCartStore = defineStore('cart', () => {
     addItemBySlug,
     updateQty,
     removeItem,
+    clearCart,
     checkout,
+    oneClickCheckout,
+    fetchOneClickSuggestions,
   }
 })

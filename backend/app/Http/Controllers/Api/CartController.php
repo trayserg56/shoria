@@ -236,7 +236,7 @@ class CartController extends Controller
 
             return Cart::query()->create([
                 'user_id' => $user->id,
-                'session_id' => $sessionId,
+                'session_id' => $sessionId ?? 'user:'.$user->id,
                 'status' => 'open',
                 'currency' => 'RUB',
                 'subtotal' => 0,
@@ -356,6 +356,9 @@ class CartController extends Controller
                 'product_name' => $item->product_name,
                 'variant_label' => $item->variant_label,
                 'image_url' => $item->image_url,
+                'brand' => $product && $product->brand !== null && $product->brand !== ''
+                    ? trim((string) $product->brand)
+                    : null,
                 'qty' => $item->qty,
                 'unit_price' => (float) $item->unit_price,
                 'total_price' => (float) $item->total_price,

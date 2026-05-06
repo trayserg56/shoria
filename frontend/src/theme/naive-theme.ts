@@ -53,4 +53,11 @@ export const naiveThemeOverrides: GlobalThemeOverrides = {
     railColor: '#e5e7eb',
     fillColor: '#09090b',
   },
+  // Меню селекта / поповеры выше липкой шапки (≈50) и типичных модалок
+  Popover: {
+    zIndex: 5000,
+  },
+  InternalSelectMenu: {
+    zIndex: 5000,
+  },
 }

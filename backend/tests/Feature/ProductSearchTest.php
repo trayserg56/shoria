@@ -24,6 +24,10 @@ class ProductSearchTest extends TestCase
 
     public function test_products_index_supports_cyrillic_query_via_transliteration(): void
     {
+        if (config('scout.driver') !== 'meilisearch') {
+            $this->markTestSkipped('Search transliteration is handled natively by Meilisearch.');
+        }
+
         $this->seed(ShopDemoSeeder::class);
 
         $response = $this->getJson('/api/products?q=неон');
@@ -45,6 +49,10 @@ class ProductSearchTest extends TestCase
 
     public function test_search_suggest_supports_cyrillic_query_via_transliteration(): void
     {
+        if (config('scout.driver') !== 'meilisearch') {
+            $this->markTestSkipped('Search transliteration is handled natively by Meilisearch.');
+        }
+
         $this->seed(ShopDemoSeeder::class);
 
         $response = $this->getJson('/api/search/suggest?q=не');

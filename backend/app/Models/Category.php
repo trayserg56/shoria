@@ -20,6 +20,7 @@ class Category extends Model
         'slug',
         'description',
         'image_url',
+        'icon_url',
         'seo_title',
         'seo_description',
         'is_featured',
@@ -54,6 +55,13 @@ class Category extends Model
     }
 
     protected function imageUrl(): \Illuminate\Database\Eloquent\Casts\Attribute
+    {
+        return \Illuminate\Database\Eloquent\Casts\Attribute::make(
+            get: fn (?string $value): ?string => MediaUrl::resolve($value),
+        );
+    }
+
+    protected function iconUrl(): \Illuminate\Database\Eloquent\Casts\Attribute
     {
         return \Illuminate\Database\Eloquent\Casts\Attribute::make(
             get: fn (?string $value): ?string => MediaUrl::resolve($value),

@@ -5,6 +5,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { NConfigProvider, dateRuRU, ruRU } from 'naive-ui'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import AuthModal from '@/components/AuthModal.vue'
+import OneClickCheckoutModal from '@/components/OneClickCheckoutModal.vue'
 import ProductQuickViewModal from '@/components/ProductQuickViewModal.vue'
 import { buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,6 +28,7 @@ import { closeProductQuickView } from '@/lib/product-quick-view'
 import { captureFirstTouchAttribution } from '@/lib/attribution'
 import { fetchJson } from '@/lib/api'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
+import { resolveCategoryMenuIcon } from '@/lib/category-menu-icons'
 import { toProductRoute } from '@/lib/product-route'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
@@ -40,9 +42,10 @@ const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
 const { totalItems: wishlistTotalItems } = storeToRefs(wishlistStore)
 const { totalItems: compareTotalItems } = storeToRefs(compareStore)
-const { isAuthenticated, user } = storeToRefs(authStore)
+const { isAuthenticated } = storeToRefs(authStore)
 const route = useRoute()
 const router = useRouter()
+
 const authModalOpen = ref(false)
 const isHeaderLoading = ref(true)
 const currentYear = new Date().getFullYear()
@@ -91,6 +94,7 @@ type HeaderCategory = {
   id: number
   name: string
   slug: string
+  icon_url?: string | null
   subcategories?: HeaderCategory[]
 }
 
@@ -713,8 +717,27 @@ onBeforeUnmount(() => {
                             @mouseenter="setMegaActiveCategory(category)"
                             @focus="setMegaActiveCategory(category)"
                             @click="closeCatalogMenu"
-                          >
-                            {{ category.name }}
+                         >
+                            <img
+                              v-if="category.icon_url"
+                              :src="resolveImageSrc(category.icon_url)"
+                              alt=""
+                              class="category-menu-icon category-menu-icon--img"
+                              width="18"
+                              height="18"
+                              loading="lazy"
+                              decoding="async"
+                              @error="applyImageFallback"
+                            />
+                            <component
+                              :is="resolveCategoryMenuIcon(category.slug)"
+                              v-else
+                              class="category-menu-icon"
+                              :size="18"
+                              :stroke-width="1.75"
+                              aria-hidden="true"
+                            />
+                            <span class="site-header__mega-parent-text">{{ category.name }}</span>
                           </RouterLink>
                         </li>
                       </ul>
@@ -829,7 +852,7 @@ onBeforeUnmount(() => {
                 Войти
               </button>
               <RouterLink v-else to="/account" class="site-header__account">
-                {{ user?.name ?? 'Профиль' }}
+                Профиль
               </RouterLink>
             </div>
           </div>
@@ -844,15 +867,21 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div class="site-header__main">
-          <div class="site-header__inner site-header__inner--main site-header__inner--loading">
+          <div class="site-header__inner site-header__inner--main">
             <div class="site-header__leading">
-              <AppSkeleton inline width="120px" height="40px" radius="10px" />
-              <AppSkeleton inline width="96px" height="40px" radius="10px" />
+              <AppSkeleton inline width="120px" height="44px" radius="10px" />
+              <AppSkeleton inline width="96px" height="44px" radius="10px" />
             </div>
-            <AppSkeleton class="site-header__search-skeleton" inline width="100%" height="44px" radius="12px" />
+            <AppSkeleton
+              class="site-header__search-skeleton"
+              inline
+              width="100%"
+              height="44px"
+              radius="12px"
+            />
             <div class="site-header__aside site-header__aside--loading">
-              <AppSkeleton inline width="140px" height="40px" radius="12px" />
-              <AppSkeleton inline width="132px" height="40px" radius="12px" />
+              <AppSkeleton inline width="140px" height="42px" radius="12px" />
+              <AppSkeleton inline width="132px" height="42px" radius="12px" />
             </div>
           </div>
         </div>
@@ -899,7 +928,26 @@ onBeforeUnmount(() => {
                 class="mobile-drawer__parent"
                 @click="mobileDrawerOpen = false"
               >
-                {{ category.name }}
+                <img
+                  v-if="category.icon_url"
+                  :src="resolveImageSrc(category.icon_url)"
+                  alt=""
+                  class="category-menu-icon category-menu-icon--img"
+                  width="18"
+                  height="18"
+                  loading="lazy"
+                  decoding="async"
+                  @error="applyImageFallback"
+                />
+                <component
+                  :is="resolveCategoryMenuIcon(category.slug)"
+                  v-else
+                  class="category-menu-icon"
+                  :size="18"
+                  :stroke-width="1.75"
+                  aria-hidden="true"
+                />
+                <span>{{ category.name }}</span>
               </RouterLink>
               <div v-if="category.subcategories?.length" class="mobile-drawer__subs">
                 <RouterLink
@@ -1055,6 +1103,7 @@ onBeforeUnmount(() => {
       <p class="footer__copy">© {{ currentYear }} Shoria. Все права защищены.</p>
       </footer>
     <AuthModal :open="authModalOpen" @close="closeAuthModal" @authenticated="onAuthenticated" />
+    <OneClickCheckoutModal />
     <ProductQuickViewModal />
     <Toaster position="bottom-right" :rich-colors="true" close-button />
   </div>
@@ -1293,11 +1342,12 @@ onBeforeUnmount(() => {
 
 .site-header__mega-parent {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   padding: 10px 14px 10px 16px;
   border: 0;
-  border-radius: 0 10px 10px 0;
   background: transparent;
   text-align: left;
   font: inherit;
@@ -1313,23 +1363,6 @@ onBeforeUnmount(() => {
     box-shadow 0.2s ease;
 }
 
-.site-header__mega-parent::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 3px;
-  height: calc(100% - 14px);
-  max-height: 36px;
-  border-radius: 0 3px 3px 0;
-  background: var(--primary);
-  opacity: 0;
-  transform: translateY(-50%) scaleY(0.35);
-  transition:
-    opacity 0.2s ease,
-    transform 0.22s cubic-bezier(0.33, 1, 0.68, 1);
-}
-
 .site-header__mega-parent:hover,
 .site-header__mega-parent--active {
   background: color-mix(in srgb, var(--primary), transparent 92%);
@@ -1337,10 +1370,34 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary), transparent 78%);
 }
 
-.site-header__mega-parent:hover::before,
-.site-header__mega-parent--active::before {
+.site-header__mega-parent-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.category-menu-icon {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  opacity: 0.9;
+}
+
+.site-header__mega-parent:hover .category-menu-icon,
+.site-header__mega-parent--active .category-menu-icon {
+  color: var(--foreground);
   opacity: 1;
-  transform: translateY(-50%) scaleY(1);
+}
+
+.category-menu-icon--img {
+  display: block;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.site-header__mega-parent:hover .category-menu-icon--img,
+.site-header__mega-parent--active .category-menu-icon--img {
+  opacity: 1;
 }
 
 .site-header__mega-parent:focus-visible {
@@ -1371,7 +1428,6 @@ onBeforeUnmount(() => {
 
 .site-header__mega-sub {
   padding: 8px 10px;
-  border-radius: 10px;
   font-size: 14px;
   color: var(--muted-foreground);
   text-decoration: none;
@@ -1488,7 +1544,7 @@ onBeforeUnmount(() => {
 
 .site-header__search-input:focus,
 .site-header__search-input:focus-visible {
-  border-color: var(--border);
+  border-color: #000;
   box-shadow: none;
   outline: none;
 }
@@ -1663,21 +1719,18 @@ onBeforeUnmount(() => {
   color: var(--primary);
 }
 
-.site-header__inner--loading {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 12px;
-}
-
 .site-header__aside--loading {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
   justify-content: flex-end;
 }
 
+/* Как у .site-header__search: не раздуваем колонку грида */
 .site-header__search-skeleton {
-  grid-column: 1 / -1;
+  min-width: 0;
+  width: 100%;
 }
 
 .mobile-drawer-overlay {
@@ -1779,11 +1832,25 @@ onBeforeUnmount(() => {
 }
 
 .mobile-drawer__parent {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 8px 0;
   font-weight: 700;
   color: var(--foreground);
   text-decoration: none;
+}
+
+.mobile-drawer__parent .category-menu-icon {
+  color: var(--muted-foreground);
+}
+
+.mobile-drawer__parent:hover .category-menu-icon {
+  color: var(--foreground);
+}
+
+.mobile-drawer__parent:hover .category-menu-icon--img {
+  opacity: 1;
 }
 
 .mobile-drawer__subs {

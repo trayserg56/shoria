@@ -59,6 +59,16 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = response.user
   }
 
+  async function exchangeOAuthCode(code: string) {
+    const response = await requestJson<AuthResponse>('/api/auth/oauth/exchange', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    })
+
+    setAuthToken(response.token)
+    user.value = response.user
+  }
+
   async function loadMe() {
     if (!getAuthToken()) {
       user.value = null
@@ -134,6 +144,7 @@ export const useAuthStore = defineStore('auth', () => {
     isLoading,
     register,
     login,
+    exchangeOAuthCode,
     loadMe,
     logout,
     forgotPassword,

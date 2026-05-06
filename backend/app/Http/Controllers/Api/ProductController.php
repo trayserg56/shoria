@@ -10,6 +10,7 @@ use App\Models\ProductReview;
 use App\Models\ProductVariant;
 use App\Models\TrackingEvent;
 use App\Models\User;
+use App\Support\ProductCharacteristics;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,7 +23,12 @@ class ProductController extends Controller
     {
         $filters = $this->collectCatalogFilters($request);
 
-        $query = $this->withReviewSummary($this->catalogQuery($filters))
+        $scoutProductIds = null;
+        if ($filters['q'] !== '') {
+            $scoutProductIds = Product::search($filters['q'])->take(1000)->keys();
+        }
+
+        $query = $this->withReviewSummary($this->catalogQuery($filters, [], $scoutProductIds))
             ->with([
                 'category:id,name,slug',
                 'categories:id,name,slug',
@@ -30,7 +36,7 @@ class ProductController extends Controller
                 'images:id,product_id,url,alt,is_cover,sort_order',
             ]);
 
-        $this->applySort($query, $filters['sort']);
+        $this->applySort($query, $filters['sort'], $scoutProductIds);
 
         $products = $query
             ->paginate(12)
@@ -58,7 +64,7 @@ class ProductController extends Controller
 
         return response()->json([
             ...$products->toArray(),
-            'filters' => $this->resolveCatalogFacets($filters),
+            'filters' => $this->resolveCatalogFacets($filters, $scoutProductIds),
         ]);
     }
 
@@ -113,7 +119,7 @@ class ProductController extends Controller
      * } $filters
      * @param array<int, string> $exclude
      */
-    private function catalogQuery(array $filters, array $exclude = []): Builder
+    private function catalogQuery(array $filters, array $exclude = [], ?Collection $scoutProductIds = null): Builder
     {
         $excludeMap = array_fill_keys($exclude, true);
         $query = Product::query()->where('products.is_active', true);
@@ -136,27 +142,14 @@ class ProductController extends Controller
         }
 
         if (! isset($excludeMap['q']) && $filters['q'] !== '') {
-            $searchVariants = $this->buildSearchVariants($filters['q']);
+            // Используем результаты Scout (Meilisearch) для текстового поиска
+            $productIds = $scoutProductIds ?? Product::search($filters['q'])->take(1000)->keys();
 
-            $query->where(function ($searchQuery) use ($searchVariants): void {
-                foreach ($searchVariants as $index => $variant) {
-                    $needle = '%' . $variant . '%';
-                    $method = $index === 0 ? 'where' : 'orWhere';
-
-                    $searchQuery->{$method}(function ($variantQuery) use ($needle): void {
-                        $variantQuery
-                            ->whereRaw('LOWER(products.name) LIKE ?', [$needle])
-                            ->orWhereRaw('LOWER(products.brand) LIKE ?', [$needle])
-                            ->orWhereRaw('LOWER(products.sku) LIKE ?', [$needle])
-                            ->orWhereHas('category', function ($categoryQuery) use ($needle): void {
-                                $categoryQuery->whereRaw('LOWER(name) LIKE ?', [$needle]);
-                            })
-                            ->orWhereHas('categories', function ($categoryQuery) use ($needle): void {
-                                $categoryQuery->whereRaw('LOWER(name) LIKE ?', [$needle]);
-                            });
-                    });
-                }
-            });
+            if ($productIds->isEmpty()) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->whereIn('products.id', $productIds);
+            }
         }
 
         if (! isset($excludeMap['price']) && $filters['price_min'] !== null) {
@@ -300,9 +293,9 @@ class ProductController extends Controller
      *     on_sale: array{count: int}
      * }
      */
-    private function resolveCatalogFacets(array $filters): array
+    private function resolveCatalogFacets(array $filters, ?Collection $scoutProductIds = null): array
     {
-        $categoryFacetBase = $this->catalogQuery($filters, ['category']);
+        $categoryFacetBase = $this->catalogQuery($filters, ['category'], $scoutProductIds);
         $categoryBaseSql = (clone $categoryFacetBase)
             ->select('products.id')
             ->toBase();
@@ -339,7 +332,7 @@ class ProductController extends Controller
             ->where('is_active', true)
             ->pluck('slug', 'id');
 
-        $tagFacetBase = $this->catalogQuery($filters, ['tags']);
+        $tagFacetBase = $this->catalogQuery($filters, ['tags'], $scoutProductIds);
         $tagBlueprints = [
             ['code' => 'hit', 'label' => 'Хит', 'column' => 'is_hit'],
             ['code' => 'new', 'label' => 'Новинка', 'column' => 'is_new'],
@@ -359,7 +352,7 @@ class ProductController extends Controller
             ->filter(fn (array $tag): bool => $tag['count'] > 0 || in_array($tag['code'], $filters['tags'], true))
             ->values();
 
-        $brandFacetBase = $this->catalogQuery($filters, ['brands']);
+        $brandFacetBase = $this->catalogQuery($filters, ['brands'], $scoutProductIds);
         $brands = (clone $brandFacetBase)
             ->leftJoin('brands', 'brands.id', '=', 'products.brand_id')
             ->selectRaw('COALESCE(brands.name, products.brand) as value, COUNT(*) as count')
@@ -374,7 +367,7 @@ class ProductController extends Controller
             ])
             ->values();
 
-        $colorFacetBase = $this->catalogQuery($filters, ['colors']);
+        $colorFacetBase = $this->catalogQuery($filters, ['colors'], $scoutProductIds);
         $colors = ProductVariant::query()
             ->selectRaw('product_variants.color_label as value, COUNT(DISTINCT product_variants.product_id) as count')
             ->where('product_variants.is_active', true)
@@ -390,7 +383,7 @@ class ProductController extends Controller
             ])
             ->values();
 
-        $sizeFacetBase = $this->catalogQuery($filters, ['sizes']);
+        $sizeFacetBase = $this->catalogQuery($filters, ['sizes'], $scoutProductIds);
         $sizes = ProductVariant::query()
             ->selectRaw('product_variants.size_label as value, COUNT(DISTINCT product_variants.product_id) as count')
             ->where('product_variants.is_active', true)
@@ -406,17 +399,17 @@ class ProductController extends Controller
             ])
             ->values();
 
-        $characteristicsFacetBase = $this->catalogQuery($filters, ['characteristics'])
+        $characteristicsFacetBase = $this->catalogQuery($filters, ['characteristics'], $scoutProductIds)
             ->select(['products.id', 'products.characteristics'])
             ->get();
 
         $characteristicsMatrix = [];
 
         foreach ($characteristicsFacetBase as $product) {
-            $normalizedCharacteristics = $this->normalizeCharacteristics($product->characteristics);
+            $tuples = ProductCharacteristics::flattenTuples($product->characteristics);
             $seenPairs = [];
 
-            foreach ($normalizedCharacteristics as $characteristic) {
+            foreach ($tuples as $characteristic) {
                 $name = trim((string) ($characteristic['name'] ?? ''));
                 $value = trim((string) ($characteristic['value'] ?? ''));
 
@@ -480,7 +473,7 @@ class ProductController extends Controller
             ->sortBy(fn (array $row): string => mb_strtolower($row['name']))
             ->values();
 
-        $saleFacetBase = $this->catalogQuery($filters, ['on_sale']);
+        $saleFacetBase = $this->catalogQuery($filters, ['on_sale'], $scoutProductIds);
         $onSaleCount = (clone $saleFacetBase)
             ->whereNotNull('products.old_price')
             ->whereColumn('products.old_price', '>', 'products.price')
@@ -514,15 +507,40 @@ class ProductController extends Controller
         ];
     }
 
-    private function applySort(Builder $query, string $sort): void
+    private function applySort(Builder $query, string $sort, ?Collection $scoutProductIds = null): void
     {
         match ($sort) {
             'price_asc' => $query->orderBy('products.price')->orderBy('products.sort_order'),
             'price_desc' => $query->orderByDesc('products.price')->orderBy('products.sort_order'),
             'name_asc' => $query->orderBy('products.name')->orderBy('products.sort_order'),
             'name_desc' => $query->orderByDesc('products.name')->orderBy('products.sort_order'),
-            default => $query->orderByDesc('products.is_featured')->orderBy('products.sort_order'),
+            default => $this->applyDefaultSort($query, $scoutProductIds),
         };
+    }
+
+    private function applyDefaultSort(Builder $query, ?Collection $scoutProductIds): void
+    {
+        if ($scoutProductIds !== null && $scoutProductIds->isNotEmpty()) {
+            $idsList = implode(',', $scoutProductIds->toArray());
+            
+            if (DB::connection()->getDriverName() === 'pgsql') {
+                // Для PostgreSQL: сортировка по порядку ID, возвращенному Scout (Meilisearch) для сохранения релевантности.
+                $query->orderByRaw("array_position(ARRAY[{$idsList}]::bigint[], products.id)")
+                    ->orderBy('products.sort_order');
+                return;
+            }
+            
+            if (DB::connection()->getDriverName() === 'mysql') {
+                $query->orderByRaw("FIELD(products.id, {$idsList})")
+                    ->orderBy('products.sort_order');
+                return;
+            }
+            
+            // Для SQLite (тесты) не применяем специфичную сортировку массивов
+            return;
+        }
+
+        $query->orderByDesc('products.is_featured')->orderBy('products.sort_order');
     }
 
     public function suggest(Request $request): JsonResponse
@@ -536,48 +554,17 @@ class ProductController extends Controller
             ]);
         }
 
-        $searchVariants = $this->buildSearchVariants($queryText);
-
-        $prefixVariants = array_map(
-            static fn (string $variant): string => $variant . '%',
-            $searchVariants,
-        );
-
-        $products = $this->withReviewSummary(Product::query())
-            ->with([
-                'category:id,name,slug',
-                'categories:id,name,slug',
-                'brandEntity:id,name,slug',
-                'images:id,product_id,url,alt,is_cover,sort_order',
-            ])
-            ->where('is_active', true)
-            ->where(function ($searchQuery) use ($searchVariants): void {
-                foreach ($searchVariants as $index => $variant) {
-                    $needle = '%' . $variant . '%';
-
-                    $method = $index === 0 ? 'where' : 'orWhere';
-
-                    $searchQuery->{$method}(function ($variantQuery) use ($needle): void {
-                        $variantQuery
-                            ->whereRaw('LOWER(products.name) LIKE ?', [$needle])
-                            ->orWhereRaw('LOWER(products.brand) LIKE ?', [$needle])
-                            ->orWhereRaw('LOWER(products.sku) LIKE ?', [$needle])
-                            ->orWhereHas('category', function ($categoryQuery) use ($needle): void {
-                                $categoryQuery->whereRaw('LOWER(name) LIKE ?', [$needle]);
-                            })
-                            ->orWhereHas('categories', function ($categoryQuery) use ($needle): void {
-                                $categoryQuery->whereRaw('LOWER(name) LIKE ?', [$needle]);
-                            });
-                    });
-                }
+        $products = Product::search($queryText)
+            ->query(function (Builder $builder): void {
+                $this->withReviewSummary($builder)
+                    ->with([
+                        'category:id,name,slug',
+                        'categories:id,name,slug',
+                        'brandEntity:id,name,slug',
+                        'images:id,product_id,url,alt,is_cover,sort_order',
+                    ]);
             })
-            ->orderByRaw(
-                'CASE WHEN ' . implode(' OR ', array_fill(0, count($prefixVariants), 'LOWER(name) LIKE ?')) . ' THEN 0 ELSE 1 END',
-                $prefixVariants,
-            )
-            ->orderByDesc('is_featured')
-            ->orderBy('sort_order')
-            ->limit(8)
+            ->take(8)
             ->get();
 
         return response()->json([
@@ -859,7 +846,7 @@ class ProductController extends Controller
             'slug' => $product->slug,
             'sku' => $product->sku,
             'description' => $product->description,
-            'characteristics' => $this->normalizeCharacteristics($product->characteristics),
+            'characteristics' => ProductCharacteristics::groupedForApi($product->characteristics),
             'seo_title' => $product->seo_title,
             'seo_description' => $product->seo_description,
             'price' => (float) $product->price,
@@ -896,39 +883,110 @@ class ProductController extends Controller
         ]);
     }
 
-    /**
-     * @param mixed $characteristics
-     * @return array<int, array{group: string|null, name: string, value: string}>
-     */
-    private function normalizeCharacteristics(mixed $characteristics): array
+    public function similar(string $slug): JsonResponse
     {
-        if (! is_array($characteristics)) {
-            return [];
+        $currentProduct = Product::query()
+            ->select(['id', 'slug', 'category_id', 'brand_id'])
+            ->where('is_active', true)
+            ->where('slug', $slug)
+            ->firstOrFail();
+
+        $query = Product::query()
+            ->where('is_active', true)
+            ->where('id', '!=', $currentProduct->id)
+            ->whereNotNull('category_id')
+            ->where('category_id', $currentProduct->category_id);
+
+        if ($currentProduct->brand_id) {
+            $query->orderByRaw('brand_id = ? DESC', [$currentProduct->brand_id]);
         }
 
-        return collect($characteristics)
-            ->map(function ($row): ?array {
-                if (! is_array($row)) {
-                    return null;
-                }
+        $query->orderByDesc('is_hit')
+              ->orderByDesc('is_featured')
+              ->orderBy('sort_order')
+              ->limit(12);
 
-                $name = trim((string) ($row['name'] ?? ''));
-                $value = trim((string) ($row['value'] ?? ''));
-                $group = trim((string) ($row['group'] ?? ''));
+        $similarProducts = $this->withReviewSummary($query)
+            ->with([
+                'category:id,name,slug',
+                'categories:id,name,slug',
+                'brandEntity:id,name,slug',
+                'images:id,product_id,url,alt,is_cover,sort_order',
+            ])
+            ->get();
 
-                if ($name === '' || $value === '') {
-                    return null;
-                }
+        if ($similarProducts->count() < 12) {
+            $excludeIds = $similarProducts->pluck('id')->push($currentProduct->id);
+            $fill = $this->fallbackRecommendations($excludeIds, 12 - $similarProducts->count());
+            $similarProducts = $similarProducts->merge($fill)->values();
+        }
 
-                return [
-                    'group' => $group !== '' ? $group : null,
-                    'name' => $name,
-                    'value' => $value,
-                ];
+        return response()->json([
+            'data' => $similarProducts->map(fn (Product $product) => $this->productCardPayload($product))->values(),
+        ]);
+    }
+
+    public function cartRecommendations(Request $request): JsonResponse
+    {
+        $ids = array_filter(explode(',', $request->query('ids', '')));
+        
+        if (empty($ids)) {
+            return $this->personalRecommendations($request);
+        }
+
+        $coPurchaseProductIds = OrderItem::query()
+            ->whereIn('product_id', $ids)
+            ->whereHas('order', function (Builder $query): void {
+                $query
+                    ->whereIn('status', ['paid', 'processing', 'completed'])
+                    ->where('placed_at', '>=', now()->subDays(180));
             })
-            ->filter()
-            ->values()
-            ->all();
+            ->pluck('order_id')
+            ->unique()
+            ->whenNotEmpty(function ($orderIds) use ($ids) {
+                return OrderItem::query()
+                    ->selectRaw('product_id, COUNT(*) as score')
+                    ->whereIn('order_id', $orderIds)
+                    ->whereNotIn('product_id', $ids)
+                    ->whereNotNull('product_id')
+                    ->groupBy('product_id')
+                    ->orderByDesc('score')
+                    ->limit(12)
+                    ->pluck('product_id');
+            }, function () {
+                return collect();
+            })
+            ->values();
+
+        $recommendations = collect();
+
+        if ($coPurchaseProductIds->isNotEmpty()) {
+            $recommendations = $this->withReviewSummary(Product::query())
+                ->with([
+                    'category:id,name,slug',
+                    'categories:id,name,slug',
+                    'brandEntity:id,name,slug',
+                    'images:id,product_id,url,alt,is_cover,sort_order',
+                ])
+                ->where('is_active', true)
+                ->whereIn('id', $coPurchaseProductIds)
+                ->get()
+                ->sortBy(function (Product $product) use ($coPurchaseProductIds): int {
+                    return (int) $coPurchaseProductIds->search($product->id);
+                })
+                ->take(12)
+                ->values();
+        }
+
+        if ($recommendations->count() < 12) {
+            $excludeIds = $recommendations->pluck('id')->merge($ids)->unique();
+            $fill = $this->fallbackRecommendations($excludeIds, 12 - $recommendations->count());
+            $recommendations = $recommendations->merge($fill)->values();
+        }
+
+        return response()->json([
+            'data' => $recommendations->map(fn (Product $product) => $this->productCardPayload($product))->values(),
+        ]);
     }
 
     public function recommendations(string $slug): JsonResponse

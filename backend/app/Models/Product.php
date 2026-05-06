@@ -8,10 +8,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Laravel\Scout\Searchable;
 
 class Product extends Model
 {
-    use HasAuthorship, HasFactory;
+    use HasAuthorship, HasFactory, Searchable;
 
     protected $fillable = [
         'category_id',
@@ -105,6 +106,81 @@ class Product extends Model
         }
 
         return $tags;
+    }
+
+    public static function transliterateLatinToCyrillic(string $value): string
+    {
+        $map = [
+            'a' => 'а', 'b' => 'б', 'v' => 'в', 'g' => 'г', 'd' => 'д', 'e' => 'е',
+            'zh' => 'ж', 'z' => 'з', 'i' => 'и', 'y' => 'й', 'k' => 'к', 'l' => 'л',
+            'm' => 'м', 'n' => 'н', 'o' => 'о', 'p' => 'п', 'r' => 'р', 's' => 'с',
+            't' => 'т', 'u' => 'у', 'f' => 'ф', 'h' => 'х', 'ts' => 'ц', 'ch' => 'ч',
+            'shch' => 'щ', 'sh' => 'ш', 'yu' => 'ю', 'ya' => 'я',
+            'c' => 'к', 'q' => 'к', 'x' => 'кс', 'w' => 'в', 'j' => 'дж',
+        ];
+
+        // Sort keys by length descending to match longest first (e.g. 'shch' before 's')
+        $keys = array_keys($map);
+        usort($keys, fn($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+
+        $result = mb_strtolower($value);
+        foreach ($keys as $key) {
+            $result = str_replace($key, $map[$key], $result);
+        }
+
+        return $result;
+    }
+
+    public function toSearchableArray(): array
+    {
+        $array = $this->toArray();
+        $array['category_slug'] = $this->category?->slug;
+        $array['category_name'] = $this->category?->name;
+
+        $nameCyrillic = self::transliterateLatinToCyrillic($array['name'] ?? '');
+        $brandCyrillic = self::transliterateLatinToCyrillic($array['brand'] ?? '');
+        
+        $brand = mb_strtolower(trim((string) ($array['brand'] ?? '')));
+        $customSynonyms = match($brand) {
+            'nike' => 'найк',
+            'asics' => 'асикс',
+            'puma' => 'пума',
+            'reebok' => 'рибок',
+            'adidas' => 'адидас',
+            'new balance' => 'нью баланс',
+            'salomon' => 'саломон',
+            'under armour' => 'андер армор',
+            'balenciaga' => 'баленсиага',
+            'shoria' => 'шория',
+            default => '',
+        };
+
+        // Мы не индексируем все поля, только то, что полезно для поиска или фильтров
+        return [
+            'id' => $array['id'],
+            'name' => $array['name'],
+            'brand' => $array['brand'],
+            'slug' => $array['slug'],
+            'sku' => $array['sku'],
+            'description' => strip_tags((string) $array['description']),
+            'price' => (float) $array['price'],
+            'stock' => (int) $array['stock'],
+            'is_active' => (bool) $array['is_active'],
+            'category_id' => $array['category_id'],
+            'category_name' => $array['category_name'],
+            'category_slug' => $array['category_slug'],
+            'is_hit' => (bool) $array['is_hit'],
+            'is_new' => (bool) $array['is_new'],
+            'is_customer_choice' => (bool) $array['is_customer_choice'],
+            'tags' => array_column($this->tagsForApi(), 'code'),
+            'sort_order' => (int) $array['sort_order'],
+            'search_synonyms' => trim($nameCyrillic . ' ' . $brandCyrillic . ' ' . $customSynonyms),
+        ];
+    }
+
+    public function shouldBeSearchable(): bool
+    {
+        return $this->is_active === true;
     }
 
     protected static function booted(): void

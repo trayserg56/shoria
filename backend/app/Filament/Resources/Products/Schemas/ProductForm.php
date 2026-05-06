@@ -70,19 +70,32 @@ class ProductForm
                                         Forms\Components\TextInput::make('group')
                                             ->label('Раздел')
                                             ->maxLength(120)
-                                            ->placeholder('Например: Общие характеристики'),
+                                            ->placeholder('Например: Общие характеристики')
+                                            ->columnSpan(1),
                                         Forms\Components\TextInput::make('name')
                                             ->label('Название')
                                             ->required()
-                                            ->maxLength(160),
-                                        Forms\Components\TextInput::make('value')
-                                            ->label('Значение')
-                                            ->required()
-                                            ->maxLength(255),
+                                            ->maxLength(160)
+                                            ->columnSpan(1),
+                                        Forms\Components\Repeater::make('values')
+                                            ->label('Значения')
+                                            ->default([
+                                                ['text' => ''],
+                                            ])
+                                            ->schema([
+                                                Forms\Components\TextInput::make('text')
+                                                    ->label('Значение')
+                                                    ->required()
+                                                    ->maxLength(255),
+                                            ])
+                                            ->minItems(1)
+                                            ->addActionLabel('Добавить значение')
+                                            ->reorderableWithButtons()
+                                            ->columnSpanFull(),
                                     ])
-                                    ->columns(3)
+                                    ->columns(2)
                                     ->columnSpanFull()
-                                    ->helperText('Добавляйте любые характеристики товара. Можно группировать по разделам.'),
+                                    ->helperText('У одной характеристики может быть несколько значений — каждое попадёт в фильтр каталога.'),
                                 Forms\Components\TextInput::make('price')
                                     ->required()
                                     ->numeric()

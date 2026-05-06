@@ -15,7 +15,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['name', 'email', 'phone', 'loyalty_points_balance', 'loyalty_total_spent', 'role', 'password'])]
+#[Fillable(['name', 'email', 'phone', 'loyalty_points_balance', 'loyalty_total_spent', 'role', 'password', 'oauth_provider', 'oauth_id'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser, MustVerifyEmail
 {

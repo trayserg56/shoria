@@ -5,29 +5,38 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Product;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class CategoryController extends Controller
 {
     public function index(): JsonResponse
     {
+        $columns = [
+            'id',
+            'parent_id',
+            'name',
+            'slug',
+            'description',
+            'image_url',
+            'seo_title',
+            'seo_description',
+            'is_featured',
+            'is_active',
+        ];
+
+        if (Schema::hasColumn('categories', 'icon_url')) {
+            $columns[] = 'icon_url';
+        }
+
+        $hasIconColumn = in_array('icon_url', $columns, true);
+
         $allCategories = Category::query()
             ->where('is_active', true)
             ->orderByDesc('is_featured')
             ->orderBy('sort_order')
-            ->get([
-                'id',
-                'parent_id',
-                'name',
-                'slug',
-                'description',
-                'image_url',
-                'seo_title',
-                'seo_description',
-                'is_featured',
-                'is_active',
-            ]);
+            ->get($columns);
 
         $productCategoryIds = Product::query()
             ->where('is_active', true)
@@ -49,7 +58,7 @@ class CategoryController extends Controller
         $byParent = $allCategories
             ->groupBy(fn (Category $category): int => $category->parent_id ?? 0);
 
-        $mapNode = function (Category $category) use (&$mapNode, $byParent, $productCategoryIdSet): ?array {
+        $mapNode = function (Category $category) use (&$mapNode, $byParent, $productCategoryIdSet, $hasIconColumn): ?array {
             $children = $byParent->get((int) $category->id, collect())
                 ->map(fn (Category $child): ?array => $mapNode($child))
                 ->filter()
@@ -62,7 +71,7 @@ class CategoryController extends Controller
                 return null;
             }
 
-            return [
+            $payload = [
                 'id' => $category->id,
                 'name' => $category->name,
                 'slug' => $category->slug,
@@ -75,6 +84,12 @@ class CategoryController extends Controller
                 'parent_id' => $category->parent_id,
                 'subcategories' => $children,
             ];
+
+            if ($hasIconColumn) {
+                $payload['icon_url'] = $category->icon_url;
+            }
+
+            return $payload;
         };
 
         $categories = $byParent

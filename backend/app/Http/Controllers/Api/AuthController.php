@@ -8,6 +8,7 @@ use App\Support\Loyalty\LoyaltyProgramService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\ValidationException;
@@ -54,7 +55,12 @@ class AuthController extends Controller
 
         $user = User::query()->where('email', $validated['email'])->first();
 
-        if (! $user || ! Hash::check($validated['password'], $user->password)) {
+        $passwordOk = $user
+            && $user->password !== null
+            && $user->password !== ''
+            && Hash::check($validated['password'], $user->password);
+
+        if (! $passwordOk) {
             throw ValidationException::withMessages([
                 'email' => 'Неверный email или пароль.',
             ]);
@@ -220,6 +226,34 @@ class AuthController extends Controller
         return response()->json([
             'ok' => true,
             'status' => 'Ссылка для подтверждения отправлена на email.',
+        ]);
+    }
+
+    public function exchangeOAuthCode(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'code' => ['required', 'string', 'max:128'],
+        ]);
+
+        $payload = Cache::pull('oauth_exchange:'.$validated['code']);
+
+        if (! is_array($payload) || empty($payload['token']) || empty($payload['user_id'])) {
+            throw ValidationException::withMessages([
+                'code' => 'Ссылка устарела или недействительна.',
+            ]);
+        }
+
+        $user = User::query()->find($payload['user_id']);
+
+        if (! $user) {
+            throw ValidationException::withMessages([
+                'code' => 'Аккаунт не найден.',
+            ]);
+        }
+
+        return response()->json([
+            'token' => $payload['token'],
+            'user' => $this->serializeUser($user),
         ]);
     }
 
