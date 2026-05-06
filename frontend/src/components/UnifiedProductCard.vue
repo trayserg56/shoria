@@ -5,6 +5,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import { toProductRoute } from '@/lib/product-route'
+import { openProductQuickView } from '@/lib/product-quick-view'
 import { useCartStore } from '@/stores/cart'
 import { useWishlistStore, type WishlistItem } from '@/stores/wishlist'
 import { useCompareStore, type CompareItem } from '@/stores/compare'
@@ -141,6 +142,10 @@ function tagCodeClass(code: string) {
   }
 
   return 'tag-badge--hit'
+}
+
+function onQuickViewClick() {
+  openProductQuickView(props.product.slug, props.product.category?.slug ?? null, props.source)
 }
 
 function onProductClick() {
@@ -322,8 +327,10 @@ watch(
           @error="onProductImageError"
           @load="onProductImageLoad"
         />
-        <span class="product-card__quickview">Быстрый просмотр</span>
       </RouterLink>
+      <button type="button" class="product-card__quickview" @click.stop="onQuickViewClick">
+        Быстрый просмотр
+      </button>
       <div v-if="product.tags?.length" class="product-card__tags">
         <span
           v-for="tag in product.tags"
@@ -388,7 +395,7 @@ watch(
           ★ {{ formatRating(product.reviews_summary?.average) }} · {{ formatReviewsCount(product.reviews_summary?.count ?? 0) }}
         </span>
         <span class="product-card__meta-item" :class="{ 'product-card__meta-item--ok': !isOutOfStock }">
-          {{ isOutOfStock ? 'Нет в наличии' : 'В наличии' }}
+          <template v-if="!isOutOfStock">✓ </template>{{ isOutOfStock ? 'Нет в наличии' : 'В наличии' }}
         </span>
       </div>
     </div>
@@ -412,7 +419,6 @@ watch(
         {{ isWishlisted ? 'В избранном' : 'В избранное' }}
       </button>
       <div v-else class="cart-stepper">
-        <span class="cart-stepper__label">В корзине</span>
         <div class="cart-stepper__controls">
           <button type="button" :disabled="isCartBusy" @click="decreaseCartQty">−</button>
           <strong>{{ currentCartQty }}</strong>
@@ -428,11 +434,13 @@ watch(
   position: relative;
   display: flex;
   flex-direction: column;
-  border-radius: 16px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--card) 88%, #fff) 0%, var(--card) 100%);
+  border-radius: 14px;
+  background: #fff;
   border: 1px solid var(--border);
+  /* без «серой подложки»: лёгкая тень только по контуру */
   box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
-  padding: 10px;
+  padding: 0;
+  overflow: hidden;
   height: 100%;
   transition:
     border-color 0.2s ease,
@@ -441,18 +449,18 @@ watch(
 }
 
 .unified-product-card:hover {
-  border-color: color-mix(in srgb, var(--ring) 35%, var(--border));
+  border-color: color-mix(in srgb, var(--border), var(--primary) 22%);
   box-shadow:
-    0 14px 28px rgb(15 23 42 / 12%),
-    0 2px 5px rgb(15 23 42 / 6%);
-  transform: translateY(-1px);
+    0 10px 32px rgb(15 23 42 / 12%),
+    0 2px 8px rgb(15 23 42 / 6%);
+  transform: translateY(-2px);
 }
 
 .product-link {
   display: block;
   color: inherit;
   text-decoration: none;
-  border-radius: 12px;
+  border-radius: 0;
   overflow: hidden;
   background: transparent;
   position: relative;
@@ -462,10 +470,10 @@ watch(
 
 .product-card__media {
   position: relative;
-  border-radius: 12px;
   overflow: hidden;
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, white);
+  background: #fff;
+  border: none;
+  border-bottom: 1px solid var(--border);
   aspect-ratio: 4 / 3;
 }
 
@@ -495,17 +503,29 @@ watch(
 .product-card__quickview {
   position: absolute;
   left: 50%;
-  bottom: 16px;
-  transform: translate(-50%, 12px);
+  bottom: 14px;
+  z-index: 3;
+  transform: translate(-50%, 10px);
   opacity: 0;
-  transition: 0.2s ease;
-  background: rgb(15 23 42 / 62%);
-  color: var(--primary-foreground);
-  border-radius: 8px;
-  font-size: 10px;
+  transition: 0.22s ease;
+  background: rgb(23 23 23 / 72%);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11px;
   font-weight: 600;
-  padding: 5px 9px;
-  letter-spacing: 0.01em;
+  padding: 8px 14px;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+
+.product-card__quickview:focus-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 .product-card__tags {
@@ -514,51 +534,55 @@ watch(
   left: 10px;
   z-index: 2;
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  max-width: 72%;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 58%;
 }
 
 .tag-badge {
-  padding: 4px 7px;
-  border-radius: 8px;
+  padding: 5px 9px;
+  border-radius: 6px;
   font-size: 11px;
-  line-height: 1;
-  font-weight: 600;
+  line-height: 1.15;
+  font-weight: 700;
   color: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
 }
 
 .tag-badge--hit {
-  background: #ff7a59;
+  background: #ea580c;
 }
 
 .tag-badge--new {
-  background: #2fbf4b;
+  background: #16a34a;
 }
 
 .tag-badge--choice {
-  background: #6f5cff;
+  background: #7c3aed;
 }
 
 .product-card__rail {
   position: absolute;
-  right: 10px;
-  top: 10px;
+  right: 8px;
+  top: 8px;
   z-index: 2;
   display: grid;
-  gap: 5px;
+  gap: 6px;
 }
 
 .rail-btn {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  border: 1px solid var(--border);
-  background: rgb(255 255 255 / 92%);
-  color: var(--muted-foreground);
+  border: 1px solid color-mix(in srgb, var(--border), transparent 10%);
+  background: rgb(255 255 255 / 96%);
+  color: #9ca3af;
   cursor: pointer;
   display: grid;
   place-items: center;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 6%);
   transition:
     color 0.2s ease,
     border-color 0.2s ease,
@@ -572,25 +596,27 @@ watch(
 }
 
 .rail-btn--active {
-  color: var(--foreground);
-  border-color: color-mix(in srgb, var(--ring) 35%, var(--border));
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary), transparent 65%);
   background: #fff;
 }
 
 .product-card__content {
   display: grid;
-  gap: 6px;
-  padding: 10px 2px 6px;
+  gap: 8px;
+  padding: 12px 14px 8px;
   flex: 1 1 auto;
+  background: #fff;
 }
 
 .product-card__actions {
-  min-height: 48px;
-  padding: 0 2px 2px;
+  min-height: 44px;
+  padding: 0 14px 14px;
   margin-top: auto;
   display: flex;
-  align-items: center;
-  justify-content: flex-start;
+  align-items: stretch;
+  justify-content: stretch;
+  width: 100%;
 }
 
 .product-card__brand-link {
@@ -619,9 +645,11 @@ watch(
 
 .product-card__title-link h3 {
   margin: 0;
-  font-size: clamp(19px, 1.18vw, 22px);
-  line-height: 1.18;
-  letter-spacing: -0.015em;
+  font-size: clamp(15px, 1.05vw, 17px);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -630,8 +658,8 @@ watch(
 
 .product-card__reward {
   margin: 0;
-  font-size: 11px;
-  color: #1db74e;
+  font-size: 12px;
+  color: #15803d;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -639,21 +667,22 @@ watch(
 .product-card__meta-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--muted-foreground);
-  line-height: 1.2;
+  align-items: center;
+  gap: 10px 12px;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.25;
 }
 
 .product-card__meta-item--ok {
-  color: #1db74e;
+  color: #15803d;
   font-weight: 600;
 }
 
 .product-card__old-price {
   margin: 0;
-  color: var(--muted-foreground);
-  font-size: 12px;
+  color: #9ca3af;
+  font-size: 13px;
   font-weight: 500;
   text-decoration: line-through;
   line-height: 1;
@@ -663,55 +692,62 @@ watch(
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 6px;
-  min-height: 20px;
+  gap: 8px 10px;
+  min-height: 22px;
 }
 
 .price-row strong {
-  font-size: clamp(20px, 1.28vw, 24px);
-  line-height: 1;
-  letter-spacing: -0.015em;
+  font-size: clamp(18px, 1.15vw, 22px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
 }
 
 .product-card__discount-pill {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  padding: 2px 8px;
-  background: color-mix(in srgb, #ff7a59 22%, white);
-  color: #e14b2b;
-  border: 1px solid color-mix(in srgb, #ff7a59 35%, white);
+  border-radius: 6px;
+  padding: 3px 7px;
+  background: #dc2626;
+  color: #fff;
+  border: none;
   font-size: 11px;
   line-height: 1;
   font-weight: 700;
 }
 
 .action {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 44px;
   text-align: center;
-  width: auto;
-  min-width: 148px;
-  padding: 7px 14px;
-  border-radius: 9px;
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: 10px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   line-height: 1.2;
   transition:
     background-color 0.2s ease,
     color 0.2s ease,
-    border-color 0.2s ease;
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .action--cart {
-  background: #15a9e8;
+  background: var(--primary);
   color: var(--primary-foreground);
   border: 1px solid transparent;
+  box-shadow: 0 1px 2px rgb(37 99 235 / 25%);
 }
 
 .action--cart:hover {
-  background: #0f9fdb;
+  background: color-mix(in srgb, var(--primary), #000 8%);
 }
 
 .action--wishlist {
@@ -726,25 +762,16 @@ watch(
 }
 
 .cart-stepper {
-  position: relative;
   display: flex;
   align-items: center;
-  min-height: 42px;
   width: 100%;
-  max-width: 220px;
-}
-
-.cart-stepper__label {
-  position: absolute;
-  top: -13px;
-  left: 0;
-  color: var(--muted-foreground);
-  font-size: 10px;
-  font-weight: 600;
 }
 
 .cart-stepper__controls {
+  box-sizing: border-box;
   width: 100%;
+  height: 44px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -752,7 +779,7 @@ watch(
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--background);
-  padding: 4px 5px;
+  padding: 0 8px;
 }
 
 .cart-stepper__controls strong {
@@ -764,6 +791,8 @@ watch(
 }
 
 .cart-stepper__controls button {
+  box-sizing: border-box;
+  flex-shrink: 0;
   width: 32px;
   height: 32px;
   border: 1px solid var(--border);
@@ -783,32 +812,41 @@ watch(
 
 @media (max-width: 720px) {
   .unified-product-card {
-    border-radius: 14px;
-    padding: 8px;
+    border-radius: 12px;
   }
 
   .unified-product-card img {
     height: 100%;
   }
 
+  .product-card__content {
+    padding: 10px 12px 6px;
+  }
+
+  .product-card__actions {
+    padding: 0 12px 12px;
+  }
+
   .product-card__title-link h3 {
-    font-size: 17px;
+    font-size: 15px;
   }
 
   .price-row strong {
-    font-size: 18px;
+    font-size: 17px;
   }
 
   .action {
-    font-size: 12px;
-    padding: 7px 12px;
-    min-width: 132px;
+    font-size: 13px;
+    padding: 10px 14px;
   }
 
-  .product-card__brand-link,
+  .product-card__brand-link {
+    font-size: 10px;
+  }
+
   .product-card__reward,
   .product-card__meta-row {
-    font-size: 10px;
+    font-size: 11px;
   }
 }
 </style>

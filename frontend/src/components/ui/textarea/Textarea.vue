@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
+import { NInput } from 'naive-ui'
+import { computed, useAttrs } from 'vue'
 import { cn } from '@/lib/utils'
 
 defineOptions({
@@ -12,23 +14,49 @@ type TextareaProps = {
 
 const props = defineProps<TextareaProps>()
 const model = defineModel<string | null | undefined>({ default: '' })
+const attrs = useAttrs()
 
-function onInput(event: Event) {
-  const target = event.target as HTMLTextAreaElement
-  model.value = target.value
+const mergedClass = computed(() => cn(props.class, attrs.class as string))
+
+const plainAttrs = computed(() => {
+  const raw = { ...attrs } as Record<string, unknown>
+  delete raw.class
+  return raw
+})
+
+const displayValue = computed(() => model.value ?? '')
+
+const rowCount = computed(() => {
+  const r = attrs.rows
+  if (typeof r === 'number') {
+    return r
+  }
+  if (typeof r === 'string') {
+    const n = Number.parseInt(r, 10)
+    return Number.isFinite(n) ? n : 3
+  }
+  return 3
+})
+
+const rootPassthrough = computed(() => {
+  const a = plainAttrs.value as Record<string, unknown>
+  const next = { ...a }
+  delete next.rows
+  return next
+})
+
+function handleUpdateValue(raw: string) {
+  model.value = raw
 }
 </script>
 
 <template>
-  <textarea
-    v-bind="$attrs"
-    :value="model ?? ''"
-    @input="onInput"
-    :class="
-      cn(
-        'flex min-h-24 w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm text-foreground shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
-        props.class,
-      )
-    "
+  <NInput
+    type="textarea"
+    :value="displayValue"
+    :rows="rowCount"
+    :class="mergedClass"
+    v-bind="rootPassthrough"
+    @update:value="handleUpdateValue"
   />
 </template>

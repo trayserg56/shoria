@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Banner;
 use App\Models\Category;
+use App\Models\MarketingCard;
 use App\Models\NewsPost;
 use App\Models\Product;
 use Illuminate\Database\Eloquent\Builder;
@@ -53,7 +54,7 @@ class HomeController extends Controller
             ->where('is_active', true)
             ->orderByDesc('is_featured')
             ->orderBy('sort_order')
-            ->limit(8)
+            ->limit(48)
             ->get()
             ->map(function (Product $product): array {
                 $primaryCategory = $product->category ?? $product->categories->sortBy('name')->first();
@@ -67,6 +68,8 @@ class HomeController extends Controller
                     'price' => (float) $product->price,
                     'old_price' => $product->old_price !== null ? (float) $product->old_price : null,
                     'currency' => $product->currency,
+                    'stock' => (int) $product->stock,
+                    'tags' => $product->tagsForApi(),
                     'reviews_summary' => [
                         'count' => (int) ($product->reviews_count ?? 0),
                         'average' => $product->reviews_avg_rating !== null
@@ -93,12 +96,22 @@ class HomeController extends Controller
             ->limit(3)
             ->get(['id', 'title', 'slug', 'excerpt', 'cover_url', 'published_at']);
 
+        $marketingCards = MarketingCard::query()
+            ->active()
+            ->withValidLink()
+            ->ordered()
+            ->limit(12)
+            ->get()
+            ->map(fn (MarketingCard $card): array => $card->toApiArray())
+            ->values();
+
         return response()->json([
             'banner' => $banner,
             'banners' => $banners,
             'categories' => $categories,
             'featured_products' => $products,
             'news' => $news,
+            'marketing_cards' => $marketingCards,
         ]);
     }
 }

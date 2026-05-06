@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { toast } from '@/lib/toast'
 
 export type CompareItem = {
   id: number
@@ -80,13 +81,23 @@ export const useCompareStore = defineStore('compare', () => {
   }
 
   function remove(productId: number) {
+    const existing = items.value.find((item) => item.id === productId)
     items.value = items.value.filter((item) => item.id !== productId)
     persist()
+
+    if (existing) {
+      toast.message(`«${existing.name}» убрано из сравнения`)
+    }
   }
 
   function clear() {
+    if (items.value.length === 0) {
+      return
+    }
+
     items.value = []
     persist()
+    toast.success('Сравнение очищено')
   }
 
   function toggle(item: CompareItem) {
@@ -97,6 +108,12 @@ export const useCompareStore = defineStore('compare', () => {
 
     const willOverflow = items.value.length >= MAX_ITEMS
     add(item)
+
+    if (willOverflow) {
+      toast.warning('Не больше 4 товаров: добавлен новый, прежний убран из сравнения')
+    } else {
+      toast.success(`«${item.name}» в сравнении`)
+    }
 
     return { active: true, overflow: willOverflow }
   }

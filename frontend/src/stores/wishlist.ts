@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { toast } from '@/lib/toast'
 
 export type WishlistItem = {
   id: number
@@ -76,13 +77,23 @@ export const useWishlistStore = defineStore('wishlist', () => {
   }
 
   function remove(productId: number) {
+    const existing = items.value.find((item) => item.id === productId)
     items.value = items.value.filter((item) => item.id !== productId)
     persist()
+
+    if (existing) {
+      toast.message(`«${existing.name}» убрано из избранного`)
+    }
   }
 
   function clear() {
+    if (items.value.length === 0) {
+      return
+    }
+
     items.value = []
     persist()
+    toast.success('Избранное очищено')
   }
 
   function toggle(item: WishlistItem) {
@@ -92,6 +103,7 @@ export const useWishlistStore = defineStore('wishlist', () => {
     }
 
     add(item)
+    toast.success(`«${item.name}» в избранном`)
     return true
   }
 

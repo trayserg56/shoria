@@ -83,6 +83,30 @@ class Product extends Model
         return $this->hasMany(ProductReview::class);
     }
 
+    /**
+     * Метки витрины (хит / новинка / выбор покупателей) для JSON каталога и главной.
+     *
+     * @return array<int, array{code: string, label: string}>
+     */
+    public function tagsForApi(): array
+    {
+        $tags = [];
+
+        if ($this->is_hit) {
+            $tags[] = ['code' => 'hit', 'label' => 'Хит'];
+        }
+
+        if ($this->is_new) {
+            $tags[] = ['code' => 'new', 'label' => 'Новинка'];
+        }
+
+        if ($this->is_customer_choice) {
+            $tags[] = ['code' => 'customer_choice', 'label' => 'Выбор покупателей'];
+        }
+
+        return $tags;
+    }
+
     protected static function booted(): void
     {
         static::saving(function (self $product): void {

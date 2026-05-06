@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import type { HTMLAttributes } from 'vue'
+import { NSelect } from 'naive-ui'
+import type { SelectOption } from 'naive-ui'
+import { computed, useAttrs } from 'vue'
 import { cn } from '@/lib/utils'
 
 defineOptions({
@@ -7,30 +10,28 @@ defineOptions({
 })
 
 type SelectProps = {
+  options: SelectOption[]
   class?: HTMLAttributes['class']
 }
 
 const props = defineProps<SelectProps>()
-const model = defineModel<string | number | null | undefined>({ default: '' })
+const model = defineModel<string | number | null>({ default: '' })
+const attrs = useAttrs()
 
-function onChange(event: Event) {
-  const target = event.target as HTMLSelectElement
-  model.value = target.value
-}
+const mergedClass = computed(() => cn(props.class, attrs.class as string))
+
+const restAttrs = computed(() => {
+  const a = { ...attrs } as Record<string, unknown>
+  delete a.class
+  return a
+})
 </script>
 
 <template>
-  <select
-    v-bind="$attrs"
-    :value="model ?? ''"
-    @change="onChange"
-    :class="
-      cn(
-        'flex h-12 w-full rounded-3xl border border-input bg-background px-4 text-base text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
-        props.class,
-      )
-    "
-  >
-    <slot />
-  </select>
+  <NSelect
+    v-model:value="model"
+    :options="props.options"
+    :class="mergedClass"
+    v-bind="restAttrs"
+  />
 </template>

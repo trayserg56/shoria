@@ -1,0 +1,56 @@
+import type { GlobalThemeOverrides } from 'naive-ui'
+
+/** shadcn-подобная монохромная палитра (zinc / чёрный primary) */
+export const naiveThemeOverrides: GlobalThemeOverrides = {
+  common: {
+    primaryColor: '#09090b',
+    primaryColorHover: '#18181b',
+    primaryColorPressed: '#000000',
+    primaryColorSuppl: '#27272a',
+    bodyColor: '#ffffff',
+    textColorBase: '#111827',
+    textColor1: '#171717',
+    textColor2: '#52525b',
+    textColor3: '#a1a1aa',
+    borderColor: '#e5e7eb',
+    dividerColor: '#e5e7eb',
+    hoverColor: '#f4f4f5',
+    placeholderColor: '#9ca3af',
+    closeIconColor: '#6b7280',
+    closeIconColorHover: '#111827',
+    closeIconColorPressed: '#111827',
+    borderRadius: '8px',
+    borderRadiusSmall: '6px',
+    fontFamily: 'var(--font-body)',
+    fontSize: '16px',
+    fontSizeMedium: '16px',
+    heightMedium: '44px',
+    heightLarge: '48px',
+    heightSmall: '36px',
+  },
+  Button: {
+    borderRadiusTiny: '6px',
+    borderRadiusSmall: '8px',
+    borderRadiusMedium: '8px',
+    borderRadiusLarge: '10px',
+    fontWeightStrong: '600',
+  },
+  Input: {
+    borderRadius: '8px',
+    heightMedium: '44px',
+    heightLarge: '48px',
+    heightSmall: '36px',
+  },
+  InternalSelection: {
+    borderRadius: '8px',
+    heightMedium: '44px',
+  },
+  Checkbox: {
+    borderRadius: '4px',
+    sizeMedium: '16px',
+  },
+  Progress: {
+    railColor: '#e5e7eb',
+    fillColor: '#09090b',
+  },
+}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink } from 'vue-router'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
@@ -11,7 +11,6 @@ import { useCartStore } from '@/stores/cart'
 const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
 const cartStore = useCartStore()
-const cartMessage = ref('')
 
 const { items: wishlistItems } = storeToRefs(wishlistStore)
 const { items: compareItems } = storeToRefs(compareStore)
@@ -30,10 +29,8 @@ function formatPrice(value: number, currency: string) {
 async function addToCart(productSlug: string) {
   try {
     await cartStore.addItemBySlug(productSlug, 1)
-    cartMessage.value = 'Товар добавлен в корзину.'
   } catch (error) {
     console.error(error)
-    cartMessage.value = 'Не удалось добавить товар в корзину.'
   }
 }
 
@@ -55,8 +52,6 @@ onMounted(() => {
         <RouterLink to="/compare">Полное сравнение</RouterLink>
       </div>
     </div>
-
-    <p v-if="cartMessage" class="status">{{ cartMessage }}</p>
 
     <div class="saved-summary">
       <article class="summary-card">

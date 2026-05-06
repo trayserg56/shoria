@@ -74,7 +74,7 @@ onMounted(async () => {
 
 <style scoped>
 .account-shell {
-  width: min(1240px, 92vw);
+  width: min(var(--layout-max-width), 92vw);
   margin: 0 auto;
   padding: 24px 0 60px;
 }

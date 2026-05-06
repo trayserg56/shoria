@@ -9,6 +9,7 @@ import { useCompareStore, type CompareItem } from '@/stores/compare'
 import { trackEvent } from '@/lib/analytics'
 import { fetchJson, requestJson } from '@/lib/api'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
+import { buildCatalogPath } from '@/lib/catalog-path'
 import { toProductRoute } from '@/lib/product-route'
 import { clearStructuredData, setSeoMeta, setStructuredData } from '@/lib/seo'
 import { saveRecentlyViewed } from '@/lib/recently-viewed'
@@ -60,6 +61,11 @@ type ProductPayload = {
     name: string
     slug: string
   } | null
+  /** Корень → лист: для хлебных крошек (родительские категории) */
+  category_path?: Array<{
+    name: string
+    slug: string
+  }>
   tags: Array<{
     code: string
     label: string
@@ -143,7 +149,6 @@ const product = ref<ProductPayload | null>(null)
 const isLoading = ref(true)
 const hasError = ref(false)
 const addError = ref('')
-const compareMessage = ref('')
 const activeImageIndex = ref(0)
 const selectedVariantId = ref<number | null>(null)
 const selectedColorLabel = ref<string | null>(null)
@@ -232,11 +237,27 @@ const currentCartQty = computed(() => {
     )
     .reduce((total, item) => total + item.qty, 0)
 })
-const catalogCategoryLink = computed(() =>
-  product.value?.category?.slug
-    ? { path: `/catalog/${product.value.category.slug}` }
-    : { path: '/catalog' },
-)
+const productCategoryBreadcrumbItems = computed((): Array<{ name: string; path: string }> => {
+  const payload = product.value
+  if (!payload) {
+    return []
+  }
+
+  const nodes = payload.category_path
+  if (nodes?.length) {
+    return nodes.map((node, index) => ({
+      name: node.name,
+      path: buildCatalogPath(nodes.slice(0, index + 1).map((n) => n.slug)),
+    }))
+  }
+
+  if (payload.category) {
+    return [{ name: payload.category.name, path: buildCatalogPath([payload.category.slug]) }]
+  }
+
+  return []
+})
+
 const groupedCharacteristics = computed(() => {
   if (!product.value?.characteristics?.length) {
     return []
@@ -524,13 +545,15 @@ async function loadProduct() {
       return
     }
 
-    const canonicalPath = router.resolve(
+    const canonicalResolved = router.resolve(
       toProductRoute({
         slug: product.value.slug,
         category: product.value.category,
         variant_slug: selectedVariantSlug,
       }),
-    ).href
+    )
+    const canonicalPath = canonicalResolved.href
+    const productPagePathForBreadcrumbs = canonicalResolved.fullPath
 
     setSeoMeta({
       title:
@@ -541,22 +564,20 @@ async function loadProduct() {
         product.value.description?.trim() ||
         `Купить ${product.value.name} в Shoria: актуальная цена, наличие и рекомендации.`,
       robots: 'index,follow',
-      canonical: `${window.location.origin}${canonicalPath}`,
+      canonical: canonicalPath.startsWith('http') ? canonicalPath : `${window.location.origin}${canonicalPath}`,
     })
     setStructuredData([
       buildBreadcrumbStructuredData([
         { name: 'Главная', path: '/' },
         { name: 'Каталог', path: '/catalog' },
-        ...(product.value.category
-          ? [{ name: product.value.category.name, path: `/catalog/${product.value.category.slug}` }]
-          : []),
+        ...productCategoryBreadcrumbItems.value,
         {
           name: product.value.name,
-          path: canonicalPath,
+          path: productPagePathForBreadcrumbs,
         },
       ]),
       buildProductStructuredData({
-        slug: canonicalPath.replace(/^\/product\//, ''),
+        slug: productPagePathForBreadcrumbs.replace(/^\/product\//, ''),
         name: product.value.name,
         description: product.value.description,
         sku: selectedVariant.value?.sku ?? product.value.sku,
@@ -622,7 +643,6 @@ async function addToCart() {
     await cartStore.addItemBySlug(product.value.slug, 1, selectedVariantId.value ?? undefined)
   } catch (error) {
     console.error(error)
-    addError.value = 'Не удалось добавить товар в корзину.'
     return
   } finally {
     isCartBusy.value = false
@@ -672,7 +692,6 @@ async function changeCartQty(direction: 'inc' | 'dec') {
     }
   } catch (error) {
     console.error(error)
-    addError.value = 'Не удалось изменить количество в корзине.'
   } finally {
     isCartBusy.value = false
   }
@@ -738,11 +757,6 @@ function toggleCompare() {
   }
 
   const result = compareStore.toggle(item)
-  compareMessage.value = result.overflow
-    ? 'В сравнении максимум 4 товара. Самый старый элемент был заменен.'
-    : result.active
-      ? 'Товар добавлен в сравнение.'
-      : 'Товар удален из сравнения.'
 
   void trackEvent('toggle_compare', {
     slug: item.slug,
@@ -880,9 +894,9 @@ watch(
         <RouterLink to="/">Главная</RouterLink>
         <span>/</span>
         <RouterLink to="/catalog">Каталог</RouterLink>
-        <template v-if="product.category">
+        <template v-for="(crumb, crumbIndex) in productCategoryBreadcrumbItems" :key="`${crumb.path}-${crumbIndex}`">
           <span>/</span>
-          <RouterLink :to="catalogCategoryLink">{{ product.category.name }}</RouterLink>
+          <RouterLink :to="crumb.path">{{ crumb.name }}</RouterLink>
         </template>
         <span>/</span>
         <span>{{ product.name }}</span>
@@ -1018,7 +1032,6 @@ watch(
             }}
           </button>
           <div v-else class="buy-stepper">
-            <span class="buy-stepper__label">В корзине</span>
             <div class="buy-stepper__controls">
               <button type="button" :disabled="isCartBusy" @click="changeCartQty('dec')">−</button>
               <strong>{{ currentCartQty }}</strong>
@@ -1053,7 +1066,6 @@ watch(
           </button>
         </div>
         <p v-if="addError" class="status status--warn">{{ addError }}</p>
-        <p v-if="compareMessage" class="status">{{ compareMessage }}</p>
       </article>
     </section>
 
@@ -1218,7 +1230,7 @@ watch(
 
 <style scoped>
 .product-page {
-  width: min(1240px, 92vw);
+  width: min(var(--layout-max-width), 92vw);
   margin: 0 auto;
   padding: 24px 0 56px;
 }
@@ -1741,17 +1753,6 @@ watch(
 
 .buy-stepper {
   flex: 1 1 auto;
-  position: relative;
-  min-height: 56px;
-}
-
-.buy-stepper__label {
-  position: absolute;
-  top: -18px;
-  left: 0;
-  color: #5b6b89;
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .buy-stepper__controls {
@@ -1852,6 +1853,7 @@ watch(
   gap: 14px;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
+  scroll-padding-inline: 12px;
   scrollbar-width: none;
   padding-bottom: 4px;
 }
@@ -1865,12 +1867,12 @@ watch(
 }
 
 .slider-card {
-  flex: 0 0 clamp(230px, 24vw, 300px);
+  flex: 0 0 clamp(220px, 20vw, 272px);
 }
 
 .slider-card--skeleton {
   display: flex;
-  flex: 0 0 clamp(230px, 24vw, 300px);
+  flex: 0 0 clamp(220px, 20vw, 272px);
   flex-direction: column;
   padding: 10px;
   border: 1px solid var(--border);

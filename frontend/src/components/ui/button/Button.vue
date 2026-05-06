@@ -1,34 +1,87 @@
 <script setup lang="ts">
-import { Slot } from 'reka-ui'
-import { computed, type HTMLAttributes } from 'vue'
+import type { HTMLAttributes } from 'vue'
+import { NButton } from 'naive-ui'
+import { computed, useAttrs } from 'vue'
 import { cn } from '@/lib/utils'
-import { buttonVariants, type ButtonVariants } from './buttonVariants'
+import type { ButtonVariants } from './buttonVariants'
+
+defineOptions({
+  inheritAttrs: false,
+})
 
 type ButtonProps = {
   variant?: ButtonVariants['variant']
   size?: ButtonVariants['size']
   class?: HTMLAttributes['class']
-  asChild?: boolean
 }
 
 const props = withDefaults(defineProps<ButtonProps>(), {
-  asChild: false,
   variant: 'default',
   size: 'default',
 })
 
-const delegatedProps = computed(() => {
-  const { class: _class, ...rest } = props
-  return rest
+const attrs = useAttrs()
+
+const forwarded = computed(() => {
+  const raw = { ...attrs } as Record<string, unknown>
+  delete raw.class
+  delete raw.type
+
+  return raw
 })
+
+const attrType = computed(() => {
+  const t = attrs.type
+
+  if (t === 'submit' || t === 'reset' || t === 'button') {
+    return t
+  }
+
+  return 'button'
+})
+
+const mergedClass = computed(() => cn(props.class, attrs.class as string))
+
+const naiveType = computed(() => {
+  if (props.variant === 'destructive') {
+    return 'error'
+  }
+
+  if (props.variant === 'default') {
+    return 'primary'
+  }
+
+  return 'default'
+})
+
+const tertiary = computed(() => props.variant === 'outline')
+const quaternary = computed(() => props.variant === 'ghost')
+
+const naiveSize = computed(() => {
+  switch (props.size) {
+    case 'sm':
+      return 'small'
+    case 'lg':
+      return 'large'
+    default:
+      return 'medium'
+  }
+})
+
+const circle = computed(() => props.size === 'icon')
 </script>
 
 <template>
-  <component
-    :is="asChild ? Slot : 'button'"
-    v-bind="delegatedProps"
-    :class="cn(buttonVariants({ variant, size }), props.class)"
+  <NButton
+    :type="naiveType"
+    :size="naiveSize"
+    :circle="circle"
+    :tertiary="tertiary"
+    :quaternary="quaternary"
+    :attr-type="attrType"
+    :class="mergedClass"
+    v-bind="forwarded"
   >
     <slot />
-  </component>
+  </NButton>
 </template>

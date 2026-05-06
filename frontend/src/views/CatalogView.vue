@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
 import { fetchJson } from '@/lib/api'
+import { buildCatalogPath } from '@/lib/catalog-path'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { setSeoMeta } from '@/lib/seo'
 import AppSkeleton from '@/components/AppSkeleton.vue'
@@ -90,7 +91,6 @@ const route = useRoute()
 const router = useRouter()
 
 const categories = ref<Category[]>([])
-const categoryAccordions = ref<Record<string, boolean>>({})
 const products = ref<PaginatedProducts>({
   current_page: 1,
   last_page: 1,
@@ -154,7 +154,6 @@ const activeCategory = computed(() => {
 
   return activeCategorySegments.value[activeCategorySegments.value.length - 1] ?? ''
 })
-const activeCategorySlugSet = computed(() => new Set(activeCategorySegments.value))
 const activeQuery = computed(() => (route.query.q as string | undefined) ?? '')
 const activeSort = computed(() => (route.query.sort as string | undefined) ?? '')
 const activePriceMin = computed(() => (route.query.price_min as string | undefined) ?? '')
@@ -265,10 +264,10 @@ const shouldShowSubcategorySkeleton = computed(
 )
 const subcategorySkeletonCount = computed(() => {
   if (childSubcategories.value.length > 0) {
-    return Math.min(childSubcategories.value.length, 3)
+    return Math.min(childSubcategories.value.length, 4)
   }
 
-  return 3
+  return 4
 })
 const breadcrumbItems = computed(() => {
   if (!activeCategoryPathNodes.value.length) {
@@ -294,6 +293,9 @@ const activeCategoryPath = computed(() => {
 
   return '/catalog'
 })
+
+/** Заголовок страницы: текущая категория/подкатегория или «Каталог» */
+const catalogPageTitle = computed(() => activeCategoryNode.value?.name ?? 'Каталог')
 
 const sortOptions = [
   { value: '', label: 'По умолчанию' },
@@ -394,17 +396,6 @@ const availableCategoryCounts = computed(() => {
   }, {})
 })
 
-const filterSections = ref({
-  sort: false,
-  price: false,
-  tags: false,
-  brands: false,
-  colors: false,
-  sizes: false,
-  characteristics: false,
-  categories: false,
-})
-
 function normalizeInputValue(value: unknown): string {
   if (value === null || value === undefined) {
     return ''
@@ -415,7 +406,6 @@ function normalizeInputValue(value: unknown): string {
 
 async function loadCategories() {
   categories.value = await fetchJson<Category[]>('/api/categories')
-  syncCategoryAccordions()
 }
 
 async function loadProducts() {
@@ -554,14 +544,6 @@ function buildBaseCatalogQuery() {
   }
 }
 
-function buildCatalogPath(pathSegments?: string[]) {
-  if (!pathSegments?.length) {
-    return '/catalog'
-  }
-
-  return `/catalog/${pathSegments.map((segment) => encodeURIComponent(segment)).join('/')}`
-}
-
 function resolveCategoryPathBySlug(slug: string): string[] | null {
   const walk = (nodes: Category[], trail: string[]): string[] | null => {
     for (const node of nodes) {
@@ -664,13 +646,12 @@ function schedulePriceApply() {
   }, 350)
 }
 
-function onSortChange(event: Event) {
-  const target = event.target as HTMLSelectElement
-  const value = target.value
+function onSortChange(value: string | number | null) {
+  const raw = value === null || value === undefined ? '' : String(value)
 
   navigateCatalog({
     ...buildBaseCatalogQuery(),
-    ...(value ? { sort: value } : { sort: undefined }),
+    ...(raw ? { sort: raw } : { sort: undefined }),
     page: undefined,
   })
 }
@@ -748,10 +729,6 @@ function resetCatalogFilters() {
   navigateCatalog({})
 }
 
-function toggleFilterSection(section: keyof typeof filterSections.value) {
-  filterSections.value[section] = !filterSections.value[section]
-}
-
 function toggleMultiValue(currentValues: string[], value: string) {
   const current = new Set(currentValues)
 
@@ -803,103 +780,6 @@ function categoryCountBySlug(slug: string): number {
 
 function categoryDisplayCount(category: Category): number {
   return categoryCountBySlug(category.slug)
-}
-
-function categoryBranchHasProducts(category: Category): boolean {
-  if (categoryDisplayCount(category) > 0) {
-    return true
-  }
-
-  return category.subcategories?.some((item) => categoryBranchHasProducts(item)) ?? false
-}
-
-function shouldShowCategory(category: Category): boolean {
-  if (activeCategory.value === category.slug) {
-    return true
-  }
-
-  if (categoryBranchHasProducts(category)) {
-    return true
-  }
-
-  return category.subcategories?.some((item) => shouldShowSubcategory(item)) ?? false
-}
-
-function shouldShowSubcategory(category: Category): boolean {
-  if (activeCategorySlugSet.value.has(category.slug)) {
-    return true
-  }
-
-  if (categoryBranchHasProducts(category)) {
-    return true
-  }
-
-  return category.subcategories?.some((item) => shouldShowSubcategory(item)) ?? false
-}
-
-function visibleChildren(category: Category): Category[] {
-  return (category.subcategories ?? []).filter((item) => shouldShowSubcategory(item))
-}
-
-const categoryTreeRows = computed(() => {
-  const rows: Array<{
-    category: Category
-    depth: number
-    hasChildren: boolean
-    expanded: boolean
-  }> = []
-
-  const walk = (nodes: Category[], depth: number) => {
-    for (const node of nodes) {
-      const visible = depth === 0 ? shouldShowCategory(node) : shouldShowSubcategory(node)
-
-      if (!visible) {
-        continue
-      }
-
-      const children = visibleChildren(node)
-      const expanded = Boolean(categoryAccordions.value[node.slug])
-
-      rows.push({
-        category: node,
-        depth,
-        hasChildren: children.length > 0,
-        expanded,
-      })
-
-      if (children.length > 0 && expanded) {
-        walk(children, depth + 1)
-      }
-    }
-  }
-
-  walk(categories.value, 0)
-  return rows
-})
-
-function walkCategories(nodes: Category[], visit: (category: Category) => void) {
-  for (const node of nodes) {
-    visit(node)
-    if (node.subcategories?.length) {
-      walkCategories(node.subcategories, visit)
-    }
-  }
-}
-
-function syncCategoryAccordions() {
-  const nextState = { ...categoryAccordions.value }
-
-  walkCategories(categories.value, (category) => {
-    if (!(category.slug in nextState)) {
-      nextState[category.slug] = false
-    }
-  })
-
-  for (const segment of activeCategorySegments.value) {
-    nextState[segment] = true
-  }
-
-  categoryAccordions.value = nextState
 }
 
 function isKnownCategorySlug(slug: string): boolean {
@@ -971,13 +851,6 @@ function migrateLegacyCategoryQuery(): boolean {
   return true
 }
 
-function toggleCategoryAccordion(slug: string) {
-  categoryAccordions.value = {
-    ...categoryAccordions.value,
-    [slug]: !categoryAccordions.value[slug],
-  }
-}
-
 function findActiveCategoryMeta() {
   return activeCategoryNode.value
 }
@@ -1038,7 +911,6 @@ watch(
   [categories, activeCategory],
   () => {
     ensureValidCategoryFilter()
-    syncCategoryAccordions()
     syncCatalogSeo()
   },
   { deep: true },
@@ -1082,9 +954,7 @@ onBeforeUnmount(() => {
     </nav>
 
     <header class="catalog-header">
-      <h1>Каталог</h1>
-      <p v-if="isCategoryLanding">Выберите категорию, чтобы открыть товары и фильтры.</p>
-      <p v-else>Подборки и все доступные модели из API.</p>
+      <h1>{{ catalogPageTitle }}</h1>
     </header>
 
     <section v-if="isCategoryLanding && isLoading" class="catalog-landing" aria-hidden="true">
@@ -1135,7 +1005,7 @@ onBeforeUnmount(() => {
         <ScrollArea class="sidebar-scroll">
           <div class="sidebar-card">
             <div v-if="isInitialCatalogLoad" class="sidebar-skeleton" aria-hidden="true">
-              <div v-for="index in 7" :key="`filter-skeleton-${index}`" class="sidebar-skeleton__section">
+              <div v-for="index in 6" :key="`filter-skeleton-${index}`" class="sidebar-skeleton__section">
                 <AppSkeleton width="52%" height="18px" />
                 <AppSkeleton width="20px" height="20px" radius="999px" />
               </div>
@@ -1144,21 +1014,17 @@ onBeforeUnmount(() => {
 
           <template v-else>
             <div class="sidebar-section">
-            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('sort')">
+            <div class="sidebar-section__title" role="presentation">
               <span>Сортировка</span>
-              <span class="sidebar-section__chevron">{{ filterSections.sort ? '−' : '+' }}</span>
-            </Button>
-            <div v-if="filterSections.sort" class="sidebar-section__body">
+            </div>
+            <div class="sidebar-section__body">
               <label class="toolbar__select">
                 <Select
-                  :value="activeSort"
+                  :model-value="activeSort"
                   class="toolbar__select-control"
-                  @change="onSortChange"
-                >
-                  <option v-for="option in sortOptions" :key="option.value || 'default'" :value="option.value">
-                    {{ option.label }}
-                  </option>
-                </Select>
+                  :options="sortOptions"
+                  @update:model-value="onSortChange"
+                />
               </label>
               <div class="toolbar__quick-toggles">
                 <label class="filter-check-item" :class="{ 'filter-check-item--active': activeInStock }" @click.prevent="toggleInStock">
@@ -1179,65 +1045,19 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="sidebar-section">
-            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('price')">
+            <div class="sidebar-section__title" role="presentation">
               <span>Цена и наличие</span>
-              <span class="sidebar-section__chevron">{{ filterSections.price ? '−' : '+' }}</span>
-            </Button>
-            <div v-if="filterSections.price" class="sidebar-section__body">
+            </div>
+            <div class="sidebar-section__body">
               <div class="toolbar__price">
                 <div class="toolbar__price-fields">
-                  <Input v-model="priceMinInput" class="toolbar__price-input" type="number" min="0" placeholder="от" />
-                  <Input v-model="priceMaxInput" class="toolbar__price-input" type="number" min="0" placeholder="до" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="sidebar-section">
-            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('categories')">
-              <span>Категории</span>
-              <span class="sidebar-section__chevron">{{ filterSections.categories ? '−' : '+' }}</span>
-            </Button>
-            <div v-if="filterSections.categories" class="sidebar-section__body">
-              <div class="category-tree">
-                <button
-                  type="button"
-                  class="category-tree__all"
-                  :class="{ 'category-tree__all--active': !activeCategory }"
-                  @click="selectCategory()"
-                >
-                  <span>Все категории</span>
-                </button>
-
-                <div class="category-tree__list" role="tree" aria-label="Дерево категорий">
-                  <div
-                    v-for="row in categoryTreeRows"
-                    :key="row.category.id"
-                    class="category-tree__row"
-                    :style="{ paddingLeft: `${row.depth * 20}px` }"
-                    role="treeitem"
-                    :aria-expanded="row.hasChildren ? row.expanded : undefined"
-                  >
-                    <button
-                      v-if="row.hasChildren"
-                      type="button"
-                      class="category-tree__expander"
-                      :class="{ 'category-tree__expander--open': row.expanded }"
-                      @click="toggleCategoryAccordion(row.category.slug)"
-                    >
-                      {{ row.expanded ? '⌄' : '›' }}
-                    </button>
-                    <span v-else class="category-tree__expander-placeholder" />
-
-                    <button
-                      type="button"
-                      class="category-tree__label"
-                      :class="{ 'category-tree__label--active': activeCategory === row.category.slug }"
-                      @click="selectCategory(row.category.slug)"
-                    >
-                      <span class="category-tree__name">{{ row.category.name }}</span>
-                      <span class="category-tree__count">{{ categoryDisplayCount(row.category) }}</span>
-                    </button>
+                  <div class="toolbar__price-field">
+                    <span class="toolbar__price-label">От, ₽</span>
+                    <Input v-model="priceMinInput" class="toolbar__price-input" type="number" min="0" placeholder="" />
+                  </div>
+                  <div class="toolbar__price-field">
+                    <span class="toolbar__price-label">До, ₽</span>
+                    <Input v-model="priceMaxInput" class="toolbar__price-input" type="number" min="0" placeholder="" />
                   </div>
                 </div>
               </div>
@@ -1245,11 +1065,10 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-if="showTagFilterSection" class="sidebar-section">
-            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('tags')">
+            <div class="sidebar-section__title" role="presentation">
               <span>Теги</span>
-              <span class="sidebar-section__chevron">{{ filterSections.tags ? '−' : '+' }}</span>
-            </Button>
-            <div v-if="filterSections.tags" class="sidebar-section__body">
+            </div>
+            <div class="sidebar-section__body">
               <div class="tag-filters">
                 <label
                   v-for="tag in availableTagOptions"
@@ -1278,11 +1097,10 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-if="showBrandFilterSection" class="sidebar-section">
-            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('brands')">
+            <div class="sidebar-section__title" role="presentation">
               <span>Бренды</span>
-              <span class="sidebar-section__chevron">{{ filterSections.brands ? '−' : '+' }}</span>
-            </Button>
-            <div v-if="filterSections.brands" class="sidebar-section__body">
+            </div>
+            <div class="sidebar-section__body">
               <div class="tag-filters">
                 <label
                   v-for="brand in availableBrandOptions"
@@ -1303,11 +1121,10 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-if="showColorFilterSection" class="sidebar-section">
-            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('colors')">
+            <div class="sidebar-section__title" role="presentation">
               <span>Цвета</span>
-              <span class="sidebar-section__chevron">{{ filterSections.colors ? '−' : '+' }}</span>
-            </Button>
-            <div v-if="filterSections.colors" class="sidebar-section__body">
+            </div>
+            <div class="sidebar-section__body">
               <div class="tag-filters">
                 <label
                   v-for="color in availableColorOptions"
@@ -1328,11 +1145,10 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-if="showSizeFilterSection" class="sidebar-section">
-            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('sizes')">
+            <div class="sidebar-section__title" role="presentation">
               <span>Размеры</span>
-              <span class="sidebar-section__chevron">{{ filterSections.sizes ? '−' : '+' }}</span>
-            </Button>
-            <div v-if="filterSections.sizes" class="sidebar-section__body">
+            </div>
+            <div class="sidebar-section__body">
               <div class="tag-filters">
                 <label
                   v-for="size in availableSizeOptions"
@@ -1353,11 +1169,10 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-if="showCharacteristicsFilterSection" class="sidebar-section">
-            <Button type="button" variant="ghost" class="sidebar-section__toggle" @click="toggleFilterSection('characteristics')">
+            <div class="sidebar-section__title" role="presentation">
               <span>Характеристики</span>
-              <span class="sidebar-section__chevron">{{ filterSections.characteristics ? '−' : '+' }}</span>
-            </Button>
-            <div v-if="filterSections.characteristics" class="sidebar-section__body">
+            </div>
+            <div class="sidebar-section__body">
               <div class="characteristics-groups">
                 <div v-for="group in availableCharacteristicGroups" :key="group.name" class="characteristics-group">
                   <p class="characteristics-group__title">{{ group.name }}</p>
@@ -1385,7 +1200,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-            <Button v-if="hasActiveFilters" type="button" variant="secondary" class="sidebar-reset" @click="resetCatalogFilters">
+            <Button v-if="hasActiveFilters" type="button" variant="ghost" class="sidebar-reset" @click="resetCatalogFilters">
               Сбросить фильтры
             </Button>
           </template>
@@ -1498,7 +1313,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .catalog {
-  width: min(1240px, 92vw);
+  width: min(var(--layout-max-width), 92vw);
   margin: 0 auto;
   padding: 24px 0 52px;
 }
@@ -1519,11 +1334,6 @@ onBeforeUnmount(() => {
   font-family: var(--font-display);
   font-size: clamp(44px, 7vw, 84px);
   line-height: 0.9;
-}
-
-.catalog-header p {
-  margin-top: 8px;
-  color: var(--color-text-soft);
 }
 
 .catalog-landing {
@@ -1628,81 +1438,84 @@ onBeforeUnmount(() => {
 
 .catalog-layout {
   display: grid;
-  grid-template-columns: minmax(250px, 290px) minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(208px, 252px) minmax(0, 1fr);
+  gap: 20px;
   align-items: start;
   margin-top: 22px;
 }
 
 .catalog-sidebar {
   position: sticky;
-  top: 18px;
+  /* Иначе верх фильтра уходит под липкий .site-header (top:0, z-index:50) — видно только «середину» панели */
+  top: calc(var(--site-header-sticky-offset, 118px) + 10px);
+  z-index: 40;
+  align-self: start;
 }
 
 .sidebar-scroll {
   height: auto;
-  max-height: calc(100vh - 32px);
-  border: 1px solid #e5e7eb;
+  max-height: calc(100vh - var(--site-header-sticky-offset, 118px) - 24px);
+  border: 1px solid var(--border);
   border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+  background: var(--card);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
 }
 
 .sidebar-card {
-  padding: 12px 10px 12px 12px;
-  overflow: hidden;
+  padding: 8px 12px 12px;
+  min-width: 0;
 }
 
 .sidebar-section + .sidebar-section {
-  margin-top: 10px;
+  margin-top: 0;
 }
 
-.sidebar-section__toggle {
+.sidebar-section {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-card .sidebar-section:last-of-type {
+  border-bottom: none;
+  padding-bottom: 6px;
+}
+
+.sidebar-section__title {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   padding: 3px 0;
-  min-height: 34px;
-  height: auto;
-  border: 0;
-  background: transparent;
-  color: #1f2937;
-  font: inherit;
-  font-size: 14px;
+  margin: 0;
+  font-size: 13px;
   font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
   text-align: left;
-  cursor: pointer;
-}
-
-.sidebar-section__chevron {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid #d1d5db;
-  border-radius: 999px;
-  color: #64748b;
-  background: #fff;
+  color: var(--foreground);
 }
 
 .sidebar-section__body {
-  margin-top: 8px;
+  margin-top: 0;
+  padding: 6px 0 4px;
+  border-top: 0;
 }
 
 .sidebar-skeleton {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .sidebar-skeleton__section {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 34px;
-  gap: 12px;
+  min-height: 0;
+  gap: 8px;
 }
 
 .toolbar__select {
@@ -1710,50 +1523,66 @@ onBeforeUnmount(() => {
 }
 
 .toolbar__select-control {
-  min-width: 220px;
-  min-height: 40px;
-  border-radius: 10px;
-  border-color: #d1d5db;
-  background: #fff;
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  border-radius: 8px;
+  border-color: var(--border);
+  background: var(--background);
   box-shadow: none;
 }
 
 .toolbar__select-control:focus-visible {
-  border-color: #5b88ff;
+  border-color: color-mix(in srgb, var(--foreground), transparent 70%);
 }
 
 .toolbar__quick-toggles {
   margin-top: 8px;
   display: grid;
-  gap: 6px;
+  gap: 1px;
 }
 
 .toolbar__price {
   display: grid;
-  gap: 6px;
-  color: #64748b;
+  gap: 7px;
+  color: var(--muted-foreground);
+  font-size: 11px;
 }
 
 .toolbar__price-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 5px;
+  gap: 6px;
+}
+
+.toolbar__price-field {
+  display: grid;
+  gap: 4px;
+}
+
+.toolbar__price-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  line-height: 1.3;
 }
 
 .toolbar__price input {
-  min-height: 48px;
+  min-height: 36px;
 }
 
 .toolbar__price-input {
-  border-radius: 10px;
-  border-color: #d1d5db;
-  background: #fff;
+  border-radius: 8px;
+  border-color: var(--border);
+  background: var(--background);
   box-shadow: none;
 }
 
 .tag-filters {
   display: grid;
-  gap: 3px;
+  gap: 0;
 }
 
 .filter-check-item {
@@ -1762,26 +1591,26 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 0;
   background: transparent;
-  min-height: 34px;
+  min-width: 0;
+  min-height: 0;
   height: auto;
-  padding: 6px 9px;
-  color: #1f2937;
-  font-size: 12px;
-  font-weight: 600;
+  padding: 5px 2px;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.3;
   cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    background-color 0.2s ease,
-    transform 0.2s ease;
+  transition: background-color 0.12s ease;
 }
 
 .filter-check-item__left {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex: 1 1 0;
   min-width: 0;
 }
 
@@ -1789,6 +1618,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .filter-check-item__checkbox {
@@ -1801,29 +1631,49 @@ onBeforeUnmount(() => {
 }
 
 .filter-check-item:hover {
-  background: #f8fafc;
-  border-color: #e2e8f0;
+  background: color-mix(in srgb, var(--muted), transparent 40%);
+  border-color: transparent;
 }
 
 .filter-check-item--active {
-  background: #e9edf6;
-  border-color: #c5d0e4;
-  color: #0f172a;
+  background: color-mix(in srgb, var(--primary), transparent 94%);
+  border-color: transparent;
+  color: var(--foreground);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 0 var(--primary);
 }
 
 .filter-check-item--active:hover {
-  background: #e9edf6;
-  border-color: #c5d0e4;
+  background: color-mix(in srgb, var(--primary), transparent 92%);
+  border-color: transparent;
 }
 
 .chip-count {
-  margin-left: 6px;
+  flex: 0 0 auto;
+  margin-left: 0;
+  padding: 0;
+  min-width: 2.5em;
+  text-align: right;
   font-size: 11px;
-  color: #64748b;
+  font-weight: 500;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  background: transparent;
+  border-radius: 0;
+}
+
+.chip-count::before {
+  content: '(';
+}
+
+.chip-count::after {
+  content: ')';
 }
 
 .filter-check-item--active .chip-count {
-  color: #4c5f80;
+  color: var(--muted-foreground);
+  background: transparent;
 }
 
 .characteristics-groups {
@@ -1832,17 +1682,26 @@ onBeforeUnmount(() => {
 }
 
 .characteristics-group {
-  padding: 7px 6px;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  background: #fff;
+  padding: 5px 0 6px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border), transparent 50%);
+  border-radius: 0;
+  background: transparent;
+}
+
+.characteristics-group:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
 }
 
 .characteristics-group__title {
-  margin: 0 0 6px;
-  color: #475569;
-  font-size: 11px;
+  margin: 0 0 4px;
+  color: var(--muted-foreground);
+  font-size: 10px;
   font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.3;
 }
 
 .filters {
@@ -1857,9 +1716,9 @@ onBeforeUnmount(() => {
 
 .chip {
   padding: 7px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #fff;
+  background: var(--background);
   cursor: pointer;
   transition:
     border-color 0.2s ease,
@@ -1869,165 +1728,35 @@ onBeforeUnmount(() => {
 }
 
 .chip--active {
-  border-color: #0f172a;
-  background: #0f172a;
-  color: #fff;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
   box-shadow: none;
-}
-
-.category-tree {
-  border: 0;
-  border-radius: 0;
-  background: #fff;
-  padding: 0;
-}
-
-.category-tree__all {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  background: #fff;
-  color: #334155;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  min-height: 34px;
-  height: auto;
-  padding: 6px 9px;
-  cursor: pointer;
-  margin-bottom: 6px;
-  transition:
-    border-color 0.2s ease,
-    background-color 0.2s ease,
-    color 0.2s ease;
-}
-
-.category-tree__all--active {
-  border-color: #0f172a;
-  background: #0f172a;
-  color: #fff;
-}
-
-.category-tree__list {
-  display: grid;
-  gap: 1px;
-}
-
-.category-tree__row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.category-tree__expander {
-  flex: 0 0 18px;
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: #64748b;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  border-radius: 6px;
-}
-
-.category-tree__expander:hover {
-  background: #f1f5f9;
-  color: #334155;
-}
-
-.category-tree__expander--open {
-  color: #334155;
-}
-
-.category-tree__expander-placeholder {
-  flex: 0 0 18px;
-  width: 18px;
-  height: 18px;
-}
-
-.category-tree__label {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: #1f2937;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  min-height: 34px;
-  height: auto;
-  padding: 6px 9px;
-  cursor: pointer;
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
-}
-
-.category-tree__label:hover {
-  background: #f8fafc;
-  border-color: #e2e8f0;
-}
-
-.category-tree__label--active {
-  background: #0f172a;
-  border-color: #0f172a;
-  color: #fff;
-}
-
-.category-tree__label--active:hover {
-  background: #0f172a;
-  border-color: #0f172a;
-  color: #fff;
-}
-
-.category-tree__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.category-tree__count {
-  flex: 0 0 auto;
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.category-tree__label--active .category-tree__count {
-  color: rgb(255 255 255 / 84%);
 }
 
 .sidebar-reset {
   width: 100%;
-  margin-top: 12px;
-  padding: 8px 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  background: #fff;
-  color: #334155;
-  font-weight: 700;
+  margin-top: 4px;
+  padding: 11px 2px 4px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 600;
   cursor: pointer;
+  transition:
+    color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.sidebar-reset:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--primary);
+  opacity: 0.92;
 }
 
 .catalog-content {
@@ -2044,7 +1773,7 @@ onBeforeUnmount(() => {
 
 .subcategory-strip__grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -2151,8 +1880,18 @@ onBeforeUnmount(() => {
 
 .catalog-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
+}
+
+@media (max-width: 1360px) {
+  .catalog-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .subcategory-strip__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1180px) {
@@ -2300,7 +2039,7 @@ onBeforeUnmount(() => {
   }
 
   .sidebar-card {
-    padding: 16px;
+    padding: 8px 12px 14px;
   }
 
   .toolbar__select-control {

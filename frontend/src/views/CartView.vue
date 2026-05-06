@@ -11,6 +11,7 @@ import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { toProductRoute } from '@/lib/product-route'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
+import { toast } from '@/lib/toast'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 
@@ -79,6 +80,18 @@ const canCheckout = computed(
 )
 const deliveryMethods = computed(() => checkoutOptions.value?.delivery_methods ?? [])
 const paymentMethods = computed(() => checkoutOptions.value?.payment_methods ?? [])
+const deliveryMethodOptions = computed(() =>
+  deliveryMethods.value.map((method) => ({
+    label: `${method.name}${method.is_test_mode ? ' · тест' : ''} (${formatPrice(method.fee)})`,
+    value: method.code,
+  })),
+)
+const paymentMethodOptions = computed(() =>
+  paymentMethods.value.map((method) => ({
+    label: `${method.name}${method.is_test_mode ? ' · тест' : ''}`,
+    value: method.code,
+  })),
+)
 const subtotalAmount = ref(0)
 const discountAmount = ref(0)
 const loyaltyDiscountAmount = ref(0)
@@ -219,6 +232,8 @@ async function submitCheckout() {
       items_count: order.items_count,
     })
 
+    toast.success(`Заказ ${order.order_number} оформлен`)
+
     void router.push({
       name: 'order-success',
       params: { orderNumber: order.order_number },
@@ -228,6 +243,9 @@ async function submitCheckout() {
     checkoutError.value = hasUnavailableItems.value
       ? unavailableCartMessage.value
       : 'Не удалось оформить заказ. Проверь данные и повтори попытку.'
+    toast.error(
+      checkoutError.value,
+    )
   } finally {
     checkoutLoading.value = false
   }
@@ -403,19 +421,11 @@ watch(
           </label>
           <label>
             Доставка
-            <Select v-model="deliveryMethod" class="checkout__select" required>
-              <option v-for="method in deliveryMethods" :key="method.code" :value="method.code">
-                {{ method.name }}{{ method.is_test_mode ? ' · тест' : '' }} ({{ formatPrice(method.fee) }})
-              </option>
-            </Select>
+            <Select v-model="deliveryMethod" class="checkout__select" :options="deliveryMethodOptions" />
           </label>
           <label>
             Оплата
-            <Select v-model="paymentMethod" class="checkout__select" required>
-              <option v-for="method in paymentMethods" :key="method.code" :value="method.code">
-                {{ method.name }}{{ method.is_test_mode ? ' · тест' : '' }}
-              </option>
-            </Select>
+            <Select v-model="paymentMethod" class="checkout__select" :options="paymentMethodOptions" />
           </label>
           <label>
             Промокод
@@ -428,6 +438,7 @@ watch(
               class="checkout__input"
               type="number"
               min="0"
+              coerce-number
               :max="loyaltyMaxPoints"
               placeholder="0"
             />
@@ -511,7 +522,7 @@ watch(
 
 <style scoped>
 .cart-page {
-  width: min(1240px, 92vw);
+  width: min(var(--layout-max-width), 92vw);
   margin: 0 auto;
   padding: 20px 0 60px;
 }

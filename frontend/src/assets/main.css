@@ -29,27 +29,43 @@
 }
 
 :root {
-  --background: #f6f2ea;
-  --foreground: #131524;
-  --card: #fffdf7;
-  --card-foreground: #131524;
-  --popover: #fffdf7;
-  --popover-foreground: #131524;
-  --primary: #1b2342;
-  --primary-foreground: #f9fafc;
-  --secondary: #e9edf6;
-  --secondary-foreground: #1b2342;
-  --muted: #f2f3f7;
-  --muted-foreground: #5c6477;
-  --accent: #e8f4ff;
-  --accent-foreground: #1b2342;
+  /* Высота липкой шапки (strip + main) для position:sticky у контента (каталог и т.д.) */
+  --site-header-sticky-offset: 118px;
+  --background: #ffffff;
+  --foreground: #111827;
+  --card: #ffffff;
+  --card-foreground: #111827;
+  --popover: #ffffff;
+  --popover-foreground: #111827;
+  --primary: #09090b;
+  --primary-foreground: #fafafa;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  --border: #d6dbe8;
-  --input: #d6dbe8;
-  --ring: #5b88ff;
+  --border: #e5e7eb;
+  --input: #e5e7eb;
+  --ring: #18181b;
 }
 
 #app {
   min-height: 100vh;
+}
+
+@media (max-width: 1023px) {
+  :root {
+    /* Две строки в main: логотип/меню + поиск на всю ширину */
+    --site-header-sticky-offset: 176px;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    /* Strip может переноситься — запас по высоте */
+    --site-header-sticky-offset: 196px;
+  }
 }

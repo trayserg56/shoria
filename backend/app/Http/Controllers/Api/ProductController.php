@@ -744,21 +744,7 @@ class ProductController extends Controller
      */
     private function resolveProductTags(Product $product): array
     {
-        $tags = [];
-
-        if ($product->is_hit) {
-            $tags[] = ['code' => 'hit', 'label' => 'Хит'];
-        }
-
-        if ($product->is_new) {
-            $tags[] = ['code' => 'new', 'label' => 'Новинка'];
-        }
-
-        if ($product->is_customer_choice) {
-            $tags[] = ['code' => 'customer_choice', 'label' => 'Выбор покупателей'];
-        }
-
-        return $tags;
+        return $product->tagsForApi();
     }
 
     public function show(Request $request, string $slug): JsonResponse
@@ -767,8 +753,8 @@ class ProductController extends Controller
 
         $product = Product::query()
             ->with([
-                'category:id,name,slug',
-                'categories:id,name,slug',
+                'category:id,name,slug,parent_id',
+                'categories:id,name,slug,parent_id',
                 'brandEntity:id,name,slug',
                 'images:id,product_id,url,alt,is_cover,sort_order',
                 'variants:id,product_id,slug,size_label,color_label,sku,price,stock,is_active,sort_order',
@@ -884,6 +870,9 @@ class ProductController extends Controller
             'has_variants' => $variants->isNotEmpty(),
             'selected_variant_slug' => $selectedVariant?->slug,
             'category' => $this->resolvePrimaryCategoryPayload($product),
+            'category_path' => $this->resolveCategoryBreadcrumbPath(
+                $product->category ?? $product->categories->sortBy('name')->first(),
+            ),
             'categories' => $product->categories
                 ->map(fn (Category $category): array => [
                     'name' => $category->name,
@@ -1311,5 +1300,37 @@ class ProductController extends Controller
             'name' => $category->name,
             'slug' => $category->slug,
         ];
+    }
+
+    /**
+     * Цепочка от корня до основной категории товара (для хлебных крошек и канонических ссылок в каталог).
+     *
+     * @return array<int, array{name: string, slug: string}>
+     */
+    private function resolveCategoryBreadcrumbPath(?Category $category): array
+    {
+        if (! $category) {
+            return [];
+        }
+
+        $segments = [];
+        $current = $category;
+
+        while ($current instanceof Category) {
+            array_unshift($segments, [
+                'name' => $current->name,
+                'slug' => $current->slug,
+            ]);
+
+            if ($current->parent_id === null) {
+                break;
+            }
+
+            $current = Category::query()
+                ->whereKey($current->parent_id)
+                ->first(['id', 'name', 'slug', 'parent_id']);
+        }
+
+        return $segments;
     }
 }

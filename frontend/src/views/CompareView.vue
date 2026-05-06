@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink } from 'vue-router'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
+import { toast } from '@/lib/toast'
 import { toProductRoute } from '@/lib/product-route'
 import { useCompareStore } from '@/stores/compare'
 import { useCartStore } from '@/stores/cart'
@@ -10,7 +11,6 @@ import { useCartStore } from '@/stores/cart'
 const compareStore = useCompareStore()
 const { items: compareItems } = storeToRefs(compareStore)
 const cartStore = useCartStore()
-const cartMessage = ref('')
 const isBulkAdding = ref(false)
 
 function formatPrice(value: number, currency: string) {
@@ -24,9 +24,8 @@ function formatPrice(value: number, currency: string) {
 async function addToCart(productSlug: string) {
   try {
     await cartStore.addItemBySlug(productSlug, 1)
-    cartMessage.value = 'Товар добавлен в корзину.'
   } catch {
-    cartMessage.value = 'Не удалось добавить товар в корзину. Попробуйте еще раз.'
+    /* тост из cart store */
   }
 }
 
@@ -41,17 +40,19 @@ async function addAllToCart() {
   try {
     for (const item of compareItems.value) {
       try {
-        await cartStore.addItemBySlug(item.slug, 1)
+        await cartStore.addItemBySlug(item.slug, 1, undefined, { suppressSuccessToast: true })
         added += 1
       } catch (error) {
         console.error(error)
       }
     }
 
-    cartMessage.value =
-      added > 0
-        ? `Добавили в корзину ${added} ${added === 1 ? 'товар' : added < 5 ? 'товара' : 'товаров'}.`
-        : 'Не удалось добавить товары в корзину. Попробуйте еще раз.'
+    if (added > 0) {
+      const word = added === 1 ? 'товар' : added < 5 ? 'товара' : 'товаров'
+      toast.success(`В корзину: ${added} ${word}`)
+    } else {
+      toast.error('Не удалось добавить товары в корзину.')
+    }
   } finally {
     isBulkAdding.value = false
   }
@@ -68,7 +69,6 @@ onMounted(() => {
       <h1>Сравнение</h1>
       <p>Сравнивайте товары рядом по ключевым параметрам.</p>
     </header>
-    <p v-if="cartMessage" class="status">{{ cartMessage }}</p>
     <div v-if="compareItems.length" class="compare-head-actions">
       <button type="button" :disabled="isBulkAdding" @click="addAllToCart">
         {{ isBulkAdding ? 'Добавляем...' : 'Добавить все в корзину' }}
@@ -132,7 +132,7 @@ onMounted(() => {
 
 <style scoped>
 .compare-page {
-  width: min(1240px, 92vw);
+  width: min(var(--layout-max-width), 92vw);
   margin: 0 auto;
   padding: 24px 0 60px;
 }

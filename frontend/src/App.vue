@@ -2,9 +2,28 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { NConfigProvider, dateRuRU, ruRU } from 'naive-ui'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import AuthModal from '@/components/AuthModal.vue'
+import ProductQuickViewModal from '@/components/ProductQuickViewModal.vue'
+import { buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { naiveThemeOverrides } from '@/theme/naive-theme'
+import { cn } from '@/lib/utils'
+import {
+  ChevronDown,
+  GitCompare,
+  Heart,
+  LayoutGrid,
+  Menu,
+  Phone,
+  Search as SearchIcon,
+  ShoppingCart,
+  X,
+} from 'lucide-vue-next'
+import { Toaster, toast } from '@/lib/toast'
+import 'vue-sonner/style.css'
+import { closeProductQuickView } from '@/lib/product-quick-view'
 import { captureFirstTouchAttribution } from '@/lib/attribution'
 import { fetchJson } from '@/lib/api'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
@@ -94,6 +113,14 @@ type RussianCityEntry = {
   subject?: string
 }
 
+type SiteSettingsPayload = {
+  logo_text: string
+  logo_image_url: string | null
+  phone_display: string
+  phone_tel: string
+  work_hours_short: string
+}
+
 const CITY_STORAGE_KEY = 'shoria.city.v1'
 const cityPickerOpen = ref(false)
 const citySearch = ref('')
@@ -175,9 +202,80 @@ const defaultNavigation: NavigationResponse = {
 
 const navigationMenu = ref<NavigationResponse>(defaultNavigation)
 const headerMenuItems = computed(() => navigationMenu.value.header)
+/** Верхняя полоса: без «Главная» и без отдельного «Каталог» — он в кнопке */
+const stripNavItems = computed(() =>
+  headerMenuItems.value.filter(
+    (item) =>
+      item.label.trim() !== 'Главная'
+      && item.path !== '/catalog'
+      && item.path !== '/',
+  ),
+)
 const footerCustomersMenuItems = computed(() => navigationMenu.value.footer.customers)
 const footerAccountMenuItems = computed(() => navigationMenu.value.footer.account)
 const headerCategories = ref<HeaderCategory[]>([])
+const megaActiveCategory = ref<HeaderCategory | null>(null)
+const mobileDrawerOpen = ref(false)
+
+const defaultSiteSettings: SiteSettingsPayload = {
+  logo_text: 'Shoria',
+  logo_image_url: null,
+  phone_display: '+7 (900) 000-00-00',
+  phone_tel: '+79000000000',
+  work_hours_short: 'Пн–Вс: 10:00–20:00',
+}
+
+const siteSettings = ref<SiteSettingsPayload>({ ...defaultSiteSettings })
+
+const catalogTriggerClass = computed(() =>
+  cn(
+    buttonVariants({ variant: 'default', size: 'default' }),
+    'site-header__catalog-btn',
+  ),
+)
+
+function syncMegaActiveFromFirst() {
+  megaActiveCategory.value = headerCategories.value[0] ?? null
+}
+
+function onCatalogDetailsToggle(event: Event) {
+  const details = event.currentTarget as HTMLDetailsElement
+  if (details.open && headerCategories.value.length) {
+    syncMegaActiveFromFirst()
+  }
+}
+
+function setMegaActiveCategory(category: HeaderCategory) {
+  megaActiveCategory.value = category
+}
+
+function closeCatalogMenu() {
+  if (categoryMenuRef.value) {
+    categoryMenuRef.value.open = false
+  }
+}
+
+function onDocumentPointerDownCloseCatalog(event: PointerEvent) {
+  const menu = categoryMenuRef.value
+  if (!menu?.open) {
+    return
+  }
+  const t = event.target
+  if (t instanceof Node && menu.contains(t)) {
+    return
+  }
+  menu.open = false
+}
+
+function onDocumentKeydownCloseCatalog(event: KeyboardEvent) {
+  if (event.key !== 'Escape') {
+    return
+  }
+  if (!categoryMenuRef.value?.open) {
+    return
+  }
+  closeCatalogMenu()
+}
 
 function normalizeCityName(name: string): string {
   return name
@@ -362,12 +460,21 @@ function selectCity(city: CityOption) {
 }
 
 onMounted(async () => {
+  document.addEventListener('pointerdown', onDocumentPointerDownCloseCatalog, true)
+  document.addEventListener('keydown', onDocumentKeydownCloseCatalog)
+
   captureFirstTouchAttribution()
   wishlistStore.hydrate()
   compareStore.hydrate()
 
   try {
-    await Promise.all([authStore.loadMe(), loadNavigationMenu(), loadHeaderCategories(), loadCitySelection()])
+    await Promise.all([
+      authStore.loadMe(),
+      loadNavigationMenu(),
+      loadHeaderCategories(),
+      loadCitySelection(),
+      loadSiteSettings(),
+    ])
     await cartStore.loadCart()
   } finally {
     isHeaderLoading.value = false
@@ -387,6 +494,7 @@ watch(
 async function onAuthenticated() {
   await cartStore.loadCart()
   await cartStore.loadOrderHistory()
+  toast.success('Вы вошли в аккаунт')
 }
 
 async function closeAuthModal() {
@@ -431,6 +539,15 @@ async function loadHeaderCategories() {
   } catch (error) {
     console.error(error)
     headerCategories.value = []
+  }
+}
+
+async function loadSiteSettings() {
+  try {
+    siteSettings.value = await fetchJson<SiteSettingsPayload>('/api/site-settings')
+  } catch (error) {
+    console.warn('Site settings unavailable, using defaults', error)
+    siteSettings.value = { ...defaultSiteSettings }
   }
 }
 
@@ -482,10 +599,22 @@ watch(
   () => {
     headerSearchInput.value = (route.query.q as string | undefined) ?? ''
     searchSuggestions.value = []
+    mobileDrawerOpen.value = false
+    closeProductQuickView()
     if (categoryMenuRef.value?.open) {
       categoryMenuRef.value.open = false
     }
   },
+)
+
+watch(
+  headerCategories,
+  (list) => {
+    if (list.length && (!megaActiveCategory.value || !list.some((c) => c.id === megaActiveCategory.value?.id))) {
+      syncMegaActiveFromFirst()
+    }
+  },
+  { deep: true },
 )
 
 watch(headerSearchInput, (value) => {
@@ -499,6 +628,8 @@ watch(headerSearchInput, (value) => {
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocumentPointerDownCloseCatalog, true)
+  document.removeEventListener('keydown', onDocumentKeydownCloseCatalog)
   if (suggestDebounce !== null) {
     window.clearTimeout(suggestDebounce)
   }
@@ -506,120 +637,304 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <NConfigProvider :theme-overrides="naiveThemeOverrides" :locale="ruRU" :date-locale="dateRuRU">
   <div class="app-shell">
-    <header class="topbar">
+    <header class="site-header">
       <template v-if="!isHeaderLoading">
-        <button type="button" class="topbar__city" @click="openCityPicker">
-          <span class="topbar__city-icon">📍</span>
-          <span>{{ cityLabel }}</span>
-        </button>
-        <RouterLink to="/" class="brand">Shoria</RouterLink>
-        <nav class="topbar__nav">
-          <details v-if="headerCategories.length" ref="categoryMenuRef" class="topbar__categories">
-            <summary class="topbar__categories-summary">Категории</summary>
-            <div class="topbar__categories-dropdown">
-              <div v-for="category in headerCategories" :key="`header-category-${category.id}`" class="topbar__category-group">
-                <RouterLink :to="`/catalog/${category.slug}`" class="topbar__category-parent">
-                  {{ category.name }}
-                </RouterLink>
-                <div v-if="category.subcategories?.length" class="topbar__subcategory-list">
-                  <RouterLink
-                    v-for="subcategory in category.subcategories"
-                    :key="`header-subcategory-${subcategory.id}`"
-                    :to="`/catalog/${category.slug}/${subcategory.slug}`"
-                    class="topbar__subcategory-item"
-                  >
-                    {{ subcategory.name }}
-                  </RouterLink>
-                </div>
-              </div>
-            </div>
-          </details>
-          <template v-for="item in headerMenuItems" :key="`header-${item.id}`">
-            <a
-              v-if="item.is_external"
-              :href="item.path"
-              :target="item.open_in_new_tab ? '_blank' : undefined"
-              :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
-            >
-              {{ item.label }}
-            </a>
-            <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
-          </template>
-          <RouterLink v-if="isAuthenticated" to="/account">Профиль</RouterLink>
-          <button v-else type="button" class="auth-btn" @click="authModalOpen = true">Вход / Регистрация</button>
-        </nav>
-        <form class="topbar__search" @submit.prevent="submitHeaderSearch">
-          <Input
-            v-model="headerSearchInput"
-            type="search"
-            placeholder="Поиск по каталогу"
-            class="topbar__search-input"
-            @focus="onSearchFocus"
-            @blur="onSearchBlur"
-          />
-          <button type="submit" aria-label="Искать">
-            <span>🔍</span>
-          </button>
-          <div v-if="isSearchFocused && searchSuggestions.length" class="topbar__suggestions">
-            <button
-              v-for="item in searchSuggestions"
-              :key="item.id"
-              type="button"
-              class="topbar__suggestion"
-              @mousedown.prevent="openSuggestion(item)"
-            >
-              <img :src="resolveImageSrc(item.image_url)" :alt="item.name" loading="lazy" @error="applyImageFallback" />
-              <span class="topbar__suggestion-body">
-                <strong>{{ item.name }}</strong>
-                <small>{{ item.category?.name ?? 'Sneakers' }}</small>
-              </span>
+        <div class="site-header__strip">
+          <div class="site-header__inner site-header__inner--strip">
+            <button type="button" class="site-header__city" @click="openCityPicker">
+              <span class="site-header__city-label">{{ cityLabel }}</span>
+              <ChevronDown class="site-header__city-chevron" :size="16" aria-hidden="true" />
             </button>
+            <nav class="site-header__strip-nav" aria-label="Сервисное меню">
+              <template v-for="item in stripNavItems" :key="`strip-${item.id}`">
+                <a
+                  v-if="item.is_external"
+                  :href="item.path"
+                  :target="item.open_in_new_tab ? '_blank' : undefined"
+                  :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
+                  class="site-header__strip-link"
+                >
+                  {{ item.label }}
+                </a>
+                <RouterLink v-else :to="item.path" class="site-header__strip-link">
+                  {{ item.label }}
+                </RouterLink>
+              </template>
+            </nav>
+            <p class="site-header__hours">{{ siteSettings.work_hours_short }}</p>
           </div>
-        </form>
-        <div class="topbar__actions">
-          <RouterLink class="icon-pill icon-pill--wishlist" to="/wishlist" aria-label="Избранное">
-            <span class="icon-pill__icon">❤</span>
-            <span class="icon-pill__count">{{ wishlistTotalItems }}</span>
-          </RouterLink>
-          <RouterLink class="icon-pill icon-pill--compare" to="/compare" aria-label="Сравнение">
-            <span class="icon-pill__icon">⚖</span>
-            <span class="icon-pill__count">{{ compareTotalItems }}</span>
-          </RouterLink>
-          <RouterLink class="icon-pill icon-pill--cart" to="/cart" aria-label="Корзина">
-            <span class="icon-pill__icon">🛒</span>
-            <span class="icon-pill__count">{{ totalItems }}</span>
-          </RouterLink>
-          <span v-if="isAuthenticated && user" class="user-pill">{{ user.name }}</span>
+        </div>
+
+        <div class="site-header__main">
+          <div class="site-header__inner site-header__inner--main">
+            <div class="site-header__leading">
+              <button
+                type="button"
+                class="site-header__icon-btn site-header__icon-btn--menu"
+                aria-label="Открыть меню"
+                @click="mobileDrawerOpen = true"
+              >
+                <Menu :size="22" />
+              </button>
+
+              <RouterLink to="/" class="site-header__logo">
+                <img
+                  v-if="siteSettings.logo_image_url"
+                  :src="siteSettings.logo_image_url"
+                  :alt="siteSettings.logo_text"
+                  class="site-header__logo-img"
+                  loading="eager"
+                  decoding="async"
+                />
+                <span v-else>{{ siteSettings.logo_text }}</span>
+              </RouterLink>
+
+              <details
+                v-if="headerCategories.length"
+                ref="categoryMenuRef"
+                class="site-header__catalog site-header__catalog--desktop"
+                @toggle="onCatalogDetailsToggle"
+              >
+                <summary :class="catalogTriggerClass">
+                  <span>Каталог</span>
+                  <ChevronDown :size="18" class="site-header__catalog-chevron" aria-hidden="true" />
+                </summary>
+                <div class="site-header__mega" @click.stop>
+                  <div class="site-header__mega-inner">
+                    <div class="site-header__mega-layout">
+                      <ul class="site-header__mega-parents">
+                        <li v-for="category in headerCategories" :key="`mega-p-${category.id}`">
+                          <RouterLink
+                            :to="`/catalog/${category.slug}`"
+                            class="site-header__mega-parent"
+                            :class="{ 'site-header__mega-parent--active': megaActiveCategory?.id === category.id }"
+                            @mouseenter="setMegaActiveCategory(category)"
+                            @focus="setMegaActiveCategory(category)"
+                            @click="closeCatalogMenu"
+                          >
+                            {{ category.name }}
+                          </RouterLink>
+                        </li>
+                      </ul>
+                      <div class="site-header__mega-right">
+                        <div v-if="megaActiveCategory?.subcategories?.length" class="site-header__mega-grid">
+                          <RouterLink
+                            v-for="sub in megaActiveCategory.subcategories"
+                            :key="`mega-s-${sub.id}`"
+                            :to="`/catalog/${megaActiveCategory!.slug}/${sub.slug}`"
+                            class="site-header__mega-sub"
+                            @click="closeCatalogMenu"
+                          >
+                            {{ sub.name }}
+                          </RouterLink>
+                        </div>
+                        <div
+                          v-else-if="megaActiveCategory"
+                          class="site-header__mega-empty"
+                          role="status"
+                          aria-live="polite"
+                        >
+                          <div class="site-header__mega-empty-icon-wrap" aria-hidden="true">
+                            <LayoutGrid :size="26" class="site-header__mega-empty-icon" stroke-width="1.75" />
+                          </div>
+                          <p class="site-header__mega-empty-title">Подразделы скоро появятся</p>
+                          <p class="site-header__mega-empty-text">
+                            А пока можно открыть весь каталог этого направления — там уже есть товары.
+                          </p>
+                          <RouterLink
+                            :to="`/catalog/${megaActiveCategory.slug}`"
+                            class="site-header__mega-empty-cta"
+                            @click="closeCatalogMenu"
+                          >
+                            Перейти в «{{ megaActiveCategory.name }}»
+                          </RouterLink>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </details>
+              <RouterLink
+                v-else
+                to="/catalog"
+                :class="catalogTriggerClass"
+                class="site-header__catalog-fallback site-header__catalog--desktop"
+              >
+                Каталог
+              </RouterLink>
+            </div>
+
+            <form class="site-header__search" @submit.prevent="submitHeaderSearch">
+              <input
+                id="site-header-search"
+                v-model="headerSearchInput"
+                type="search"
+                name="q"
+                class="site-header__search-input"
+                placeholder="Поиск по каталогу"
+                autocomplete="off"
+                autocorrect="off"
+                spellcheck="false"
+                enterkeyhint="search"
+                @focus="onSearchFocus"
+                @blur="onSearchBlur"
+              />
+              <button type="submit" class="site-header__search-submit" aria-label="Искать">
+                <SearchIcon :size="18" />
+              </button>
+              <div v-if="isSearchFocused && searchSuggestions.length" class="site-header__suggestions">
+                <button
+                  v-for="item in searchSuggestions"
+                  :key="item.id"
+                  type="button"
+                  class="site-header__suggestion"
+                  @mousedown.prevent="openSuggestion(item)"
+                >
+                  <img :src="resolveImageSrc(item.image_url)" :alt="item.name" loading="lazy" @error="applyImageFallback" />
+                  <span class="site-header__suggestion-body">
+                    <strong>{{ item.name }}</strong>
+                    <small>{{ item.category?.name ?? 'Каталог' }}</small>
+                  </span>
+                </button>
+              </div>
+            </form>
+
+            <div class="site-header__aside">
+              <a :href="`tel:${siteSettings.phone_tel}`" class="site-header__phone-block">
+                <Phone class="site-header__phone-icon" :size="18" aria-hidden="true" />
+                <span class="site-header__phone-text">{{ siteSettings.phone_display }}</span>
+              </a>
+              <div class="site-header__actions">
+                <RouterLink class="site-header__tool" to="/wishlist" aria-label="Избранное">
+                  <Heart :size="20" />
+                  <span class="site-header__tool-count">{{ wishlistTotalItems }}</span>
+                </RouterLink>
+                <RouterLink class="site-header__tool" to="/compare" aria-label="Сравнение">
+                  <GitCompare :size="20" />
+                  <span class="site-header__tool-count">{{ compareTotalItems }}</span>
+                </RouterLink>
+                <RouterLink class="site-header__tool site-header__tool--cart" to="/cart" aria-label="Корзина">
+                  <ShoppingCart :size="20" />
+                  <span class="site-header__tool-count">{{ totalItems }}</span>
+                </RouterLink>
+              </div>
+              <button
+                v-if="!isAuthenticated"
+                type="button"
+                class="site-header__auth"
+                @click="authModalOpen = true"
+              >
+                Войти
+              </button>
+              <RouterLink v-else to="/account" class="site-header__account">
+                {{ user?.name ?? 'Профиль' }}
+              </RouterLink>
+            </div>
+          </div>
         </div>
       </template>
       <template v-else>
-        <div class="topbar__city topbar__city--skeleton">
-          <AppSkeleton inline width="72px" height="24px" radius="8px" />
+        <div class="site-header__strip site-header__strip--loading">
+          <div class="site-header__inner site-header__inner--strip">
+            <AppSkeleton inline width="120px" height="20px" radius="8px" />
+            <AppSkeleton inline width="60%" height="20px" radius="8px" />
+            <AppSkeleton inline width="140px" height="20px" radius="8px" />
+          </div>
         </div>
-        <div class="brand brand--skeleton">
-          <AppSkeleton inline width="126px" height="42px" radius="8px" />
-        </div>
-        <div class="topbar__nav topbar__nav--skeleton">
-          <AppSkeleton inline width="104px" height="40px" radius="999px" />
-          <AppSkeleton inline width="86px" height="40px" radius="999px" />
-          <AppSkeleton inline width="92px" height="40px" radius="999px" />
-          <AppSkeleton inline width="86px" height="40px" radius="999px" />
-        </div>
-        <div class="topbar__search topbar__search--skeleton">
-          <AppSkeleton inline width="100%" height="58px" radius="16px" />
-          <span class="topbar__search-button-skeleton">
-            <AppSkeleton inline width="38px" height="38px" radius="12px" />
-          </span>
-        </div>
-        <div class="topbar__actions topbar__actions--skeleton">
-          <AppSkeleton inline width="42px" height="42px" radius="12px" />
-          <AppSkeleton inline width="42px" height="42px" radius="12px" />
-          <AppSkeleton inline width="42px" height="42px" radius="12px" />
-          <AppSkeleton inline width="82px" height="36px" radius="999px" />
+        <div class="site-header__main">
+          <div class="site-header__inner site-header__inner--main site-header__inner--loading">
+            <div class="site-header__leading">
+              <AppSkeleton inline width="120px" height="40px" radius="10px" />
+              <AppSkeleton inline width="96px" height="40px" radius="10px" />
+            </div>
+            <AppSkeleton class="site-header__search-skeleton" inline width="100%" height="44px" radius="12px" />
+            <div class="site-header__aside site-header__aside--loading">
+              <AppSkeleton inline width="140px" height="40px" radius="12px" />
+              <AppSkeleton inline width="132px" height="40px" radius="12px" />
+            </div>
+          </div>
         </div>
       </template>
     </header>
+
+    <Teleport to="body">
+      <div v-if="mobileDrawerOpen" class="mobile-drawer-overlay" @click.self="mobileDrawerOpen = false">
+        <aside class="mobile-drawer" aria-label="Меню сайта">
+          <div class="mobile-drawer__head">
+            <span class="mobile-drawer__title">Меню</span>
+            <button type="button" class="mobile-drawer__close" aria-label="Закрыть" @click="mobileDrawerOpen = false">
+              <X :size="22" />
+            </button>
+          </div>
+          <button type="button" class="mobile-drawer__city" @click="openCityPicker(); mobileDrawerOpen = false">
+            {{ cityLabel }}
+            <ChevronDown :size="16" />
+          </button>
+          <nav class="mobile-drawer__nav">
+            <RouterLink to="/" class="mobile-drawer__link" @click="mobileDrawerOpen = false">Главная</RouterLink>
+            <RouterLink to="/catalog" class="mobile-drawer__link" @click="mobileDrawerOpen = false">Каталог</RouterLink>
+            <template v-for="item in stripNavItems" :key="`m-${item.id}`">
+              <a
+                v-if="item.is_external"
+                :href="item.path"
+                :target="item.open_in_new_tab ? '_blank' : undefined"
+                :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
+                class="mobile-drawer__link"
+                @click="mobileDrawerOpen = false"
+              >
+                {{ item.label }}
+              </a>
+              <RouterLink v-else :to="item.path" class="mobile-drawer__link" @click="mobileDrawerOpen = false">
+                {{ item.label }}
+              </RouterLink>
+            </template>
+          </nav>
+          <div v-if="headerCategories.length" class="mobile-drawer__acc">
+            <p class="mobile-drawer__acc-title">Категории</p>
+            <div v-for="category in headerCategories" :key="`mc-${category.id}`" class="mobile-drawer__group">
+              <RouterLink
+                :to="`/catalog/${category.slug}`"
+                class="mobile-drawer__parent"
+                @click="mobileDrawerOpen = false"
+              >
+                {{ category.name }}
+              </RouterLink>
+              <div v-if="category.subcategories?.length" class="mobile-drawer__subs">
+                <RouterLink
+                  v-for="sub in category.subcategories"
+                  :key="`mcs-${sub.id}`"
+                  :to="`/catalog/${category.slug}/${sub.slug}`"
+                  class="mobile-drawer__sub"
+                  @click="mobileDrawerOpen = false"
+                >
+                  {{ sub.name }}
+                </RouterLink>
+              </div>
+            </div>
+          </div>
+          <div class="mobile-drawer__auth-block">
+            <button
+              v-if="!isAuthenticated"
+              type="button"
+              class="mobile-drawer__link mobile-drawer__link--accent"
+              @click="authModalOpen = true; mobileDrawerOpen = false"
+            >
+              Войти
+            </button>
+            <RouterLink
+              v-else
+              to="/account"
+              class="mobile-drawer__link mobile-drawer__link--accent"
+              @click="mobileDrawerOpen = false"
+            >
+              Личный кабинет
+            </RouterLink>
+          </div>
+        </aside>
+      </div>
+    </Teleport>
       <Teleport to="body">
         <div v-if="cityPickerOpen" class="city-modal" @click.self="cityPickerOpen = false">
           <section class="city-modal__card">
@@ -629,10 +944,11 @@ onBeforeUnmount(() => {
           </header>
 
           <Input
-            v-model.trim="citySearch"
+            :model-value="citySearch"
             type="search"
             placeholder="Найти город"
             class="city-modal__search"
+            @update:model-value="(v) => (citySearch = typeof v === 'string' ? v.trim() : String(v ?? ''))"
           />
 
           <div class="city-modal__popular">
@@ -739,7 +1055,10 @@ onBeforeUnmount(() => {
       <p class="footer__copy">© {{ currentYear }} Shoria. Все права защищены.</p>
       </footer>
     <AuthModal :open="authModalOpen" @close="closeAuthModal" @authenticated="onAuthenticated" />
+    <ProductQuickViewModal />
+    <Toaster position="bottom-right" :rich-colors="true" close-button />
   </div>
+  </NConfigProvider>
 </template>
 
 <style scoped>
@@ -747,261 +1066,473 @@ onBeforeUnmount(() => {
   min-height: 100vh;
 }
 
-.topbar {
-  width: min(1240px, 92vw);
-  margin: 0 auto;
-  padding: 16px 0 6px;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  grid-template-areas:
-    'city city city'
-    'brand nav actions'
-    'search search search';
-  align-items: center;
-  gap: 10px 14px;
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--background);
+  border-bottom: 1px solid var(--header-border, #e5e7eb);
 }
 
-.topbar__city {
-  grid-area: city;
-  justify-self: start;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: #3f4860;
-  font: inherit;
-  cursor: pointer;
+.site-header__strip {
+  background: var(--header-strip-bg, #f3f4f6);
+  border-bottom: 1px solid var(--header-border, #e5e7eb);
 }
 
-.topbar__city:hover {
-  color: var(--color-accent, #bf4b08);
-}
-
-.topbar__city-icon {
-  font-size: 14px;
-}
-
-.topbar__city--skeleton {
-  width: 72px;
-  height: 24px;
-}
-
-.brand {
-  grid-area: brand;
-  color: #1f2233;
-  text-decoration: none;
-  font-family: var(--font-display);
-  font-size: 42px;
-  line-height: 1;
-}
-
-.brand--skeleton {
-  display: flex;
-  align-items: center;
-  min-width: 126px;
-  height: 42px;
-}
-
-.topbar__nav {
-  grid-area: nav;
-  display: flex;
-  align-items: center;
-  justify-self: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.topbar__nav--skeleton {
-  gap: 8px;
-}
-
-.topbar__nav a {
-  padding: 8px 12px;
-  border-radius: 999px;
-  color: #1f2233;
-  text-decoration: none;
-}
-
-.topbar__categories {
-  position: relative;
-}
-
-.topbar__categories-summary {
-  list-style: none;
-  padding: 8px 12px;
-  border-radius: 999px;
-  color: #1f2233;
-  cursor: pointer;
-  user-select: none;
-}
-
-.topbar__categories-summary::-webkit-details-marker {
-  display: none;
-}
-
-.topbar__categories[open] .topbar__categories-summary {
-  background: #1f2233;
-  color: #fff;
-}
-
-.topbar__categories-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  z-index: 20;
-  min-width: min(760px, 86vw);
-  max-height: min(68vh, 520px);
-  overflow: auto;
-  padding: 14px;
-  border-radius: 16px;
-  border: 1px solid #e0ddd6;
-  background: #fff;
-  box-shadow: 0 24px 44px rgb(16 24 40 / 16%);
-  display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
+.site-header__strip--loading .site-header__inner--strip {
+  justify-content: space-between;
   gap: 12px;
 }
 
-.topbar__category-group {
-  display: grid;
-  gap: 7px;
+.site-header__inner {
+  width: min(var(--layout-max-width), 92vw);
+  margin: 0 auto;
 }
 
-.topbar__category-parent {
-  padding: 6px 8px;
-  border-radius: 10px;
-  font-weight: 700;
-  text-decoration: none;
-  color: #1f2233;
-}
-
-.topbar__category-parent:hover {
-  background: #f6f3ed;
-}
-
-.topbar__subcategory-list {
-  display: grid;
-  gap: 4px;
-}
-
-.topbar__subcategory-item {
-  padding: 5px 8px;
-  border-radius: 9px;
-  color: #4b5773;
-  text-decoration: none;
-  font-size: 14px;
-}
-
-.topbar__subcategory-item:hover {
-  background: #fff2e8;
-  color: #1f2233;
-}
-
-.auth-btn {
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid #e0ddd6;
-  background: #fff;
-  color: #1f2233;
-  font: inherit;
-  cursor: pointer;
-}
-
-.topbar__nav a.router-link-active {
-  background: #1f2233;
-  color: #fff;
-}
-
-.topbar__actions {
-  grid-area: actions;
+.site-header__inner--strip {
   display: flex;
   align-items: center;
-  justify-self: end;
-  gap: 8px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 8px 0;
+  font-size: 13px;
 }
 
-.topbar__actions--skeleton {
+.site-header__city {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  pointer-events: none;
-}
-
-.topbar__search {
-  grid-area: search;
-  position: relative;
-  width: min(760px, 100%);
-  justify-self: center;
-}
-
-.topbar__search--skeleton {
-  height: 58px;
-  pointer-events: none;
-}
-
-.topbar__search-button-skeleton {
-  position: absolute;
-  top: 50%;
-  right: 10px;
-  width: 38px;
-  height: 38px;
-  transform: translateY(-50%);
-}
-
-.topbar__search-input {
-  width: 100%;
-  min-height: 58px;
-  border-radius: 16px;
-  border-color: #d8deec;
-  background: rgb(255 255 255 / 92%);
-  padding-right: 52px;
-  font-size: 20px;
-  box-shadow: 0 8px 24px rgb(17 24 39 / 7%);
-}
-
-.topbar__search > button {
-  position: absolute;
-  top: 50%;
-  right: 10px;
-  transform: translateY(-50%);
-  width: 38px;
-  height: 38px;
-  border: 1px solid #d8deec;
-  border-radius: 12px;
-  background: rgb(245 248 255 / 95%);
-  color: #394766;
-  display: grid;
-  place-items: center;
+  gap: 4px;
+  border: 0;
+  padding: 4px 6px;
+  margin: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
   font: inherit;
+  font-weight: 600;
   cursor: pointer;
+}
+
+.site-header__city:hover {
+  background: rgb(0 0 0 / 5%);
+}
+
+.site-header__city-chevron {
+  opacity: 0.55;
+}
+
+.site-header__strip-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.site-header__strip-link {
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.site-header__strip-link:hover {
+  color: var(--primary);
+  background: rgb(37 99 235 / 8%);
+}
+
+.site-header__hours {
+  margin: 0;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.site-header__main {
+  background: var(--background);
+}
+
+.site-header__inner--main {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  align-items: center;
+  gap: 16px 20px;
+  padding: 12px 0 14px;
+}
+
+.site-header__leading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.site-header__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.site-header__icon-btn:hover {
+  background: var(--muted);
+}
+
+.site-header__icon-btn--menu {
+  display: none;
+}
+
+.site-header__logo {
+  font-family: var(--font-display);
+  font-size: clamp(32px, 5vw, 40px);
+  line-height: 1;
+  color: var(--foreground);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+
+.site-header__logo-img {
+  display: block;
+  max-height: 40px;
+  width: auto;
+}
+
+.site-header__catalog {
+  position: relative;
+}
+
+.site-header__catalog summary {
+  list-style: none;
+}
+
+.site-header__catalog summary::-webkit-details-marker {
+  display: none;
+}
+
+.site-header__catalog-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Вся площадь кнопки реагирует на hover (события идут на <summary>) */
+.site-header__catalog summary.site-header__catalog-btn > * {
+  pointer-events: none;
+}
+
+/* Явный hover на весь прямоугольник (дублируем токен default-кнопки) */
+.site-header__catalog summary.site-header__catalog-btn:hover {
+  background-color: color-mix(in srgb, var(--primary), #000 10%);
+}
+
+.site-header__catalog-fallback.site-header__catalog-btn:hover {
+  background-color: color-mix(in srgb, var(--primary), #000 10%);
+}
+
+.site-header__catalog[open] .site-header__catalog-chevron {
+  transform: rotate(180deg);
+}
+
+.site-header__catalog-chevron {
+  transition: transform 0.2s ease;
+  opacity: 0.9;
+}
+
+.site-header__mega {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 45;
+  width: min(920px, calc(100vw - 32px));
+}
+
+.site-header__mega-inner {
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--popover);
+  box-shadow: 0 20px 50px rgb(15 23 42 / 14%);
+  overflow: hidden;
+}
+
+.site-header__mega-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 220px;
+  max-height: min(70vh, min(480px, calc(100dvh - 120px)));
+  overflow: hidden;
+}
+
+.site-header__mega-parents {
+  margin: 0;
+  padding: 10px 0;
+  list-style: none;
+  border-right: 1px solid var(--border);
+  background: var(--muted);
+  align-self: stretch;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+
+.site-header__mega-parent {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 10px 14px 10px 16px;
+  border: 0;
+  border-radius: 0 10px 10px 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--foreground);
+  text-decoration: none;
+  cursor: pointer;
+  outline: none;
   transition:
     background-color 0.2s ease,
-    border-color 0.2s ease;
+    color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
-.topbar__search > button:hover {
-  background: #fff;
-  border-color: #c6d0e6;
-}
-
-.topbar__suggestions {
+.site-header__mega-parent::before {
+  content: '';
   position: absolute;
-  z-index: 12;
-  top: calc(100% + 8px);
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: calc(100% - 14px);
+  max-height: 36px;
+  border-radius: 0 3px 3px 0;
+  background: var(--primary);
+  opacity: 0;
+  transform: translateY(-50%) scaleY(0.35);
+  transition:
+    opacity 0.2s ease,
+    transform 0.22s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+.site-header__mega-parent:hover,
+.site-header__mega-parent--active {
+  background: color-mix(in srgb, var(--primary), transparent 92%);
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary), transparent 78%);
+}
+
+.site-header__mega-parent:hover::before,
+.site-header__mega-parent--active::before {
+  opacity: 1;
+  transform: translateY(-50%) scaleY(1);
+}
+
+.site-header__mega-parent:focus-visible {
+  background: color-mix(in srgb, var(--primary), transparent 92%);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--primary), transparent 78%),
+    0 0 0 2px var(--background),
+    0 0 0 4px color-mix(in srgb, var(--primary), transparent 45%);
+}
+
+.site-header__mega-right {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  align-self: stretch;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+
+.site-header__mega-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 6px 10px;
+}
+
+.site-header__mega-sub {
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--muted-foreground);
+  text-decoration: none;
+}
+
+.site-header__mega-sub:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.site-header__mega-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: min(200px, 42vh);
+  margin: 0;
+  padding: 12px 8px 8px;
+  text-align: center;
+}
+
+.site-header__mega-empty-icon-wrap {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 4px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--primary), transparent 92%);
+  color: var(--primary);
+}
+
+.site-header__mega-empty-icon {
+  opacity: 0.92;
+}
+
+.site-header__mega-empty-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+  line-height: 1.3;
+}
+
+.site-header__mega-empty-text {
+  margin: 0;
+  max-width: 28ch;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+}
+
+.site-header__mega-empty-cta {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: filter 0.18s ease;
+}
+
+.site-header__mega-empty-cta:hover {
+  filter: brightness(1.05);
+}
+
+.site-header__mega-empty-cta:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.site-header__search {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+/* Нативный input: без Naive NInput, чтобы клики и ввод всегда доходили до поля */
+.site-header__search-input {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 52px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.25;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.site-header__search-input::placeholder {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
+.site-header__search-input:focus,
+.site-header__search-input:focus-visible {
+  border-color: var(--border);
+  box-shadow: none;
+  outline: none;
+}
+
+.site-header__search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.site-header__search-submit {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  z-index: 2;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  cursor: pointer;
+}
+
+.site-header__search-submit:hover {
+  opacity: 0.92;
+}
+
+.site-header__suggestions {
+  position: absolute;
+  z-index: 48;
+  top: calc(100% + 6px);
   left: 0;
   right: 0;
   padding: 8px;
-  border: 1px solid #d6d3cc;
   border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 18px 32px rgb(16 24 40 / 14%);
+  border: 1px solid var(--border);
+  background: var(--popover);
+  box-shadow: 0 16px 40px rgb(15 23 42 / 12%);
 }
 
-.topbar__suggestion {
-  position: static;
-  transform: none;
-  height: auto;
+.site-header__suggestion {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
   gap: 10px;
@@ -1012,99 +1543,293 @@ onBeforeUnmount(() => {
   background: transparent;
   cursor: pointer;
   text-align: left;
-  overflow: hidden;
 }
 
-.topbar__suggestion:hover {
-  background: #fff2e8;
+.site-header__suggestion:hover {
+  background: var(--accent);
 }
 
-.topbar__suggestion img {
+.site-header__suggestion img {
   width: 44px;
   height: 44px;
   border-radius: 8px;
   object-fit: cover;
 }
 
-.topbar__suggestion-body {
+.site-header__suggestion-body {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  overflow: hidden;
 }
 
-.topbar__suggestion-body strong {
-  white-space: nowrap;
+.site-header__suggestion-body strong {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.topbar__suggestion-body small {
-  color: #6f7b95;
+.site-header__suggestion-body small {
+  color: var(--muted-foreground);
+  font-size: 12px;
 }
 
-.icon-pill {
+.site-header__aside {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.site-header__phone-block {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  color: var(--foreground);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.site-header__phone-block:hover {
+  background: var(--muted);
+}
+
+@media (min-width: 1101px) {
+  .site-header__phone-block {
+    display: inline-flex;
+  }
+}
+
+.site-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.site-header__tool {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 42px;
   height: 42px;
-  border-radius: 12px;
-  border: 1px solid #e0ddd6;
-  background: #fff;
-  color: #1f2233;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
   text-decoration: none;
-  display: grid;
-  place-items: center;
 }
 
-.icon-pill__icon {
-  font-size: 17px;
-  line-height: 1;
+.site-header__tool:hover {
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
-.icon-pill__count {
+.site-header__tool-count {
   position: absolute;
-  top: -6px;
-  right: -6px;
+  top: -5px;
+  right: -5px;
   min-width: 18px;
   height: 18px;
-  border-radius: 999px;
   padding: 0 5px;
-  display: grid;
-  place-items: center;
-  background: #1f2233;
-  color: #fff;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
   font-size: 11px;
   font-weight: 700;
+  display: grid;
+  place-items: center;
 }
 
-.icon-pill--wishlist {
-  background: #fff7ef;
-  border: 1px solid #f0dbc3;
-  color: #8a3d0b;
-}
-
-.icon-pill--compare {
-  background: #eef2fb;
-  border: 1px solid #d7deee;
-  color: #3a4d73;
-}
-
-.user-pill {
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: #fff7ef;
-  border: 1px solid #f0dbc3;
-  color: #8a3d0b;
+.site-header__auth,
+.site-header__account {
+  padding: 8px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--background);
   font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--foreground);
+}
+
+.site-header__auth:hover,
+.site-header__account:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.site-header__inner--loading {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.site-header__aside--loading {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.site-header__search-skeleton {
+  grid-column: 1 / -1;
+}
+
+.mobile-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgb(15 23 42 / 45%);
+}
+
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 71;
+  width: min(92vw, 360px);
+  background: var(--background);
+  border-right: 1px solid var(--border);
+  box-shadow: 8px 0 32px rgb(15 23 42 / 12%);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.mobile-drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.mobile-drawer__title {
+  font-weight: 800;
+  font-size: 18px;
+}
+
+.mobile-drawer__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--muted);
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.mobile-drawer__city {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mobile-drawer__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-drawer__link {
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--foreground);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.mobile-drawer__link:hover {
+  background: var(--muted);
+}
+
+.mobile-drawer__acc {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.mobile-drawer__acc-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+}
+
+.mobile-drawer__group {
+  margin-bottom: 12px;
+}
+
+.mobile-drawer__parent {
+  display: block;
+  padding: 8px 0;
+  font-weight: 700;
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+.mobile-drawer__subs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 8px;
+}
+
+.mobile-drawer__sub {
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--muted-foreground);
+  text-decoration: none;
+}
+
+.mobile-drawer__sub:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.mobile-drawer__auth-block {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.mobile-drawer__link--accent {
+  display: block;
+  text-align: center;
+  background: var(--primary);
+  color: var(--primary-foreground) !important;
+}
+
+.mobile-drawer__link--accent:hover {
+  opacity: 0.92;
 }
 
 .footer {
-  width: min(1240px, 92vw);
+  width: min(var(--layout-max-width), 92vw);
   margin: 30px auto 24px;
   padding: 22px 20px 16px;
-  border: 1px solid #e9dfd0;
-  border-radius: 18px;
-  background: linear-gradient(145deg, #fff9f1, #fff5e9);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--muted);
 }
 
 .footer__grid {
@@ -1131,8 +1856,12 @@ onBeforeUnmount(() => {
 }
 
 .footer__links a {
-  color: #1f2233;
+  color: var(--foreground);
   text-decoration: none;
+}
+
+.footer__links a:hover {
+  color: var(--primary);
 }
 
 .footer__link-btn {
@@ -1140,7 +1869,7 @@ onBeforeUnmount(() => {
   border: none;
   background: transparent;
   text-align: left;
-  color: #1f2233;
+  color: var(--foreground);
   font: inherit;
   cursor: pointer;
 }
@@ -1153,8 +1882,8 @@ onBeforeUnmount(() => {
 .footer__copy {
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px solid #ebdfcf;
-  color: #6f7b95;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
   font-size: 14px;
 }
 
@@ -1262,56 +1991,80 @@ onBeforeUnmount(() => {
 }
 
 .city-modal__item:hover {
-  background: #f8f3ec;
+  background: var(--accent);
 }
 
 .city-modal__item--active {
-  background: #f3ede4;
+  background: var(--muted);
   font-weight: 700;
 }
 
 @media (max-width: 1100px) {
-  .topbar {
-    grid-template-columns: 1fr auto;
-    grid-template-areas:
-      'city city'
-      'brand actions'
-      'nav nav'
-      'search search';
+  .site-header__phone-block {
+    display: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .site-header__icon-btn--menu {
+    display: inline-flex;
   }
 
-  .topbar__nav {
-    justify-self: start;
+  .site-header__catalog--desktop,
+  .site-header__catalog-fallback.site-header__catalog--desktop {
+    display: none;
+  }
+
+  .site-header__inner--main {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'lead aside'
+      'search search';
+    gap: 10px 12px;
+  }
+
+  .site-header__leading {
+    grid-area: lead;
+    min-width: 0;
+  }
+
+  .site-header__aside {
+    grid-area: aside;
+    flex-wrap: nowrap;
+  }
+
+  .site-header__search {
+    grid-area: search;
+  }
+
+  .site-header__account,
+  .site-header__auth {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .site-header__strip-nav {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .site-header__inner--strip {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .site-header__hours {
+    margin-left: auto;
   }
 }
 
 @media (max-width: 760px) {
-  .topbar {
-    gap: 8px 10px;
-  }
-
-  .brand {
-    width: auto;
-  }
-
-  .topbar__nav {
-    justify-self: start;
-    width: 100%;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    padding-bottom: 4px;
-  }
-
-  .topbar__search {
-    width: 100%;
-    justify-self: stretch;
-  }
-
-  .topbar__categories-dropdown {
-    min-width: min(560px, 92vw);
-    grid-template-columns: repeat(2, minmax(140px, 1fr));
-  }
-
   .city-modal__header h2 {
     font-size: 34px;
   }

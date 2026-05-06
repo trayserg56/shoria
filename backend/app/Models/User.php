@@ -87,8 +87,10 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
             'categories',
             'news_posts',
             'banners',
+            'marketing_cards',
             'navigation_menu_items',
             'service_pages',
+            'site_settings',
         ], true);
     }
 

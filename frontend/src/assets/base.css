@@ -3,10 +3,21 @@
 :root {
   --font-body: 'Manrope', 'Segoe UI', sans-serif;
   --font-display: 'Bebas Neue', 'Arial Narrow', sans-serif;
-  --color-background: #f6f2ea;
-  --color-text: #131524;
-  --color-text-soft: #5c6477;
-  --card-bg: #fffdf7;
+  --color-background: #ffffff;
+  --color-text: #111827;
+  --color-text-soft: #6b7280;
+  --card-bg: #ffffff;
+  --header-strip-bg: #f3f4f6;
+  --header-border: #e5e7eb;
+  /* Общая ширина контентной колонки (шапка, футер, витрина, каталог и т.д.) */
+  --layout-max-width: 1500px;
+  /* Страницы кабинета / формы чуть уже полной сетки */
+  --layout-account-max-width: 1280px;
+}
+
+html {
+  /* Не даём браузеру «удерживать» невидимый якорь при смене высоты страницы (главная: скелетон → контент). */
+  overflow-anchor: none;
 }
 
 *,
@@ -19,10 +30,7 @@
 body {
   min-height: 100vh;
   color: var(--color-text);
-  background:
-    radial-gradient(circle at 4% 6%, #ffd9b0 0, transparent 35%),
-    radial-gradient(circle at 100% 0, #d4e8ff 0, transparent 28%),
-    var(--color-background);
+  background: var(--color-background);
   line-height: 1.5;
   font-family: var(--font-body);
   font-size: 16px;

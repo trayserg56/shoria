@@ -16,11 +16,13 @@ use App\Http\Controllers\Api\PaymentWebhookController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProductReviewController;
 use App\Http\Controllers\Api\ServicePageController;
+use App\Http\Controllers\Api\SiteSettingController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('throttle:public-api')->group(function (): void {
     Route::get('/home', HomeController::class);
     Route::get('/navigation', NavigationController::class);
+    Route::get('/site-settings', SiteSettingController::class);
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::get('/brands', [BrandController::class, 'index']);
     Route::get('/products', [ProductController::class, 'index']);

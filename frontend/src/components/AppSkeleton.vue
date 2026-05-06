@@ -30,7 +30,7 @@ const props = withDefaults(defineProps<{
   position: relative;
   display: block;
   overflow: hidden;
-  background: linear-gradient(90deg, rgb(240 233 223 / 96%), rgb(252 247 240 / 98%), rgb(240 233 223 / 96%));
+  background: linear-gradient(90deg, #f9fafb, #ffffff, #f9fafb);
 }
 
 .app-skeleton--inline {

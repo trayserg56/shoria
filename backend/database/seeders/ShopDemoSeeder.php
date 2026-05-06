@@ -8,6 +8,7 @@ use App\Models\Category;
 use App\Models\DeliveryProvider;
 use App\Models\DeliveryMethod;
 use App\Models\LoyaltyProgramSetting;
+use App\Models\MarketingCard;
 use App\Models\NewsPost;
 use App\Models\PaymentProvider;
 use App\Models\PromoCode;
@@ -384,6 +385,54 @@ HTML,
             'is_active' => true,
             'sort_order' => 1,
         ]);
+
+        MarketingCard::query()->firstOrCreate(
+            ['title' => 'Товары для похода и кемпинга'],
+            [
+                'label' => 'Туризм',
+                'title' => 'Товары для похода и кемпинга',
+                'link_url' => '/catalog/trail-running',
+                'lines' => [
+                    'Трейл, пересечённая местность',
+                    'Повседневный комфорт для города',
+                ],
+                'image_url' => 'https://images.unsplash.com/photo-1478131143081-80f7f994ca69?auto=format&fit=crop&w=1200&q=80',
+                'is_active' => true,
+                'sort_order' => 1,
+            ],
+        );
+
+        MarketingCard::query()->firstOrCreate(
+            ['title' => 'Новинки lifestyle-коллекции'],
+            [
+                'label' => 'Новинка',
+                'title' => 'Новинки lifestyle-коллекции',
+                'link_url' => '/catalog/lifestyle',
+                'lines' => [
+                    'от 5 990 ₽ · выгодные комплекты',
+                    'Актуальные паттерны — в подборке блога',
+                ],
+                'image_url' => 'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=1200&q=80',
+                'is_active' => true,
+                'sort_order' => 2,
+            ],
+        );
+
+        MarketingCard::query()->firstOrCreate(
+            ['title' => 'Умные часы и гаджеты'],
+            [
+                'label' => 'Электроника',
+                'title' => 'Умные часы с защитой от влаги и ударов',
+                'link_url' => '/catalog/running',
+                'lines' => [
+                    'Классический силуэт и спортивные режимы',
+                    'Смотри также road и trail в каталоге',
+                ],
+                'image_url' => 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=1200&q=80',
+                'is_active' => true,
+                'sort_order' => 3,
+            ],
+        );
 
         $products = [
             [

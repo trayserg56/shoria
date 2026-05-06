@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { requestJson } from '@/lib/api'
+import { toast } from '@/lib/toast'
 import { captureFirstTouchAttribution } from '@/lib/attribution'
 import { getAuthToken } from '@/lib/auth-token'
 import { getAppSessionId } from '@/lib/session'
@@ -269,7 +270,37 @@ export const useCartStore = defineStore('cart', () => {
     }
   }
 
-  async function addItemBySlug(productSlug: string, qty = 1, productVariantId?: number) {
+  function productNameFromCart(productSlug: string, productVariantId?: number): string | null {
+    const list = cart.value?.items ?? []
+    const byVariant = list.find((i) => {
+      if (i.product_slug !== productSlug) {
+        return false
+      }
+      if (productVariantId != null) {
+        return (i.product_variant_id ?? null) === productVariantId
+      }
+
+      return (i.product_variant_id ?? null) === null
+    })
+
+    if (byVariant) {
+      return byVariant.product_name
+    }
+
+    return list.find((i) => i.product_slug === productSlug)?.product_name ?? null
+  }
+
+  type AddItemOptions = {
+    /** Для массового добавления — один итоговый тост на экране */
+    suppressSuccessToast?: boolean
+  }
+
+  async function addItemBySlug(
+    productSlug: string,
+    qty = 1,
+    productVariantId?: number,
+    options?: AddItemOptions,
+  ) {
     isLoading.value = true
 
     const payload: Record<string, string | number> = {
@@ -287,6 +318,15 @@ export const useCartStore = defineStore('cart', () => {
         method: 'POST',
         body: JSON.stringify(payload),
       })
+
+      if (!options?.suppressSuccessToast) {
+        const name = productNameFromCart(productSlug, productVariantId)
+        toast.success(name ? `«${name}» в корзине` : 'Добавлено в корзину')
+      }
+    } catch (error) {
+      console.error(error)
+      toast.error('Не удалось добавить в корзину')
+      throw error
     } finally {
       isLoading.value = false
     }
@@ -303,18 +343,29 @@ export const useCartStore = defineStore('cart', () => {
           qty,
         }),
       })
+    } catch (error) {
+      console.error(error)
+      toast.error('Не удалось изменить количество')
+      throw error
     } finally {
       isLoading.value = false
     }
   }
 
   async function removeItem(itemId: number) {
+    const previous = cart.value?.items.find((i) => i.id === itemId)
+    const previousName = previous?.product_name
     isLoading.value = true
 
     try {
       cart.value = await requestJson<CartPayload>(`/api/cart/items/${itemId}?session_id=${encodeURIComponent(sessionId)}`, {
         method: 'DELETE',
       })
+      toast.success(previousName ? `«${previousName}» убрано из корзины` : 'Удалено из корзины')
+    } catch (error) {
+      console.error(error)
+      toast.error('Не удалось удалить из корзины')
+      throw error
     } finally {
       isLoading.value = false
     }

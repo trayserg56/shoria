@@ -101,7 +101,7 @@ onMounted(loadBrands)
 
 <style scoped>
 .brands-page {
-  width: min(1240px, 92vw);
+  width: min(var(--layout-max-width), 92vw);
   margin: 0 auto;
   padding: 24px 0 60px;
 }
