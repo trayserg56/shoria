@@ -10,7 +10,8 @@ const { items: wishlistItems } = storeToRefs(wishlistStore)
 
 /** Приводим сохранённое избранное к форме, которую ждёт UnifiedProductCard */
 function toProductCardData(item: WishlistItem) {
-  const stockUnknown = typeof item.stock !== 'number'
+  const stock: number = typeof item.stock === 'number' ? item.stock : 1
+
   return {
     id: item.id,
     name: item.name,
@@ -18,7 +19,7 @@ function toProductCardData(item: WishlistItem) {
     slug: item.slug,
     price: item.price,
     old_price: item.old_price,
-    stock: stockUnknown ? 1 : item.stock,
+    stock,
     currency: item.currency,
     image_url: item.image_url,
     category: item.category,
