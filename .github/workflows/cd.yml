@@ -37,6 +37,7 @@ jobs:
           cd '$DEPLOY_PATH';
           git checkout main;
           git pull --ff-only origin main;
+          docker compose exec -T app composer install --no-dev --optimize-autoloader --no-interaction --no-progress;
           docker compose exec -T app php artisan migrate --force;
           docker compose run --rm -T node npm ci --no-audit --no-fund;
           docker compose run --rm -T node npm run build-only;
