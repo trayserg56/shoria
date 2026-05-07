@@ -36,7 +36,11 @@ jobs:
           export COMPOSE_INTERACTIVE_NO_CLI=1;
           cd '$DEPLOY_PATH';
           git checkout main;
-          git pull --ff-only origin main;
+          git fetch origin main;
+          # С прошлого деплоя в public мог остаться сгенерированный spa-index.html без git —
+          # после добавления файла в репозиторий pull/reset иначе падает: «untracked would be overwritten».
+          rm -f backend/public/spa-index.html;
+          git reset --hard origin/main;
           docker compose up -d;
           docker compose exec -T app composer install --no-dev --optimize-autoloader --no-interaction --no-progress;
           docker compose exec -T app php artisan migrate --force;
