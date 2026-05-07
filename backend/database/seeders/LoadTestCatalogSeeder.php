@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Support\Seed\RemotePlaceholderImages;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductImage;
@@ -60,7 +61,7 @@ class LoadTestCatalogSeeder extends Seeder
                 [
                     'name' => $name,
                     'description' => 'Категория для нагрузочного теста каталога.',
-                    'image_url' => sprintf('https://picsum.photos/seed/load-category-%02d/800/520', $categoryNumber),
+                    'image_url' => RemotePlaceholderImages::categoryImageUrl($categoryNumber),
                     'is_featured' => false,
                     'sort_order' => 1000 + $categoryNumber,
                 ],
@@ -153,7 +154,7 @@ class LoadTestCatalogSeeder extends Seeder
                     'sort_order' => 1,
                 ],
                 [
-                    'url' => sprintf('https://picsum.photos/seed/load-item-%03d/1200/900', $i),
+                    'url' => RemotePlaceholderImages::productImageUrl($i),
                     'alt' => Str::limit($name, 120),
                     'is_cover' => true,
                 ],
