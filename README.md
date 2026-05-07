@@ -286,7 +286,7 @@ README — главный источник проектной памяти. Вс
   - frontend: `npm ci` + `npm run build`
   - workflow запускается на `push` и `pull_request` в `main`
 - Подключен базовый CD workflow (`.github/workflows/cd.yml`) для автодеплоя на production после `push` в `main`.
-- CD выполняет на сервере: `git pull --ff-only` + `php artisan migrate --force` + `npm run build` + `docker compose restart nginx`.
+- **Сборка фронтенда выполняется на runner GitHub Actions** (`npm ci` + `vite build`), на сервер по SSH передаётся только архив `dist/` — так прод-VPS не упирается в 100% CPU/RAM во время деплоя. На сервере: синхронизация репозитория, `composer install`, миграции, распаковка статики в `backend/public`, перезапуск nginx.
 - Для CD нужны GitHub Secrets:
   - `SSH_HOST` (например `147.45.214.173`)
   - `SSH_USER` (например `root`)

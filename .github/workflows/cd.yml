@@ -17,6 +17,29 @@ jobs:
     timeout-minutes: 35
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Vite + npm ci на runner GitHub, не на VPS — иначе при деплое 100% CPU/RAM и отказ по SSH/OOM.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        run: |
+          set -euo pipefail
+          cd frontend
+          npm ci --no-audit --no-fund
+          npm run build-only
+
+      - name: Pack frontend dist
+        run: |
+          set -euo pipefail
+          tar czf frontend-dist.tar.gz -C frontend/dist .
+
       - name: Deploy over SSH (with retries)
         timeout-minutes: 30
         env:
@@ -25,6 +48,7 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          FE_TAR: /tmp/shoria-frontend-${{ github.run_id }}.tar.gz
         run: |
           set -euo pipefail
 
@@ -32,23 +56,28 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/deploy_key"
           chmod 600 "$HOME/.ssh/deploy_key"
 
+          scp -i "$HOME/.ssh/deploy_key" \
+            -P "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=20 \
+            frontend-dist.tar.gz \
+            "$SSH_USER@$SSH_HOST:$FE_TAR"
+
           REMOTE_CMD="set -euo pipefail;
           export COMPOSE_INTERACTIVE_NO_CLI=1;
-          cd '$DEPLOY_PATH';
+          cd \"$DEPLOY_PATH\";
           git checkout main;
           git fetch origin main;
-          # С прошлого деплоя в public мог остаться сгенерированный spa-index.html без git —
-          # после добавления файла в репозиторий pull/reset иначе падает: «untracked would be overwritten».
           rm -f backend/public/spa-index.html;
           git reset --hard origin/main;
           docker compose up -d;
           docker compose exec -T app composer install --no-dev --optimize-autoloader --no-interaction --no-progress;
           docker compose exec -T app php artisan migrate --force;
-          docker compose run --rm -T node npm ci --no-audit --no-fund;
-          docker compose run --rm -T node npm run build-only;
           rm -rf backend/public/assets;
-          cp -a frontend/dist/. backend/public/;
-          cp frontend/dist/index.html backend/public/spa-index.html;
+          tar xzf \"$FE_TAR\" -C backend/public;
+          cp backend/public/index.html backend/public/spa-index.html;
+          rm -f \"$FE_TAR\";
           docker compose restart nginx;
           sleep 3;
           ok=0;
