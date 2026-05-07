@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
+import type { Ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useCartStore } from '@/stores/cart'
@@ -16,6 +17,8 @@ import { clearStructuredData, setSeoMeta, setStructuredData } from '@/lib/seo'
 import { saveRecentlyViewed } from '@/lib/recently-viewed'
 import { toast } from '@/lib/toast'
 import { characteristicsCatalogRoute } from '@/lib/catalog-characteristics'
+import { siteSettingsInjectionKey, defaultSiteFeatureFlags, type SiteSettingsPayload } from '@/lib/site-settings'
+import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 import ProductImageLightbox from '@/components/ProductImageLightbox.vue'
 import {
@@ -147,6 +150,13 @@ const { items: cartItems } = storeToRefs(cartStore)
 const { isAuthenticated } = storeToRefs(authStore)
 const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
+const siteSettingsRef = inject(siteSettingsInjectionKey) as Ref<SiteSettingsPayload> | undefined
+const wishlistFeatureEnabled = computed(
+  () => siteSettingsRef?.value.feature_flags.wishlist ?? defaultSiteFeatureFlags.wishlist,
+)
+const compareFeatureEnabled = computed(
+  () => siteSettingsRef?.value.feature_flags.product_compare ?? defaultSiteFeatureFlags.product_compare,
+)
 const oneClickModalStore = useOneClickCheckoutModalStore()
 
 const product = ref<ProductPayload | null>(null)
@@ -1160,6 +1170,7 @@ watch(
               </div>
             </div>
             <button
+              v-if="wishlistFeatureEnabled"
               type="button"
               class="icon-button icon-button--wishlist"
               :class="{ 'icon-button--active': isWishlisted }"
@@ -1173,6 +1184,7 @@ watch(
               </svg>
             </button>
             <button
+              v-if="compareFeatureEnabled"
               type="button"
               class="icon-button icon-button--compare"
               :class="{ 'icon-button--active': isCompared }"

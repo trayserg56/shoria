@@ -6,19 +6,23 @@ use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Category;
+use App\Models\DeliveryMethod;
+use App\Models\GiftCertificate;
+use App\Models\GiftCertificateRedemption;
+use App\Models\Order;
 use App\Models\PaymentProvider;
 use App\Models\PaymentTransaction;
-use App\Models\DeliveryMethod;
-use App\Models\Order;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\PromoCode;
 use App\Models\PromoCodeUsage;
-use App\Models\ProductVariant;
+use App\Models\SiteSetting;
 use App\Models\User;
 use App\Support\Analytics\AttributionData;
 use App\Support\Delivery\DeliveryGatewayRegistry;
 use App\Support\Loyalty\LoyaltyProgramService;
 use App\Support\Payments\PaymentGatewayRegistry;
+use App\Support\Store\StoreFeatureFlags;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -34,8 +38,7 @@ class CheckoutController extends Controller
         private PaymentGatewayRegistry $paymentGateways,
         private DeliveryGatewayRegistry $deliveryGateways,
         private LoyaltyProgramService $loyaltyProgram,
-    ) {
-    }
+    ) {}
 
     public function options(Request $request): JsonResponse
     {
@@ -84,13 +87,21 @@ class CheckoutController extends Controller
             ])
             ->values();
 
+        $site = SiteSetting::current();
+        $loyaltyInfo = $this->loyaltyProgram->infoPayload($loyaltySetting);
+        if (! $site->isFeatureEnabled(StoreFeatureFlags::LOYALTY)) {
+            $loyaltyInfo['is_enabled'] = false;
+        }
+
         return response()->json([
             'delivery_methods' => $deliveryMethods,
             'payment_methods' => $paymentMethods,
             'promo_codes' => $promoCodes,
             'loyalty' => [
-                ...$this->loyaltyProgram->infoPayload($loyaltySetting),
-                'account' => $this->loyaltyProgram->userSnapshot($user, $loyaltySetting),
+                ...$loyaltyInfo,
+                'account' => $site->isFeatureEnabled(StoreFeatureFlags::LOYALTY)
+                    ? $this->loyaltyProgram->userSnapshot($user, $loyaltySetting)
+                    : null,
             ],
         ]);
     }
@@ -105,10 +116,37 @@ class CheckoutController extends Controller
             'delivery_method' => ['required', 'string', 'max:32'],
             'payment_method' => ['required', 'string', Rule::in($this->allowedPaymentMethodCodes())],
             'promo_code' => ['nullable', 'string', 'max:64'],
+            'gift_certificate_code' => ['nullable', 'string', 'max:64'],
+            'gift_certificate_id' => ['nullable', 'integer', 'exists:gift_certificates,id'],
             'loyalty_points_to_spend' => ['nullable', 'integer', 'min:0'],
             'comment' => ['nullable', 'string', 'max:2000'],
             'attribution' => ['nullable', 'array'],
         ]);
+
+        if (
+            isset($validated['gift_certificate_code'], $validated['gift_certificate_id'])
+            && trim((string) $validated['gift_certificate_code']) !== ''
+        ) {
+            throw ValidationException::withMessages([
+                'gift_certificate_code' => 'Укажите либо код сертификата, либо выберите сертификат из кабинета.',
+            ]);
+        }
+
+        $site = SiteSetting::current();
+
+        if (! $site->isFeatureEnabled(StoreFeatureFlags::GIFT_CERTIFICATES)) {
+            $giftCodeTry = trim((string) ($validated['gift_certificate_code'] ?? ''));
+            $giftIdTry = isset($validated['gift_certificate_id']) ? (int) $validated['gift_certificate_id'] : null;
+            if ($giftCodeTry !== '' || $giftIdTry) {
+                throw ValidationException::withMessages([
+                    'gift_certificate_code' => 'Подарочные сертификаты сейчас недоступны.',
+                ]);
+            }
+        }
+
+        if (! $site->isFeatureEnabled(StoreFeatureFlags::LOYALTY)) {
+            $validated['loyalty_points_to_spend'] = 0;
+        }
 
         ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity(
             $request,
@@ -160,9 +198,24 @@ class CheckoutController extends Controller
             $user,
         );
         $discountTotal = $promoCode ? $this->calculateDiscount($promoCode, $cart, $subtotal) : 0.0;
+        $subtotalAfterPromo = max(0.0, $subtotal - $discountTotal);
+
+        $giftCertPreview = $this->resolveGiftCertificateForCheckout(
+            $validated['gift_certificate_code'] ?? null,
+            isset($validated['gift_certificate_id']) ? (int) $validated['gift_certificate_id'] : null,
+            $cart,
+            $subtotalAfterPromo,
+            (string) $validated['customer_email'],
+            $user,
+            false,
+        );
+        $giftDiscountTotal = $giftCertPreview
+            ? $this->calculateGiftCertificateDiscount($giftCertPreview, $subtotalAfterPromo)
+            : 0.0;
+        $subtotalAfterGift = max(0.0, $subtotalAfterPromo - $giftDiscountTotal);
+
         $loyaltySetting = $this->loyaltyProgram->getSetting();
         $requestedLoyaltyPoints = max(0, (int) ($validated['loyalty_points_to_spend'] ?? 0));
-        $subtotalAfterPromo = max(0.0, $subtotal - $discountTotal);
         $loyaltyPointsSpent = 0;
         $loyaltyDiscountTotal = 0.0;
         $loyaltyPointsEarned = 0;
@@ -175,17 +228,17 @@ class CheckoutController extends Controller
             ]);
         }
 
-        if ($user && $this->loyaltyProgram->isEnabled($loyaltySetting)) {
-            $maxLoyaltyPoints = $this->loyaltyProgram->resolveMaxRedeemPoints($user, $subtotalAfterPromo, $loyaltySetting);
+        if ($user && $this->loyaltyProgram->isEnabled($loyaltySetting) && $site->isFeatureEnabled(StoreFeatureFlags::LOYALTY)) {
+            $maxLoyaltyPoints = $this->loyaltyProgram->resolveMaxRedeemPoints($user, $subtotalAfterGift, $loyaltySetting);
             $loyaltyPointsSpent = min($requestedLoyaltyPoints, $maxLoyaltyPoints);
             $loyaltyDiscountTotal = $this->loyaltyProgram->resolveRedeemDiscountByPoints($loyaltyPointsSpent, $loyaltySetting);
-            $loyaltyDiscountTotal = min($loyaltyDiscountTotal, $subtotalAfterPromo);
+            $loyaltyDiscountTotal = min($loyaltyDiscountTotal, $subtotalAfterGift);
 
             $pointValue = max(0.01, (float) $loyaltySetting->point_value);
             $loyaltyPointsSpent = (int) floor($loyaltyDiscountTotal / $pointValue);
             $loyaltyDiscountTotal = $this->loyaltyProgram->resolveRedeemDiscountByPoints($loyaltyPointsSpent, $loyaltySetting);
 
-            $loyaltyAccrualBase = max(0.0, $subtotalAfterPromo - $loyaltyDiscountTotal);
+            $loyaltyAccrualBase = max(0.0, $subtotalAfterGift - $loyaltyDiscountTotal);
             $loyaltyAccrualPercent = $this->loyaltyProgram->resolveEffectiveAccrualPercent($user, $loyaltySetting);
             $loyaltyPointsEarned = $this->loyaltyProgram->resolveAccrualPoints($user, $loyaltyAccrualBase, $loyaltySetting);
         }
@@ -194,7 +247,7 @@ class CheckoutController extends Controller
         if ($promoCode?->free_delivery) {
             $deliveryTotal = 0.0;
         }
-        $orderTotal = max(0, $subtotal - $discountTotal - $loyaltyDiscountTotal + $deliveryTotal);
+        $orderTotal = max(0, $subtotal - $discountTotal - $giftDiscountTotal - $loyaltyDiscountTotal + $deliveryTotal);
         $attribution = AttributionData::normalize($validated['attribution'] ?? null);
 
         $order = DB::transaction(function () use (
@@ -208,6 +261,8 @@ class CheckoutController extends Controller
             $promoCode,
             $subtotal,
             $discountTotal,
+            $giftDiscountTotal,
+            $subtotalAfterPromo,
             $loyaltyPointsSpent,
             $loyaltyDiscountTotal,
             $loyaltyPointsEarned,
@@ -218,10 +273,29 @@ class CheckoutController extends Controller
             $orderTotal,
             $attribution,
         ): Order {
+            $giftCert = $this->resolveGiftCertificateForCheckout(
+                $validated['gift_certificate_code'] ?? null,
+                isset($validated['gift_certificate_id']) ? (int) $validated['gift_certificate_id'] : null,
+                $cart,
+                $subtotalAfterPromo,
+                (string) $validated['customer_email'],
+                $user,
+                true,
+            );
+            $giftDiscountLocked = $giftCert
+                ? $this->calculateGiftCertificateDiscount($giftCert, $subtotalAfterPromo)
+                : 0.0;
+            if (round($giftDiscountLocked, 2) !== round($giftDiscountTotal, 2)) {
+                throw ValidationException::withMessages([
+                    'gift_certificate_code' => 'Не удалось применить сертификат. Обновите страницу и попробуйте снова.',
+                ]);
+            }
+
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
                 'user_id' => $user?->id,
                 'session_id' => $sessionId ?? $cart->session_id,
+                'checkout_kind' => Order::CHECKOUT_KIND_CART,
                 'status' => 'new',
                 'order_status' => 'placed',
                 'payment_status' => $paymentGateway->initialPaymentStatus($paymentProvider),
@@ -232,6 +306,8 @@ class CheckoutController extends Controller
                 'currency' => $cart->currency,
                 'subtotal' => $subtotal,
                 'discount_total' => $discountTotal,
+                'gift_certificate_id' => $giftCert?->id,
+                'gift_certificate_discount_total' => $giftDiscountLocked,
                 'loyalty_points_spent' => $loyaltyPointsSpent,
                 'loyalty_discount_total' => $loyaltyDiscountTotal,
                 'loyalty_points_earned' => $loyaltyPointsEarned,
@@ -294,7 +370,23 @@ class CheckoutController extends Controller
                 ]);
             }
 
-            if ($user && $this->loyaltyProgram->isEnabled($loyaltySetting)) {
+            if ($giftCert && $giftDiscountLocked > 0) {
+                $newBalance = round((float) $giftCert->balance_remaining - $giftDiscountLocked, 2);
+                $giftCert->balance_remaining = max(0, $newBalance);
+                if ((float) $giftCert->balance_remaining <= 0) {
+                    $giftCert->balance_remaining = 0;
+                    $giftCert->status = GiftCertificate::STATUS_DEPLETED;
+                }
+                $giftCert->save();
+
+                GiftCertificateRedemption::query()->create([
+                    'gift_certificate_id' => $giftCert->id,
+                    'order_id' => $order->id,
+                    'amount' => $giftDiscountLocked,
+                ]);
+            }
+
+            if ($user && $this->loyaltyProgram->isEnabled($loyaltySetting) && SiteSetting::current()->isFeatureEnabled(StoreFeatureFlags::LOYALTY)) {
                 $freshUser = User::query()->whereKey($user->id)->lockForUpdate()->first();
 
                 if ($freshUser && $loyaltyPointsSpent > 0) {
@@ -317,7 +409,7 @@ class CheckoutController extends Controller
                 }
             }
 
-            return $order->fresh(['items', 'paymentTransactions']);
+            return $order->fresh(['items', 'paymentTransactions', 'giftCertificate']);
         });
 
         return response()->json([
@@ -332,6 +424,8 @@ class CheckoutController extends Controller
             'payment_method' => $order->payment_method,
             'payment_transaction_status' => $order->paymentTransactions->first()?->status,
             'promo_code' => $order->promo_code,
+            'gift_certificate_code' => $order->giftCertificate?->code,
+            'gift_certificate_discount_total' => (float) $order->gift_certificate_discount_total,
             'subtotal' => (float) $order->subtotal,
             'discount_total' => (float) $order->discount_total,
             'loyalty_points_spent' => (int) $order->loyalty_points_spent,
@@ -538,9 +632,36 @@ class CheckoutController extends Controller
             'session_id' => ['nullable', 'string', 'max:64'],
             'delivery_method' => ['required', 'string', 'max:32'],
             'promo_code' => ['nullable', 'string', 'max:64'],
+            'gift_certificate_code' => ['nullable', 'string', 'max:64'],
+            'gift_certificate_id' => ['nullable', 'integer', 'exists:gift_certificates,id'],
             'loyalty_points_to_spend' => ['nullable', 'integer', 'min:0'],
             'customer_email' => ['nullable', 'email', 'max:255'],
         ]);
+
+        if (
+            isset($validated['gift_certificate_code'], $validated['gift_certificate_id'])
+            && trim((string) $validated['gift_certificate_code']) !== ''
+        ) {
+            throw ValidationException::withMessages([
+                'gift_certificate_code' => 'Укажите либо код сертификата, либо выберите сертификат из кабинета.',
+            ]);
+        }
+
+        $site = SiteSetting::current();
+
+        if (! $site->isFeatureEnabled(StoreFeatureFlags::GIFT_CERTIFICATES)) {
+            $giftCodeTry = trim((string) ($validated['gift_certificate_code'] ?? ''));
+            $giftIdTry = isset($validated['gift_certificate_id']) ? (int) $validated['gift_certificate_id'] : null;
+            if ($giftCodeTry !== '' || $giftIdTry) {
+                throw ValidationException::withMessages([
+                    'gift_certificate_code' => 'Подарочные сертификаты сейчас недоступны.',
+                ]);
+            }
+        }
+
+        if (! $site->isFeatureEnabled(StoreFeatureFlags::LOYALTY)) {
+            $validated['loyalty_points_to_spend'] = 0;
+        }
 
         ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity(
             $request,
@@ -594,26 +715,63 @@ class CheckoutController extends Controller
         }
 
         $discountTotal = $promoCode && $cart ? $this->calculateDiscount($promoCode, $cart, $subtotal) : 0.0;
+        $subtotalAfterPromo = max(0.0, $subtotal - $discountTotal);
+
+        $requestedGiftCodeRaw = isset($validated['gift_certificate_code'])
+            ? strtoupper(preg_replace('/\s+/', '', trim((string) $validated['gift_certificate_code'])))
+            : '';
+
+        $giftCertPreview = null;
+        $giftMessage = null;
+        $giftApplied = false;
+
+        try {
+            $emailForGift = ($validated['customer_email'] ?? null) ? trim((string) $validated['customer_email']) : '';
+            if ($emailForGift === '' && $user) {
+                $emailForGift = strtolower(trim((string) $user->email));
+            }
+
+            $giftCertPreview = $this->resolveGiftCertificateForCheckout(
+                $validated['gift_certificate_code'] ?? null,
+                isset($validated['gift_certificate_id']) ? (int) $validated['gift_certificate_id'] : null,
+                $cart,
+                $subtotalAfterPromo,
+                $emailForGift,
+                $user,
+                false,
+            );
+            if ($giftCertPreview) {
+                $giftApplied = true;
+                $giftMessage = 'Подарочный сертификат применён.';
+            }
+        } catch (ValidationException $exception) {
+            $giftMessage = (string) collect($exception->errors())->flatten()->first();
+        }
+
+        $giftDiscountTotal = $giftCertPreview && $cart
+            ? $this->calculateGiftCertificateDiscount($giftCertPreview, $subtotalAfterPromo)
+            : 0.0;
+        $subtotalAfterGift = max(0.0, $subtotalAfterPromo - $giftDiscountTotal);
+
         $loyaltySetting = $this->loyaltyProgram->getSetting();
         $requestedLoyaltyPoints = max(0, (int) ($validated['loyalty_points_to_spend'] ?? 0));
-        $subtotalAfterPromo = max(0.0, $subtotal - $discountTotal);
         $maxLoyaltyPoints = 0;
         $loyaltyPointsSpent = 0;
         $loyaltyDiscountTotal = 0.0;
         $loyaltyPointsEarned = 0;
         $loyaltyAccrualPercent = 0.0;
 
-        if ($user && $this->loyaltyProgram->isEnabled($loyaltySetting)) {
-            $maxLoyaltyPoints = $this->loyaltyProgram->resolveMaxRedeemPoints($user, $subtotalAfterPromo, $loyaltySetting);
+        if ($user && $this->loyaltyProgram->isEnabled($loyaltySetting) && $site->isFeatureEnabled(StoreFeatureFlags::LOYALTY)) {
+            $maxLoyaltyPoints = $this->loyaltyProgram->resolveMaxRedeemPoints($user, $subtotalAfterGift, $loyaltySetting);
             $loyaltyPointsSpent = min($requestedLoyaltyPoints, $maxLoyaltyPoints);
             $loyaltyDiscountTotal = min(
-                $subtotalAfterPromo,
+                $subtotalAfterGift,
                 $this->loyaltyProgram->resolveRedeemDiscountByPoints($loyaltyPointsSpent, $loyaltySetting),
             );
             $pointValue = max(0.01, (float) $loyaltySetting->point_value);
             $loyaltyPointsSpent = (int) floor($loyaltyDiscountTotal / $pointValue);
             $loyaltyDiscountTotal = $this->loyaltyProgram->resolveRedeemDiscountByPoints($loyaltyPointsSpent, $loyaltySetting);
-            $accrualBase = max(0.0, $subtotalAfterPromo - $loyaltyDiscountTotal);
+            $accrualBase = max(0.0, $subtotalAfterGift - $loyaltyDiscountTotal);
             $loyaltyAccrualPercent = $this->loyaltyProgram->resolveEffectiveAccrualPercent($user, $loyaltySetting);
             $loyaltyPointsEarned = $this->loyaltyProgram->resolveAccrualPoints($user, $accrualBase, $loyaltySetting);
         }
@@ -622,11 +780,12 @@ class CheckoutController extends Controller
         if ($promoCode?->free_delivery) {
             $deliveryTotal = 0.0;
         }
-        $total = max(0, $subtotal - $discountTotal - $loyaltyDiscountTotal + $deliveryTotal);
+        $total = max(0, $subtotal - $discountTotal - $giftDiscountTotal - $loyaltyDiscountTotal + $deliveryTotal);
 
         return response()->json([
             'subtotal' => $subtotal,
             'discount_total' => $discountTotal,
+            'gift_certificate_discount_total' => $giftDiscountTotal,
             'loyalty_discount_total' => $loyaltyDiscountTotal,
             'delivery_total' => $deliveryTotal,
             'total' => $total,
@@ -636,15 +795,23 @@ class CheckoutController extends Controller
                 'is_applied' => $promoApplied,
                 'message' => $promoMessage,
             ],
+            'gift_certificate' => [
+                'id' => $giftCertPreview?->id,
+                'code' => $giftCertPreview?->code ?? ($requestedGiftCodeRaw !== '' ? $requestedGiftCodeRaw : null),
+                'is_applied' => $giftApplied,
+                'message' => $giftMessage,
+            ],
             'loyalty' => [
-                'is_enabled' => $this->loyaltyProgram->isEnabled($loyaltySetting),
+                'is_enabled' => $this->loyaltyProgram->isEnabled($loyaltySetting) && $site->isFeatureEnabled(StoreFeatureFlags::LOYALTY),
                 'requested_points' => $requestedLoyaltyPoints,
                 'applied_points' => $loyaltyPointsSpent,
                 'max_points_to_spend' => $maxLoyaltyPoints,
                 'points_balance' => $user ? (int) $user->loyalty_points_balance : 0,
                 'points_to_earn' => $loyaltyPointsEarned,
                 'accrual_percent' => $loyaltyAccrualPercent,
-                'account' => $this->loyaltyProgram->userSnapshot($user, $loyaltySetting),
+                'account' => $site->isFeatureEnabled(StoreFeatureFlags::LOYALTY)
+                    ? $this->loyaltyProgram->userSnapshot($user, $loyaltySetting)
+                    : null,
             ],
         ]);
     }
@@ -808,8 +975,7 @@ class CheckoutController extends Controller
         float $subtotal,
         ?string $customerEmail = null,
         ?User $user = null,
-    ): ?PromoCode
-    {
+    ): ?PromoCode {
         if (! $code) {
             return null;
         }
@@ -1255,8 +1421,352 @@ class CheckoutController extends Controller
         ];
     }
 
+    public function purchaseGiftCertificate(Request $request): JsonResponse
+    {
+        $user = $this->resolveAuthenticatedUser($request);
+
+        if (! $user instanceof User) {
+            return response()->json([
+                'message' => 'Unauthenticated.',
+            ], 401);
+        }
+
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric'],
+            'payment_method' => ['required', 'string', Rule::in($this->allowedPaymentMethodCodes())],
+            'loyalty_points_to_spend' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        if (! SiteSetting::current()->isFeatureEnabled(StoreFeatureFlags::GIFT_CERTIFICATES)) {
+            throw ValidationException::withMessages([
+                'amount' => 'Покупка подарочных сертификатов сейчас недоступна.',
+            ]);
+        }
+
+        $amount = round((float) $validated['amount'], 2);
+        $presets = [500.0, 1000.0, 5000.0];
+        $amountAllowed = in_array($amount, $presets, true) || ($amount >= 100 && $amount <= 500_000);
+
+        if (! $amountAllowed) {
+            throw ValidationException::withMessages([
+                'amount' => 'Доступны номиналы 500, 1000 и 5000 ₽ либо своя сумма от 100 до 500 000 ₽.',
+            ]);
+        }
+
+        $defaults = $this->resolveOneClickCheckoutDefaults($user);
+        $deliveryMethod = $this->resolveDeliveryMethod('pickup');
+        $paymentProvider = $this->resolvePaymentProvider($validated['payment_method']);
+        $paymentGateway = $this->paymentGateways->for($paymentProvider);
+
+        $subtotal = $amount;
+        $discountTotal = 0.0;
+        $giftDiscountTotal = 0.0;
+        $subtotalAfterPromo = $subtotal;
+
+        $loyaltySetting = $this->loyaltyProgram->getSetting();
+        $requestedLoyaltyPoints = max(0, (int) ($validated['loyalty_points_to_spend'] ?? 0));
+        $loyaltyPointsSpent = 0;
+        $loyaltyDiscountTotal = 0.0;
+        $loyaltyPointsEarned = 0;
+        $loyaltyAccrualBase = 0.0;
+        $loyaltyAccrualPercent = 0.0;
+
+        if ($requestedLoyaltyPoints > 0 && $this->loyaltyProgram->isEnabled($loyaltySetting) && SiteSetting::current()->isFeatureEnabled(StoreFeatureFlags::LOYALTY)) {
+            $maxLoyaltyPoints = $this->loyaltyProgram->resolveMaxRedeemPoints($user, $subtotalAfterPromo, $loyaltySetting);
+            $loyaltyPointsSpent = min($requestedLoyaltyPoints, $maxLoyaltyPoints);
+            $loyaltyDiscountTotal = $this->loyaltyProgram->resolveRedeemDiscountByPoints($loyaltyPointsSpent, $loyaltySetting);
+            $loyaltyDiscountTotal = min($loyaltyDiscountTotal, $subtotalAfterPromo);
+
+            $pointValue = max(0.01, (float) $loyaltySetting->point_value);
+            $loyaltyPointsSpent = (int) floor($loyaltyDiscountTotal / $pointValue);
+            $loyaltyDiscountTotal = $this->loyaltyProgram->resolveRedeemDiscountByPoints($loyaltyPointsSpent, $loyaltySetting);
+
+            $loyaltyAccrualBase = max(0.0, $subtotalAfterPromo - $loyaltyDiscountTotal);
+            $loyaltyAccrualPercent = $this->loyaltyProgram->resolveEffectiveAccrualPercent($user, $loyaltySetting);
+            $loyaltyPointsEarned = $this->loyaltyProgram->resolveAccrualPoints($user, $loyaltyAccrualBase, $loyaltySetting);
+        }
+
+        $deliveryTotal = $this->resolveDeliveryFee($deliveryMethod, $subtotal);
+        $orderTotal = max(0, $subtotal - $loyaltyDiscountTotal + $deliveryTotal);
+        $attribution = AttributionData::normalize(null);
+
+        $order = DB::transaction(function () use (
+            $user,
+            $defaults,
+            $deliveryMethod,
+            $paymentProvider,
+            $paymentGateway,
+            $subtotal,
+            $discountTotal,
+            $giftDiscountTotal,
+            $loyaltyPointsSpent,
+            $loyaltyDiscountTotal,
+            $loyaltyPointsEarned,
+            $loyaltyAccrualBase,
+            $loyaltyAccrualPercent,
+            $loyaltySetting,
+            $deliveryTotal,
+            $orderTotal,
+            $attribution,
+        ): Order {
+            $order = Order::query()->create([
+                'order_number' => $this->generateOrderNumber(),
+                'user_id' => $user->id,
+                'session_id' => 'user:'.$user->id,
+                'checkout_kind' => Order::CHECKOUT_KIND_GIFT_CERTIFICATE,
+                'status' => 'new',
+                'order_status' => 'placed',
+                'payment_status' => $paymentGateway->initialPaymentStatus($paymentProvider),
+                'fulfillment_status' => 'pending',
+                'refund_status' => 'none',
+                'delivery_method' => $deliveryMethod->code,
+                'payment_method' => $this->resolvePaymentMethodKind($paymentProvider),
+                'currency' => 'RUB',
+                'subtotal' => $subtotal,
+                'discount_total' => $discountTotal,
+                'gift_certificate_id' => null,
+                'gift_certificate_discount_total' => $giftDiscountTotal,
+                'loyalty_points_spent' => $loyaltyPointsSpent,
+                'loyalty_discount_total' => $loyaltyDiscountTotal,
+                'loyalty_points_earned' => $loyaltyPointsEarned,
+                'delivery_total' => $deliveryTotal,
+                'total' => $orderTotal,
+                'customer_name' => $defaults['customer_name'],
+                'customer_email' => $defaults['customer_email'],
+                'customer_phone' => $defaults['customer_phone'],
+                ...$attribution,
+                'comment' => null,
+                'promo_code' => null,
+                'placed_at' => now(),
+            ]);
+
+            $order->items()->create([
+                'product_id' => null,
+                'product_variant_id' => null,
+                'product_name' => 'Подарочный сертификат',
+                'product_slug' => 'gift-certificate',
+                'variant_label' => null,
+                'image_url' => null,
+                'qty' => 1,
+                'unit_price' => $subtotal,
+                'total_price' => $subtotal,
+            ]);
+
+            PaymentTransaction::query()->create([
+                'order_id' => $order->id,
+                'provider' => $paymentProvider->code,
+                'payment_method' => $paymentProvider->driver,
+                'type' => 'charge',
+                'status' => $paymentGateway->initialTransactionStatus($paymentProvider),
+                'currency' => $order->currency,
+                'amount' => $order->total,
+                'idempotence_key' => (string) Str::uuid(),
+                'meta' => array_merge(
+                    $paymentGateway->buildTransactionMeta($order, $paymentProvider),
+                    [
+                        'customer_email' => strtolower(trim($defaults['customer_email'])),
+                        'delivery_method' => $deliveryMethod->code,
+                        'checkout_kind' => Order::CHECKOUT_KIND_GIFT_CERTIFICATE,
+                    ],
+                ),
+            ]);
+
+            if ($this->loyaltyProgram->isEnabled($loyaltySetting)) {
+                $freshUser = User::query()->whereKey($user->id)->lockForUpdate()->first();
+
+                if ($freshUser && $loyaltyPointsSpent > 0) {
+                    $this->loyaltyProgram->applyRedeem(
+                        $freshUser,
+                        $order,
+                        $loyaltyPointsSpent,
+                        $loyaltyDiscountTotal,
+                    );
+                }
+
+                if ($freshUser && $loyaltyPointsEarned > 0) {
+                    $this->loyaltyProgram->applyAccrual(
+                        $freshUser,
+                        $order,
+                        $loyaltyPointsEarned,
+                        $loyaltyAccrualBase,
+                        $loyaltyAccrualPercent,
+                    );
+                }
+            }
+
+            return $order->fresh(['items', 'paymentTransactions', 'giftCertificate']);
+        });
+
+        return response()->json([
+            'order_id' => $order->id,
+            'order_number' => $order->order_number,
+            'status' => $order->status,
+            'order_status' => $order->order_status,
+            'payment_status' => $order->payment_status,
+            'fulfillment_status' => $order->fulfillment_status,
+            'refund_status' => $order->refund_status,
+            'delivery_method' => $order->delivery_method,
+            'payment_method' => $order->payment_method,
+            'payment_transaction_status' => $order->paymentTransactions->first()?->status,
+            'promo_code' => $order->promo_code,
+            'gift_certificate_code' => $order->giftCertificate?->code,
+            'gift_certificate_discount_total' => (float) $order->gift_certificate_discount_total,
+            'subtotal' => (float) $order->subtotal,
+            'discount_total' => (float) $order->discount_total,
+            'loyalty_points_spent' => (int) $order->loyalty_points_spent,
+            'loyalty_discount_total' => (float) $order->loyalty_discount_total,
+            'loyalty_points_earned' => (int) $order->loyalty_points_earned,
+            'delivery_total' => (float) $order->delivery_total,
+            'total' => (float) $order->total,
+            'currency' => $order->currency,
+            'items_count' => $order->items->sum('qty'),
+            'loyalty_account' => $this->loyaltyProgram->userSnapshot($user->fresh(), $loyaltySetting),
+            'checkout_kind' => $order->checkout_kind,
+        ], 201);
+    }
+
     private function generateOrderNumber(): string
     {
-        return 'SH' . now()->format('ymdHis') . random_int(100, 999);
+        return 'SH'.now()->format('ymdHis').random_int(100, 999);
+    }
+
+    private function normalizeGiftCertificateCode(?string $code): ?string
+    {
+        if ($code === null || trim($code) === '') {
+            return null;
+        }
+
+        return strtoupper(preg_replace('/\s+/', '', trim($code)));
+    }
+
+    private function resolveGiftCertificateForCheckout(
+        ?string $code,
+        ?int $giftCertificateId,
+        ?Cart $cart,
+        float $subtotalAfterPromo,
+        string $customerEmail,
+        ?User $user,
+        bool $lockForUpdate,
+    ): ?GiftCertificate {
+        if ($giftCertificateId !== null) {
+            if (! $user) {
+                throw ValidationException::withMessages([
+                    'gift_certificate_id' => 'Войдите в аккаунт, чтобы применить сертификат из личного кабинета.',
+                ]);
+            }
+
+            if (! $cart || $cart->items->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'gift_certificate_id' => 'Сертификат можно применить только при непустой корзине.',
+                ]);
+            }
+
+            $query = GiftCertificate::query()->whereKey($giftCertificateId);
+
+            if ($lockForUpdate) {
+                $query->lockForUpdate();
+            }
+
+            $cert = $query->first();
+
+            if (! $cert) {
+                throw ValidationException::withMessages([
+                    'gift_certificate_id' => 'Подарочный сертификат не найден.',
+                ]);
+            }
+
+            if ((int) $cert->owner_user_id !== (int) $user->id) {
+                throw ValidationException::withMessages([
+                    'gift_certificate_id' => 'Этот сертификат не привязан к вашему аккаунту.',
+                ]);
+            }
+
+            $this->assertGiftCertificateConstraints($cert, $customerEmail, $user, 'gift_certificate_id');
+
+            return $cert;
+        }
+
+        $normalized = $this->normalizeGiftCertificateCode($code);
+
+        if ($normalized === null) {
+            return null;
+        }
+
+        if (! $cart || $cart->items->isEmpty()) {
+            throw ValidationException::withMessages([
+                'gift_certificate_code' => 'Сертификат можно применить только при непустой корзине.',
+            ]);
+        }
+
+        $query = GiftCertificate::query()->where('code', $normalized);
+
+        if ($lockForUpdate) {
+            $query->lockForUpdate();
+        }
+
+        $cert = $query->first();
+
+        if (! $cert) {
+            throw ValidationException::withMessages([
+                'gift_certificate_code' => 'Подарочный сертификат не найден.',
+            ]);
+        }
+
+        $this->assertGiftCertificateConstraints($cert, $customerEmail, $user, 'gift_certificate_code');
+
+        return $cert;
+    }
+
+    private function assertGiftCertificateConstraints(
+        GiftCertificate $cert,
+        string $customerEmail,
+        ?User $user,
+        string $errorKey,
+    ): void {
+        if ($cert->status === GiftCertificate::STATUS_CANCELLED) {
+            throw ValidationException::withMessages([
+                $errorKey => 'Сертификат аннулирован.',
+            ]);
+        }
+
+        if ($cert->expires_at && $cert->expires_at->isPast()) {
+            throw ValidationException::withMessages([
+                $errorKey => 'Срок действия сертификата истёк.',
+            ]);
+        }
+
+        if ((float) $cert->balance_remaining <= 0) {
+            throw ValidationException::withMessages([
+                $errorKey => 'На сертификате не осталось средств.',
+            ]);
+        }
+
+        $email = strtolower(trim($customerEmail));
+        $isOwner = $cert->owner_user_id && $user && (int) $cert->owner_user_id === (int) $user->id;
+
+        if ($cert->recipient_email && ! $isOwner) {
+            $expected = strtolower(trim((string) $cert->recipient_email));
+
+            if ($email === '') {
+                throw ValidationException::withMessages([
+                    $errorKey => 'Укажите email — сертификат привязан к адресу получателя.',
+                ]);
+            }
+
+            if ($expected !== $email) {
+                throw ValidationException::withMessages([
+                    $errorKey => 'Сертификат привязан к другому email.',
+                ]);
+            }
+        }
+    }
+
+    private function calculateGiftCertificateDiscount(GiftCertificate $cert, float $subtotalAfterPromo): float
+    {
+        if ($subtotalAfterPromo <= 0) {
+            return 0.0;
+        }
+
+        return round(min((float) $cert->balance_remaining, $subtotalAfterPromo), 2);
     }
 }

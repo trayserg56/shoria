@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { NConfigProvider, dateRuRU, ruRU } from 'naive-ui'
+import { NConfigProvider, dateRuRU, ruRU, type GlobalThemeOverrides } from 'naive-ui'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import AuthModal from '@/components/AuthModal.vue'
 import OneClickCheckoutModal from '@/components/OneClickCheckoutModal.vue'
 import ProductQuickViewModal from '@/components/ProductQuickViewModal.vue'
+import QuickReviewPrompt from '@/components/QuickReviewPrompt.vue'
 import { buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { naiveThemeOverrides } from '@/theme/naive-theme'
@@ -27,6 +28,14 @@ import 'vue-sonner/style.css'
 import { closeProductQuickView } from '@/lib/product-quick-view'
 import { captureFirstTouchAttribution } from '@/lib/attribution'
 import { fetchJson } from '@/lib/api'
+import {
+  defaultSiteSettingsPayload,
+  filterNavItemsByFeatureFlags,
+  normalizeSiteSettingsPayload,
+  siteSettingsInjectionKey,
+  type SiteSettingsPayload,
+} from '@/lib/site-settings'
+import { applyStoreTheme } from '@/lib/site-theme'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { resolveCategoryMenuIcon } from '@/lib/category-menu-icons'
 import { toProductRoute } from '@/lib/product-route'
@@ -117,14 +126,6 @@ type RussianCityEntry = {
   subject?: string
 }
 
-type SiteSettingsPayload = {
-  logo_text: string
-  logo_image_url: string | null
-  phone_display: string
-  phone_tel: string
-  work_hours_short: string
-}
-
 const CITY_STORAGE_KEY = 'shoria.city.v1'
 const cityPickerOpen = ref(false)
 const citySearch = ref('')
@@ -208,28 +209,84 @@ const navigationMenu = ref<NavigationResponse>(defaultNavigation)
 const headerMenuItems = computed(() => navigationMenu.value.header)
 /** Верхняя полоса: без «Главная» и без отдельного «Каталог» — он в кнопке */
 const stripNavItems = computed(() =>
-  headerMenuItems.value.filter(
-    (item) =>
-      item.label.trim() !== 'Главная'
-      && item.path !== '/catalog'
-      && item.path !== '/',
+  filterNavItemsByFeatureFlags(
+    headerMenuItems.value.filter(
+      (item) =>
+        item.label.trim() !== 'Главная'
+        && item.path !== '/catalog'
+        && item.path !== '/',
+    ),
+    siteSettings.value.feature_flags,
   ),
 )
-const footerCustomersMenuItems = computed(() => navigationMenu.value.footer.customers)
-const footerAccountMenuItems = computed(() => navigationMenu.value.footer.account)
+const footerCustomersMenuItems = computed(() =>
+  filterNavItemsByFeatureFlags(navigationMenu.value.footer.customers, siteSettings.value.feature_flags),
+)
+const footerAccountMenuItems = computed(() =>
+  filterNavItemsByFeatureFlags(navigationMenu.value.footer.account, siteSettings.value.feature_flags),
+)
+
+const siteSettings = ref<SiteSettingsPayload>(defaultSiteSettingsPayload())
+
+provide(siteSettingsInjectionKey, siteSettings)
+
+const footerCopyrightLine = computed(() => {
+  const custom = siteSettings.value.footer_legal_line?.trim()
+  if (custom) {
+    return custom
+  }
+  return `© ${currentYear} ${siteSettings.value.logo_text}. Все права защищены.`
+})
+
+const footerToneClass = computed(() => {
+  const tone = siteSettings.value.theme.footer.tone
+  if (tone === 'dark') {
+    return 'footer--tone-dark'
+  }
+  if (tone === 'light') {
+    return 'footer--tone-light'
+  }
+  return 'footer--tone-muted'
+})
+
+const naiveThemeMerged = computed<GlobalThemeOverrides>(() => {
+  const t = siteSettings.value.theme.general
+  const r = t.button_radius_px
+  const base = naiveThemeOverrides
+  return {
+    ...base,
+    common: {
+      ...base.common!,
+      primaryColor: t.primary_hex,
+      primaryColorHover: t.primary_hex,
+      primaryColorPressed: t.primary_hex,
+      borderRadius: `${r}px`,
+      borderRadiusSmall: `${Math.max(4, r - 2)}px`,
+      fontSize: `${t.base_font_size_px}px`,
+      fontSizeMedium: `${t.base_font_size_px}px`,
+    },
+    Button: {
+      ...base.Button!,
+      borderRadiusMedium: `${r}px`,
+      borderRadiusLarge: `${Math.min(24, r + 2)}px`,
+    },
+    Input: {
+      ...base.Input!,
+      borderRadius: `${r}px`,
+    },
+    InternalSelection: {
+      ...base.InternalSelection!,
+      borderRadius: `${r}px`,
+    },
+    Progress: {
+      ...base.Progress!,
+      fillColor: t.primary_hex,
+    },
+  }
+})
 const headerCategories = ref<HeaderCategory[]>([])
 const megaActiveCategory = ref<HeaderCategory | null>(null)
 const mobileDrawerOpen = ref(false)
-
-const defaultSiteSettings: SiteSettingsPayload = {
-  logo_text: 'Shoria',
-  logo_image_url: null,
-  phone_display: '+7 (900) 000-00-00',
-  phone_tel: '+79000000000',
-  work_hours_short: 'Пн–Вс: 10:00–20:00',
-}
-
-const siteSettings = ref<SiteSettingsPayload>({ ...defaultSiteSettings })
 
 const catalogTriggerClass = computed(() =>
   cn(
@@ -548,12 +605,21 @@ async function loadHeaderCategories() {
 
 async function loadSiteSettings() {
   try {
-    siteSettings.value = await fetchJson<SiteSettingsPayload>('/api/site-settings')
+    const raw = await fetchJson<unknown>('/api/site-settings')
+    siteSettings.value = normalizeSiteSettingsPayload(raw)
   } catch (error) {
     console.warn('Site settings unavailable, using defaults', error)
-    siteSettings.value = { ...defaultSiteSettings }
+    siteSettings.value = defaultSiteSettingsPayload()
   }
 }
+
+watch(
+  siteSettings,
+  () => {
+    applyStoreTheme(siteSettings.value.theme)
+  },
+  { deep: true, immediate: true },
+)
 
 async function loadSuggestions(query: string) {
   const normalizedQuery = query.trim()
@@ -641,9 +707,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <NConfigProvider :theme-overrides="naiveThemeOverrides" :locale="ruRU" :date-locale="dateRuRU">
+  <NConfigProvider :theme-overrides="naiveThemeMerged" :locale="ruRU" :date-locale="dateRuRU">
   <div class="app-shell">
-    <header class="site-header">
+    <header
+      class="site-header"
+      :class="[
+        { 'site-header--static': !siteSettings.theme.header.sticky },
+        `site-header--variant-${siteSettings.theme.header.variant}`,
+      ]"
+    >
       <template v-if="!isHeaderLoading">
         <div class="site-header__strip">
           <div class="site-header__inner site-header__inner--strip">
@@ -673,7 +745,8 @@ onBeforeUnmount(() => {
 
         <div class="site-header__main">
           <div class="site-header__inner site-header__inner--main">
-            <div class="site-header__leading">
+            <div class="site-header__lead-group">
+              <div class="site-header__start-cluster">
               <button
                 type="button"
                 class="site-header__icon-btn site-header__icon-btn--menu"
@@ -683,7 +756,11 @@ onBeforeUnmount(() => {
                 <Menu :size="22" />
               </button>
 
-              <RouterLink to="/" class="site-header__logo">
+              <RouterLink
+                v-if="siteSettings.theme.header.variant !== 'centered'"
+                to="/"
+                class="site-header__logo"
+              >
                 <img
                   v-if="siteSettings.logo_image_url"
                   :src="siteSettings.logo_image_url"
@@ -787,6 +864,23 @@ onBeforeUnmount(() => {
               >
                 Каталог
               </RouterLink>
+              </div>
+
+              <RouterLink
+                v-if="siteSettings.theme.header.variant === 'centered'"
+                to="/"
+                class="site-header__logo"
+              >
+                <img
+                  v-if="siteSettings.logo_image_url"
+                  :src="siteSettings.logo_image_url"
+                  :alt="siteSettings.logo_text"
+                  class="site-header__logo-img"
+                  loading="eager"
+                  decoding="async"
+                />
+                <span v-else>{{ siteSettings.logo_text }}</span>
+              </RouterLink>
             </div>
 
             <form class="site-header__search" @submit.prevent="submitHeaderSearch">
@@ -830,11 +924,21 @@ onBeforeUnmount(() => {
                 <span class="site-header__phone-text">{{ siteSettings.phone_display }}</span>
               </a>
               <div class="site-header__actions">
-                <RouterLink class="site-header__tool" to="/wishlist" aria-label="Избранное">
+                <RouterLink
+                  v-if="siteSettings.feature_flags.wishlist"
+                  class="site-header__tool"
+                  to="/wishlist"
+                  aria-label="Избранное"
+                >
                   <Heart :size="20" />
                   <span class="site-header__tool-count">{{ wishlistTotalItems }}</span>
                 </RouterLink>
-                <RouterLink class="site-header__tool" to="/compare" aria-label="Сравнение">
+                <RouterLink
+                  v-if="siteSettings.feature_flags.product_compare"
+                  class="site-header__tool"
+                  to="/compare"
+                  aria-label="Сравнение"
+                >
                   <GitCompare :size="20" />
                   <span class="site-header__tool-count">{{ compareTotalItems }}</span>
                 </RouterLink>
@@ -868,7 +972,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="site-header__main">
           <div class="site-header__inner site-header__inner--main">
-            <div class="site-header__leading">
+            <div class="site-header__lead-group">
               <AppSkeleton inline width="120px" height="44px" radius="10px" />
               <AppSkeleton inline width="96px" height="44px" radius="10px" />
             </div>
@@ -1056,10 +1160,10 @@ onBeforeUnmount(() => {
         </div>
       </Teleport>
       <RouterView />
-      <footer class="footer">
+      <footer class="footer" :class="footerToneClass">
       <div class="footer__grid">
         <div>
-          <p class="footer__brand">Shoria Store</p>
+          <p class="footer__brand">{{ siteSettings.logo_text }}</p>
           <p class="footer__text">Шаблонный e-commerce проект для быстрого запуска витрины.</p>
         </div>
         <div>
@@ -1096,12 +1200,19 @@ onBeforeUnmount(() => {
         </div>
         <div>
           <p class="footer__title">Контакты</p>
-          <p class="footer__text">Email: support@shoria.store</p>
-          <p class="footer__text">Телефон: +7 (900) 000-00-00</p>
+          <p v-if="siteSettings.support_email" class="footer__text">
+            Email:
+            <a :href="`mailto:${siteSettings.support_email}`">{{ siteSettings.support_email }}</a>
+          </p>
+          <p class="footer__text">
+            Телефон:
+            <a :href="`tel:${siteSettings.phone_tel}`">{{ siteSettings.phone_display }}</a>
+          </p>
         </div>
       </div>
-      <p class="footer__copy">© {{ currentYear }} Shoria. Все права защищены.</p>
+      <p class="footer__copy">{{ footerCopyrightLine }}</p>
       </footer>
+    <QuickReviewPrompt />
     <AuthModal :open="authModalOpen" @close="closeAuthModal" @authenticated="onAuthenticated" />
     <OneClickCheckoutModal />
     <ProductQuickViewModal />
@@ -1121,6 +1232,12 @@ onBeforeUnmount(() => {
   z-index: 50;
   background: var(--background);
   border-bottom: 1px solid var(--header-border, #e5e7eb);
+}
+
+.site-header--static {
+  position: relative;
+  top: auto;
+  z-index: auto;
 }
 
 .site-header__strip {
@@ -1206,17 +1323,65 @@ onBeforeUnmount(() => {
 
 .site-header__inner--main {
   display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 16px 20px;
   padding: 12px 0 14px;
 }
 
-.site-header__leading {
+.site-header__lead-group {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
+}
+
+.site-header__start-cluster {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  .site-header--variant-wide_search .site-header__inner--main {
+    grid-template-columns: auto minmax(320px, 2.35fr) auto;
+  }
+
+  .site-header--variant-centered .site-header__lead-group {
+    display: contents;
+  }
+
+  .site-header--variant-centered .site-header__inner--main {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      'cluster logo aside'
+      'search search search';
+    row-gap: 12px;
+  }
+
+  .site-header--variant-centered .site-header__start-cluster {
+    grid-area: cluster;
+    justify-self: start;
+  }
+
+  .site-header--variant-centered .site-header__logo {
+    grid-area: logo;
+    justify-self: center;
+  }
+
+  .site-header--variant-centered .site-header__aside {
+    grid-area: aside;
+    justify-self: end;
+  }
+
+  .site-header--variant-centered .site-header__search {
+    grid-area: search;
+    max-width: 720px;
+    width: 100%;
+    justify-self: center;
+  }
 }
 
 .site-header__icon-btn {
@@ -1899,6 +2064,38 @@ onBeforeUnmount(() => {
   background: var(--muted);
 }
 
+.footer--tone-light {
+  background: var(--background);
+}
+
+.footer--tone-muted {
+  background: var(--muted);
+}
+
+.footer--tone-dark {
+  background: color-mix(in srgb, #09090b 92%, var(--muted));
+  border-color: color-mix(in srgb, var(--border) 55%, #09090b);
+  color: var(--background);
+}
+
+.footer--tone-dark .footer__brand,
+.footer--tone-dark .footer__title,
+.footer--tone-dark .footer__links a,
+.footer--tone-dark .footer__link-btn,
+.footer--tone-dark .footer__text {
+  color: var(--background);
+}
+
+.footer--tone-dark .footer__links a:hover,
+.footer--tone-dark .footer__link-btn:hover {
+  color: color-mix(in srgb, var(--background) 88%, var(--muted-foreground));
+}
+
+.footer--tone-dark .footer__copy {
+  border-top-color: color-mix(in srgb, var(--background) 25%, transparent);
+  color: color-mix(in srgb, var(--background) 72%, transparent);
+}
+
 .footer__grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2090,7 +2287,7 @@ onBeforeUnmount(() => {
     gap: 10px 12px;
   }
 
-  .site-header__leading {
+  .site-header__lead-group {
     grid-area: lead;
     min-width: 0;
   }

@@ -30,8 +30,19 @@ class SeoEndpointsTest extends TestCase
         $response->assertHeader('Content-Type', 'application/xml; charset=UTF-8');
         $response->assertSee('<urlset', false);
         $response->assertSee('/catalog', false);
+        $response->assertSee('/catalog/running', false);
+        $response->assertSee('/brands', false);
+        $response->assertSee('/loyalty-program', false);
         $response->assertSee('/news', false);
         $response->assertSee('/product/', false);
         $response->assertSee('/news/', false);
+        $response->assertDontSee('/pages/loyalty-program', false);
+    }
+
+    public function test_loyalty_cms_alias_redirects_to_public_route(): void
+    {
+        $response = $this->get('/pages/loyalty-program');
+
+        $response->assertRedirect('/loyalty-program');
     }
 }

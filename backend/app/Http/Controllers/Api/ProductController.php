@@ -10,16 +10,36 @@ use App\Models\ProductReview;
 use App\Models\ProductVariant;
 use App\Models\TrackingEvent;
 use App\Models\User;
+use App\Support\Catalog\CatalogCacheKeys;
 use App\Support\ProductCharacteristics;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
 {
     public function index(Request $request): JsonResponse
+    {
+        if (! config('catalog_performance.cache_enabled')) {
+            return response()->json($this->buildCatalogIndexPayload($request));
+        }
+
+        $payload = Cache::remember(
+            CatalogCacheKeys::listing($request),
+            (int) config('catalog_performance.listing_ttl'),
+            fn (): array => $this->buildCatalogIndexPayload($request),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildCatalogIndexPayload(Request $request): array
     {
         $filters = $this->collectCatalogFilters($request);
 
@@ -62,10 +82,10 @@ class ProductController extends Controller
 
         $products->appends($request->query());
 
-        return response()->json([
+        return [
             ...$products->toArray(),
             'filters' => $this->resolveCatalogFacets($filters, $scoutProductIds),
-        ]);
+        ];
     }
 
     /**
@@ -117,7 +137,7 @@ class ProductController extends Controller
      *     sizes: array<int, string>,
      *     characteristics: array<int, array{name: string, value: string}>
      * } $filters
-     * @param array<int, string> $exclude
+     * @param  array<int, string>  $exclude
      */
     private function catalogQuery(array $filters, array $exclude = [], ?Collection $scoutProductIds = null): Builder
     {
@@ -356,7 +376,7 @@ class ProductController extends Controller
         $brands = (clone $brandFacetBase)
             ->leftJoin('brands', 'brands.id', '=', 'products.brand_id')
             ->selectRaw('COALESCE(brands.name, products.brand) as value, COUNT(*) as count')
-            ->whereRaw("COALESCE(brands.name, products.brand) IS NOT NULL")
+            ->whereRaw('COALESCE(brands.name, products.brand) IS NOT NULL')
             ->whereRaw("COALESCE(brands.name, products.brand) != ''")
             ->groupByRaw('COALESCE(brands.name, products.brand)')
             ->orderByRaw('COALESCE(brands.name, products.brand)')
@@ -417,7 +437,7 @@ class ProductController extends Controller
                     continue;
                 }
 
-                $pairKey = $name . '||' . $value;
+                $pairKey = $name.'||'.$value;
 
                 if (isset($seenPairs[$pairKey])) {
                     continue;
@@ -522,20 +542,22 @@ class ProductController extends Controller
     {
         if ($scoutProductIds !== null && $scoutProductIds->isNotEmpty()) {
             $idsList = implode(',', $scoutProductIds->toArray());
-            
+
             if (DB::connection()->getDriverName() === 'pgsql') {
                 // Для PostgreSQL: сортировка по порядку ID, возвращенному Scout (Meilisearch) для сохранения релевантности.
                 $query->orderByRaw("array_position(ARRAY[{$idsList}]::bigint[], products.id)")
                     ->orderBy('products.sort_order');
+
                 return;
             }
-            
+
             if (DB::connection()->getDriverName() === 'mysql') {
                 $query->orderByRaw("FIELD(products.id, {$idsList})")
                     ->orderBy('products.sort_order');
+
                 return;
             }
-            
+
             // Для SQLite (тесты) не применяем специфичную сортировку массивов
             return;
         }
@@ -554,6 +576,24 @@ class ProductController extends Controller
             ]);
         }
 
+        if (! config('catalog_performance.cache_enabled')) {
+            return response()->json($this->buildSuggestPayload($queryText));
+        }
+
+        $payload = Cache::remember(
+            CatalogCacheKeys::suggest($queryText),
+            (int) config('catalog_performance.suggest_ttl'),
+            fn (): array => $this->buildSuggestPayload($queryText),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @return array{query: string, suggestions: array<int, array<string, mixed>>}
+     */
+    private function buildSuggestPayload(string $queryText): array
+    {
         $products = Product::search($queryText)
             ->query(function (Builder $builder): void {
                 $this->withReviewSummary($builder)
@@ -567,7 +607,7 @@ class ProductController extends Controller
             ->take(8)
             ->get();
 
-        return response()->json([
+        return [
             'query' => $queryText,
             'suggestions' => $products->map(fn (Product $product) => [
                 'id' => $product->id,
@@ -585,8 +625,8 @@ class ProductController extends Controller
                         ['sort_order', 'asc'],
                     ])
                     ->first()?->url,
-            ])->values(),
-        ]);
+            ])->values()->all(),
+        ];
     }
 
     /**
@@ -664,7 +704,6 @@ class ProductController extends Controller
     }
 
     /**
-     * @param mixed $rawValues
      * @return array<int, string>
      */
     private function parseStringListFilter(mixed $rawValues): array
@@ -684,7 +723,6 @@ class ProductController extends Controller
     }
 
     /**
-     * @param mixed $rawValues
      * @return array<int, array{name: string, value: string}>
      */
     private function parseCharacteristicFilters(mixed $rawValues): array
@@ -706,7 +744,7 @@ class ProductController extends Controller
                 continue;
             }
 
-            $key = mb_strtolower($name) . '::' . mb_strtolower($value);
+            $key = mb_strtolower($name).'::'.mb_strtolower($value);
             $pairs[$key] = [
                 'name' => $name,
                 'value' => $value,
@@ -885,6 +923,24 @@ class ProductController extends Controller
 
     public function similar(string $slug): JsonResponse
     {
+        if (! config('catalog_performance.cache_enabled')) {
+            return response()->json($this->buildSimilarPayload($slug));
+        }
+
+        $payload = Cache::remember(
+            CatalogCacheKeys::similar($slug),
+            (int) config('catalog_performance.similar_ttl'),
+            fn (): array => $this->buildSimilarPayload($slug),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @return array{data: array<int, array<string, mixed>>}
+     */
+    private function buildSimilarPayload(string $slug): array
+    {
         $currentProduct = Product::query()
             ->select(['id', 'slug', 'category_id', 'brand_id'])
             ->where('is_active', true)
@@ -902,9 +958,9 @@ class ProductController extends Controller
         }
 
         $query->orderByDesc('is_hit')
-              ->orderByDesc('is_featured')
-              ->orderBy('sort_order')
-              ->limit(12);
+            ->orderByDesc('is_featured')
+            ->orderBy('sort_order')
+            ->limit(12);
 
         $similarProducts = $this->withReviewSummary($query)
             ->with([
@@ -921,19 +977,41 @@ class ProductController extends Controller
             $similarProducts = $similarProducts->merge($fill)->values();
         }
 
-        return response()->json([
-            'data' => $similarProducts->map(fn (Product $product) => $this->productCardPayload($product))->values(),
-        ]);
+        return [
+            'data' => $similarProducts
+                ->map(fn (Product $product) => $this->productCardPayload($product))
+                ->values()
+                ->all(),
+        ];
     }
 
     public function cartRecommendations(Request $request): JsonResponse
     {
         $ids = array_filter(explode(',', $request->query('ids', '')));
-        
+
         if (empty($ids)) {
             return $this->personalRecommendations($request);
         }
 
+        if (! config('catalog_performance.cache_enabled')) {
+            return response()->json($this->buildCartRecommendationsPayload($ids));
+        }
+
+        $payload = Cache::remember(
+            CatalogCacheKeys::cartRecommendations($ids),
+            (int) config('catalog_performance.cart_recommendations_ttl'),
+            fn (): array => $this->buildCartRecommendationsPayload($ids),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @param  array<int, string>  $ids
+     * @return array{data: array<int, array<string, mixed>>}
+     */
+    private function buildCartRecommendationsPayload(array $ids): array
+    {
         $coPurchaseProductIds = OrderItem::query()
             ->whereIn('product_id', $ids)
             ->whereHas('order', function (Builder $query): void {
@@ -984,12 +1062,33 @@ class ProductController extends Controller
             $recommendations = $recommendations->merge($fill)->values();
         }
 
-        return response()->json([
-            'data' => $recommendations->map(fn (Product $product) => $this->productCardPayload($product))->values(),
-        ]);
+        return [
+            'data' => $recommendations
+                ->map(fn (Product $product) => $this->productCardPayload($product))
+                ->values()
+                ->all(),
+        ];
     }
 
     public function recommendations(string $slug): JsonResponse
+    {
+        if (! config('catalog_performance.cache_enabled')) {
+            return response()->json($this->buildRecommendationsPayload($slug));
+        }
+
+        $payload = Cache::remember(
+            CatalogCacheKeys::recommendations($slug),
+            (int) config('catalog_performance.recommendations_ttl'),
+            fn (): array => $this->buildRecommendationsPayload($slug),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @return array{source: string, data: array<int, array<string, mixed>>}
+     */
+    private function buildRecommendationsPayload(string $slug): array
     {
         $currentProduct = Product::query()
             ->select(['id', 'slug'])
@@ -1039,10 +1138,13 @@ class ProductController extends Controller
                 ->values();
 
             if ($coPurchaseProducts->isNotEmpty()) {
-                return response()->json([
+                return [
                     'source' => 'co_purchase',
-                    'data' => $coPurchaseProducts->map(fn (Product $product) => $this->productCardPayload($product))->values(),
-                ]);
+                    'data' => $coPurchaseProducts
+                        ->map(fn (Product $product) => $this->productCardPayload($product))
+                        ->values()
+                        ->all(),
+                ];
             }
         }
 
@@ -1056,7 +1158,7 @@ class ProductController extends Controller
 
         $targetSessionIds = $events
             ->filter(function (TrackingEvent $event) use ($slug): bool {
-                return (($event->payload['slug'] ?? null) === $slug);
+                return ($event->payload['slug'] ?? null) === $slug;
             })
             ->pluck('session_id')
             ->filter()
@@ -1091,10 +1193,13 @@ class ProductController extends Controller
                 ->limit(8)
                 ->get();
 
-            return response()->json([
+            return [
                 'source' => 'featured_fallback',
-                'data' => $fallbackProducts->map(fn (Product $product) => $this->productCardPayload($product))->values(),
-            ]);
+                'data' => $fallbackProducts
+                    ->map(fn (Product $product) => $this->productCardPayload($product))
+                    ->values()
+                    ->all(),
+            ];
         }
 
         $recommendedProducts = Product::query()
@@ -1113,10 +1218,13 @@ class ProductController extends Controller
             ->take(8)
             ->values();
 
-        return response()->json([
+        return [
             'source' => 'co_view',
-            'data' => $recommendedProducts->map(fn (Product $product) => $this->productCardPayload($product))->values(),
-        ]);
+            'data' => $recommendedProducts
+                ->map(fn (Product $product) => $this->productCardPayload($product))
+                ->values()
+                ->all(),
+        ];
     }
 
     public function personalRecommendations(Request $request): JsonResponse
@@ -1126,10 +1234,31 @@ class ProductController extends Controller
         if ($sessionId === '') {
             return response()->json([
                 'source' => 'featured_fallback',
-                'data' => $this->fallbackRecommendations()->map(fn (Product $product) => $this->productCardPayload($product))->values(),
+                'data' => $this->fallbackRecommendations()
+                    ->map(fn (Product $product) => $this->productCardPayload($product))
+                    ->values()
+                    ->all(),
             ]);
         }
 
+        if (! config('catalog_performance.cache_enabled')) {
+            return response()->json($this->buildPersonalRecommendationsPayload($sessionId));
+        }
+
+        $payload = Cache::remember(
+            CatalogCacheKeys::personal($sessionId),
+            (int) config('catalog_performance.personal_recommendations_ttl'),
+            fn (): array => $this->buildPersonalRecommendationsPayload($sessionId),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @return array{source: string, data: array<int, array<string, mixed>>}
+     */
+    private function buildPersonalRecommendationsPayload(string $sessionId): array
+    {
         $orderedProductIds = OrderItem::query()
             ->selectRaw('product_id, SUM(qty) as score')
             ->whereNotNull('product_id')
@@ -1146,12 +1275,13 @@ class ProductController extends Controller
             ->values();
 
         if ($orderedProductIds->isNotEmpty()) {
-            return response()->json([
+            return [
                 'source' => 'order_history',
                 'data' => $this->personalizedByProductHistory($orderedProductIds)
                     ->map(fn (Product $product) => $this->productCardPayload($product))
-                    ->values(),
-            ]);
+                    ->values()
+                    ->all(),
+            ];
         }
 
         $viewedSlugs = TrackingEvent::query()
@@ -1173,23 +1303,27 @@ class ProductController extends Controller
                 ->values();
 
             if ($viewedProductIds->isNotEmpty()) {
-                return response()->json([
+                return [
                     'source' => 'view_history',
                     'data' => $this->personalizedByProductHistory($viewedProductIds)
                         ->map(fn (Product $product) => $this->productCardPayload($product))
-                        ->values(),
-                ]);
+                        ->values()
+                        ->all(),
+                ];
             }
         }
 
-        return response()->json([
+        return [
             'source' => 'featured_fallback',
-            'data' => $this->fallbackRecommendations()->map(fn (Product $product) => $this->productCardPayload($product))->values(),
-        ]);
+            'data' => $this->fallbackRecommendations()
+                ->map(fn (Product $product) => $this->productCardPayload($product))
+                ->values()
+                ->all(),
+        ];
     }
 
     /**
-     * @param Collection<int, int> $seedProductIds
+     * @param  Collection<int, int>  $seedProductIds
      * @return Collection<int, Product>
      */
     private function personalizedByProductHistory(Collection $seedProductIds): Collection
@@ -1249,7 +1383,7 @@ class ProductController extends Controller
     }
 
     /**
-     * @param Collection<int, int>|null $excludeProductIds
+     * @param  Collection<int, int>|null  $excludeProductIds
      * @return Collection<int, Product>
      */
     private function fallbackRecommendations(?Collection $excludeProductIds = null, int $limit = 12): Collection
@@ -1308,7 +1442,7 @@ class ProductController extends Controller
                     ['is_cover', 'desc'],
                     ['sort_order', 'asc'],
                 ])
-            ->first()?->url,
+                ->first()?->url,
         ];
     }
 

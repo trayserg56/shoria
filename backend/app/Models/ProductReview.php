@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\InvalidatesCatalogCache;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ProductReview extends Model
 {
     use HasFactory;
+    use InvalidatesCatalogCache;
 
     protected $fillable = [
         'product_id',
@@ -45,8 +47,7 @@ class ProductReview extends Model
         int $userId,
         int $productId,
         ?int $productVariantId = null,
-    ): ?OrderItem
-    {
+    ): ?OrderItem {
         $query = OrderItem::query()
             ->where('product_id', $productId)
             ->whereHas('order', function ($query) use ($userId): void {
@@ -66,8 +67,7 @@ class ProductReview extends Model
         int $userId,
         int $productId,
         ?int $productVariantId = null,
-    ): bool
-    {
+    ): bool {
         return self::latestPurchasedOrderItemForUser($userId, $productId, $productVariantId) !== null;
     }
 }

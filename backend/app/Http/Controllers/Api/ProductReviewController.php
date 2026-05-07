@@ -12,6 +12,109 @@ use Illuminate\Http\Request;
 
 class ProductReviewController extends Controller
 {
+    public function pending(Request $request): JsonResponse
+    {
+        $user = $request->user('sanctum');
+
+        if (! $user) {
+            return response()->json([
+                'message' => 'Требуется авторизация.',
+            ], 401);
+        }
+
+        $items = OrderItem::query()
+            ->select('order_items.*')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->with([
+                'order:id,order_number,placed_at,status',
+            ])
+            ->whereNotNull('order_items.product_id')
+            ->where('orders.user_id', $user->id)
+            ->whereIn('orders.status', ['paid', 'processing', 'completed'])
+            ->whereDoesntHave('review')
+            ->orderByDesc('orders.placed_at')
+            ->limit(8)
+            ->get()
+            ->map(fn (OrderItem $item): array => [
+                'order_item_id' => $item->id,
+                'product_name' => $item->product_name,
+                'product_slug' => $item->product_slug,
+                'image_url' => $item->image_url,
+                'order_number' => $item->order?->order_number,
+                'placed_at' => $item->order?->placed_at,
+            ])
+            ->values();
+
+        return response()->json([
+            'data' => $items,
+        ]);
+    }
+
+    public function quickRating(Request $request): JsonResponse
+    {
+        $user = $request->user('sanctum');
+
+        if (! $user) {
+            return response()->json([
+                'message' => 'Требуется авторизация.',
+            ], 401);
+        }
+
+        $validated = $request->validate([
+            'order_item_id' => ['required', 'integer', 'exists:order_items,id'],
+            'rating' => ['required', 'integer', 'min:1', 'max:5'],
+        ]);
+
+        $item = OrderItem::query()
+            ->with('order')
+            ->findOrFail($validated['order_item_id']);
+
+        if ((int) $item->order->user_id !== (int) $user->id) {
+            return response()->json([
+                'message' => 'Недостаточно прав.',
+            ], 403);
+        }
+
+        if (! $item->product_id) {
+            return response()->json([
+                'message' => 'Эту позицию нельзя оценить.',
+            ], 422);
+        }
+
+        if (! in_array($item->order->status, ['paid', 'processing', 'completed'], true)) {
+            return response()->json([
+                'message' => 'Заказ недоступен для оценки.',
+            ], 422);
+        }
+
+        $review = ProductReview::query()->firstOrNew([
+            'product_id' => $item->product_id,
+            'user_id' => $user->id,
+        ]);
+
+        $isNew = ! $review->exists;
+
+        if ($review->exists) {
+            $review->refresh();
+        }
+
+        $keepText = trim((string) $review->review_text) !== '';
+
+        $review->fill([
+            'order_item_id' => $item->id,
+            'rating' => (int) $validated['rating'],
+            'review_text' => $keepText ? $review->review_text : '',
+            'is_active' => true,
+            'is_verified_purchase' => true,
+        ]);
+        $review->save();
+
+        return response()->json([
+            'ok' => true,
+            'is_new' => $isNew,
+        ], $isNew ? 201 : 200);
+    }
+
     public function index(Request $request, string $slug): JsonResponse
     {
         $product = Product::query()

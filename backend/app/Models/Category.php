@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
-use App\Support\MediaUrl;
 use App\Models\Concerns\HasAuthorship;
+use App\Models\Concerns\InvalidatesCatalogCache;
+use App\Support\MediaUrl;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Category extends Model
 {
-    use HasAuthorship, HasFactory;
+    use HasAuthorship, HasFactory, InvalidatesCatalogCache;
 
     protected $fillable = [
         'parent_id',
@@ -54,16 +56,16 @@ class Category extends Model
         return $this->hasMany(Category::class, 'parent_id')->orderBy('sort_order');
     }
 
-    protected function imageUrl(): \Illuminate\Database\Eloquent\Casts\Attribute
+    protected function imageUrl(): Attribute
     {
-        return \Illuminate\Database\Eloquent\Casts\Attribute::make(
+        return Attribute::make(
             get: fn (?string $value): ?string => MediaUrl::resolve($value),
         );
     }
 
-    protected function iconUrl(): \Illuminate\Database\Eloquent\Casts\Attribute
+    protected function iconUrl(): Attribute
     {
-        return \Illuminate\Database\Eloquent\Casts\Attribute::make(
+        return Attribute::make(
             get: fn (?string $value): ?string => MediaUrl::resolve($value),
         );
     }

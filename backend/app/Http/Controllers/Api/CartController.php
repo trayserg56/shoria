@@ -86,7 +86,7 @@ class CartController extends Controller
         $unitPrice = (float) ($selectedVariant?->price ?? $product->price);
 
         if (! $item) {
-            $item = new CartItem();
+            $item = new CartItem;
             $item->cart_id = $cart->id;
             $item->product_id = $product->id;
             $item->product_variant_id = $selectedVariant?->id;
@@ -102,6 +102,7 @@ class CartController extends Controller
         $item->save();
 
         $cart = $this->recalculateCart($cart);
+        $this->clearAbandonedCartReminder($cart);
 
         return response()->json($this->serializeCart($cart));
     }
@@ -142,6 +143,7 @@ class CartController extends Controller
         $item->save();
 
         $cart = $this->recalculateCart($cart);
+        $this->clearAbandonedCartReminder($cart);
 
         return response()->json($this->serializeCart($cart));
     }
@@ -154,8 +156,23 @@ class CartController extends Controller
         $item->delete();
 
         $cart = $this->recalculateCart($cart);
+        $this->clearAbandonedCartReminder($cart);
 
         return response()->json($this->serializeCart($cart));
+    }
+
+    private function clearAbandonedCartReminder(Cart $cart): void
+    {
+        if (! $cart->user_id) {
+            return;
+        }
+
+        if ($cart->abandoned_cart_reminded_at === null) {
+            return;
+        }
+
+        Cart::query()->whereKey($cart->id)->update(['abandoned_cart_reminded_at' => null]);
+        $cart->abandoned_cart_reminded_at = null;
     }
 
     private function resolveIdentity(Request $request, ?string $sessionFromPayload = null): array

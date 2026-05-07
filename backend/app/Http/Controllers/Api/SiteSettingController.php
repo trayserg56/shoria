@@ -17,6 +17,10 @@ class SiteSettingController extends Controller
             'phone_display' => $s->phone_display,
             'phone_tel' => $s->phone_tel,
             'work_hours_short' => $s->work_hours_short,
+            'support_email' => $s->support_email,
+            'footer_legal_line' => $s->footer_legal_line,
+            'feature_flags' => $s->mergedFeatureFlags(),
+            'theme' => $s->mergedTheme(),
         ]);
     }
 }

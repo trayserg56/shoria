@@ -18,11 +18,13 @@ class Cart extends Model
         'currency',
         'subtotal',
         'total',
+        'abandoned_cart_reminded_at',
     ];
 
     protected $casts = [
         'subtotal' => 'decimal:2',
         'total' => 'decimal:2',
+        'abandoned_cart_reminded_at' => 'datetime',
     ];
 
     public function items(): HasMany

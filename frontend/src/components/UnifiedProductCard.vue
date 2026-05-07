@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
+import type { Ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { trackEvent } from '@/lib/analytics'
@@ -12,6 +13,11 @@ import { useCartStore } from '@/stores/cart'
 import { useOneClickCheckoutModalStore } from '@/stores/one-click-checkout-modal'
 import { useWishlistStore, type WishlistItem } from '@/stores/wishlist'
 import { useCompareStore, type CompareItem } from '@/stores/compare'
+import {
+  defaultSiteFeatureFlags,
+  siteSettingsInjectionKey,
+  type SiteSettingsPayload,
+} from '@/lib/site-settings'
 
 type ProductCardData = {
   id: number
@@ -57,6 +63,12 @@ const { items: cartItems } = storeToRefs(cartStore)
 const { isAuthenticated } = storeToRefs(authStore)
 const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
+const siteSettingsRef = inject(siteSettingsInjectionKey) as Ref<SiteSettingsPayload> | undefined
+const storefrontFlags = computed(
+  () => siteSettingsRef?.value.feature_flags ?? defaultSiteFeatureFlags,
+)
+const wishlistFeatureEnabled = computed(() => storefrontFlags.value.wishlist)
+const compareFeatureEnabled = computed(() => storefrontFlags.value.product_compare)
 const oneClickModalStore = useOneClickCheckoutModalStore()
 const isCartBusy = ref(false)
 const isImageBroken = ref(false)
@@ -400,6 +412,7 @@ watch(
         </div>
         <div class="product-card__rail product-card__interaction">
           <button
+            v-if="wishlistFeatureEnabled"
             type="button"
             class="rail-btn"
             :class="{ 'rail-btn--active': isWishlisted }"
@@ -413,6 +426,7 @@ watch(
             </svg>
           </button>
           <button
+            v-if="compareFeatureEnabled"
             type="button"
             class="rail-btn"
             :class="{ 'rail-btn--active': isCompared }"
@@ -449,7 +463,7 @@ watch(
           </span>
           <span v-if="discountPercent" class="product-card__discount-pill">-{{ discountPercent }}%</span>
         </div>
-        <p class="product-card__reward">+{{ loyaltyReward }} на счет</p>
+        <p v-if="storefrontFlags.loyalty" class="product-card__reward">+{{ loyaltyReward }} на счет</p>
         <button
           v-if="product.brand"
           type="button"
@@ -480,14 +494,14 @@ watch(
           {{ isCartBusy ? 'Добавляем...' : 'В корзину' }}
         </button>
         <button
-          v-else-if="currentCartQty === 0"
+          v-else-if="currentCartQty === 0 && wishlistFeatureEnabled"
           type="button"
           class="action action--wishlist"
           @click.stop.prevent="toggleWishlist"
         >
           {{ isWishlisted ? 'В избранном' : 'В избранное' }}
         </button>
-        <div v-else class="cart-stepper">
+        <div v-else-if="currentCartQty > 0" class="cart-stepper">
           <div class="cart-stepper__controls">
             <button type="button" :disabled="isCartBusy" @click.stop.prevent="decreaseCartQty">−</button>
             <strong>{{ currentCartQty }}</strong>

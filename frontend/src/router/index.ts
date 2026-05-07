@@ -1,28 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { getAuthToken } from '@/lib/auth-token'
-import AccountLayout from '@/components/account/AccountLayout.vue'
 import { clearStructuredData, setSeoMeta } from '@/lib/seo'
-import AccountOverviewView from '../views/AccountOverviewView.vue'
-import AccountOrdersView from '../views/AccountOrdersView.vue'
-import AccountSavedView from '../views/AccountSavedView.vue'
-import AccountSettingsView from '../views/AccountSettingsView.vue'
-import AccountLoyaltyView from '../views/AccountLoyaltyView.vue'
-import AccountReviewsView from '../views/AccountReviewsView.vue'
-import BrandsView from '../views/BrandsView.vue'
-import CatalogView from '../views/CatalogView.vue'
-import CartView from '../views/CartView.vue'
-import CheckoutView from '../views/CheckoutView.vue'
-import CompareView from '../views/CompareView.vue'
-import HomeView from '../views/HomeView.vue'
-import NewsListView from '../views/NewsListView.vue'
-import NewsPostView from '../views/NewsPostView.vue'
-import NotFoundView from '../views/NotFoundView.vue'
-import OrderSuccessView from '../views/OrderSuccessView.vue'
-import ProductView from '../views/ProductView.vue'
-import LoyaltyProgramView from '../views/LoyaltyProgramView.vue'
-import ServicePageView from '../views/ServicePageView.vue'
-import WishlistView from '../views/WishlistView.vue'
-import AuthOAuthCallbackView from '../views/AuthOAuthCallbackView.vue'
 
 if (typeof window !== 'undefined') {
   if ('scrollRestoration' in window.history) {
@@ -74,7 +52,7 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: HomeView,
+      component: () => import('../views/HomeView.vue'),
       meta: {
         seoTitle: 'Shoria — интернет-магазин',
         seoDescription: 'Shoria: каталог товаров, рекомендации и удобный checkout.',
@@ -83,7 +61,7 @@ const router = createRouter({
     {
       path: '/brands',
       name: 'brands',
-      component: BrandsView,
+      component: () => import('../views/BrandsView.vue'),
       meta: {
         seoTitle: 'Бренды — Shoria',
         seoDescription: 'Страница брендов Shoria с быстрым переходом в каталог по выбранному бренду.',
@@ -92,7 +70,7 @@ const router = createRouter({
     {
       path: '/catalog',
       name: 'catalog',
-      component: CatalogView,
+      component: () => import('../views/CatalogView.vue'),
       meta: {
         seoTitle: 'Каталог — Shoria',
         seoDescription: 'Каталог товаров Shoria: фильтры, поиск, сортировка и быстрый выбор.',
@@ -101,7 +79,7 @@ const router = createRouter({
     {
       path: '/catalog/:categorySlug',
       name: 'catalog-category',
-      component: CatalogView,
+      component: () => import('../views/CatalogView.vue'),
       meta: {
         seoTitle: 'Каталог — Shoria',
         seoDescription: 'Каталог товаров Shoria: фильтры, поиск, сортировка и быстрый выбор.',
@@ -110,7 +88,7 @@ const router = createRouter({
     {
       path: '/catalog/:categorySlug/:subcategorySlug',
       name: 'catalog-subcategory',
-      component: CatalogView,
+      component: () => import('../views/CatalogView.vue'),
       meta: {
         seoTitle: 'Каталог — Shoria',
         seoDescription: 'Каталог товаров Shoria: фильтры, поиск, сортировка и быстрый выбор.',
@@ -119,7 +97,7 @@ const router = createRouter({
     {
       path: '/catalog/:categorySlug/:subcategorySlug/:deepPath(.*)*',
       name: 'catalog-deep',
-      component: CatalogView,
+      component: () => import('../views/CatalogView.vue'),
       meta: {
         seoTitle: 'Каталог — Shoria',
         seoDescription: 'Каталог товаров Shoria: фильтры, поиск, сортировка и быстрый выбор.',
@@ -128,7 +106,7 @@ const router = createRouter({
     {
       path: '/news/:slug',
       name: 'news-post',
-      component: NewsPostView,
+      component: () => import('../views/NewsPostView.vue'),
       meta: {
         seoTitle: 'Новость — Shoria',
         seoDescription: 'Статья и новости Shoria о товарах, трендах и подборках.',
@@ -137,7 +115,7 @@ const router = createRouter({
     {
       path: '/news',
       name: 'news',
-      component: NewsListView,
+      component: () => import('../views/NewsListView.vue'),
       meta: {
         seoTitle: 'Новости — Shoria',
         seoDescription: 'Новости и подборки Shoria: тренды, новинки и полезные гайды.',
@@ -146,7 +124,7 @@ const router = createRouter({
     {
       path: '/pages/:slug',
       name: 'service-page',
-      component: ServicePageView,
+      component: () => import('../views/ServicePageView.vue'),
       meta: {
         seoTitle: 'Информация — Shoria',
         seoDescription: 'Служебная информация магазина Shoria.',
@@ -155,16 +133,16 @@ const router = createRouter({
     {
       path: '/loyalty-program',
       name: 'loyalty-program',
-      component: LoyaltyProgramView,
+      component: () => import('../views/LoyaltyProgramView.vue'),
       meta: {
         seoTitle: 'Программа лояльности — Shoria',
-        seoDescription: 'Условия, уровни и механика начисления баллов программы лояльности.',
+        seoDescription: 'Условия программы лояльности: уровни, начисления и списание баллов.',
       },
     },
     {
       path: '/product/:categorySlug/:slug/:variantSlug?',
       name: 'product',
-      component: ProductView,
+      component: () => import('../views/ProductView.vue'),
       meta: {
         seoTitle: 'Товар — Shoria',
         seoDescription: 'Карточка товара Shoria: фото, цены, характеристики и рекомендации.',
@@ -173,7 +151,7 @@ const router = createRouter({
     {
       path: '/product/:slug/:variantSlug?',
       name: 'product-legacy',
-      component: ProductView,
+      component: () => import('../views/ProductView.vue'),
       meta: {
         seoTitle: 'Товар — Shoria',
         seoDescription: 'Карточка товара Shoria: фото, цены, характеристики и рекомендации.',
@@ -182,7 +160,7 @@ const router = createRouter({
     {
       path: '/cart',
       name: 'cart',
-      component: CartView,
+      component: () => import('../views/CartView.vue'),
       meta: {
         seoTitle: 'Корзина — Shoria',
         seoDescription: 'Корзина покупок Shoria.',
@@ -192,7 +170,7 @@ const router = createRouter({
     {
       path: '/checkout',
       name: 'checkout',
-      component: CheckoutView,
+      component: () => import('../views/CheckoutView.vue'),
       meta: {
         seoTitle: 'Оформление заказа — Shoria',
         seoDescription: 'Оформление заказа Shoria: доставка и оплата.',
@@ -202,7 +180,7 @@ const router = createRouter({
     {
       path: '/wishlist',
       name: 'wishlist',
-      component: WishlistView,
+      component: () => import('../views/WishlistView.vue'),
       meta: {
         seoTitle: 'Избранное — Shoria',
         seoDescription: 'Список избранных товаров Shoria.',
@@ -212,7 +190,7 @@ const router = createRouter({
     {
       path: '/compare',
       name: 'compare',
-      component: CompareView,
+      component: () => import('../views/CompareView.vue'),
       meta: {
         seoTitle: 'Сравнение — Shoria',
         seoDescription: 'Сравнение товаров по ключевым параметрам.',
@@ -222,7 +200,7 @@ const router = createRouter({
     {
       path: '/order-success/:orderNumber',
       name: 'order-success',
-      component: OrderSuccessView,
+      component: () => import('../views/OrderSuccessView.vue'),
       meta: {
         seoTitle: 'Заказ оформлен — Shoria',
         seoDescription: 'Подтверждение оформления заказа.',
@@ -232,7 +210,7 @@ const router = createRouter({
     {
       path: '/auth/oauth-callback',
       name: 'auth-oauth-callback',
-      component: AuthOAuthCallbackView,
+      component: () => import('../views/AuthOAuthCallbackView.vue'),
       meta: {
         seoTitle: 'Вход через ВКонтакте — Shoria',
         seoDescription: '',
@@ -241,7 +219,7 @@ const router = createRouter({
     },
     {
       path: '/account',
-      component: AccountLayout,
+      component: () => import('@/components/account/AccountLayout.vue'),
       meta: {
         requiresAuth: true,
         seoTitle: 'Профиль — Shoria',
@@ -252,7 +230,7 @@ const router = createRouter({
         {
           path: '',
           name: 'account-overview',
-          component: AccountOverviewView,
+          component: () => import('../views/AccountOverviewView.vue'),
           meta: {
             seoTitle: 'Кабинет — Shoria',
             seoDescription: 'Обзор личного кабинета покупателя Shoria.',
@@ -262,7 +240,7 @@ const router = createRouter({
         {
           path: 'settings',
           name: 'account-settings',
-          component: AccountSettingsView,
+          component: () => import('../views/AccountSettingsView.vue'),
           meta: {
             seoTitle: 'Настройки профиля — Shoria',
             seoDescription: 'Редактирование имени, телефона, email и статуса подтверждения.',
@@ -272,7 +250,7 @@ const router = createRouter({
         {
           path: 'orders',
           name: 'account-orders',
-          component: AccountOrdersView,
+          component: () => import('../views/AccountOrdersView.vue'),
           meta: {
             seoTitle: 'Заказы — Shoria',
             seoDescription: 'История заказов и статусы покупок в кабинете Shoria.',
@@ -282,7 +260,7 @@ const router = createRouter({
         {
           path: 'saved',
           name: 'account-saved',
-          component: AccountSavedView,
+          component: () => import('../views/AccountSavedView.vue'),
           meta: {
             seoTitle: 'Избранное и сравнение — Shoria',
             seoDescription: 'Сохранённые товары и сравнение внутри личного кабинета Shoria.',
@@ -292,7 +270,7 @@ const router = createRouter({
         {
           path: 'loyalty',
           name: 'account-loyalty',
-          component: AccountLoyaltyView,
+          component: () => import('../views/AccountLoyaltyView.vue'),
           meta: {
             seoTitle: 'Программа лояльности — Shoria',
             seoDescription: 'Баллы, уровни и история операций по программе лояльности.',
@@ -300,9 +278,19 @@ const router = createRouter({
           },
         },
         {
+          path: 'gift-certificates',
+          name: 'account-gift-certificates',
+          component: () => import('../views/AccountGiftCertificatesView.vue'),
+          meta: {
+            seoTitle: 'Подарочные сертификаты — Shoria',
+            seoDescription: 'Покупка и список сертификатов в личном кабинете.',
+            seoRobots: 'noindex,nofollow',
+          },
+        },
+        {
           path: 'reviews',
           name: 'account-reviews',
-          component: AccountReviewsView,
+          component: () => import('../views/AccountReviewsView.vue'),
           meta: {
             seoTitle: 'Ваши отзывы — Shoria',
             seoDescription: 'Оставленные отзывы и товары, по которым можно поделиться впечатлением.',
@@ -318,7 +306,7 @@ const router = createRouter({
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
-      component: NotFoundView,
+      component: () => import('../views/NotFoundView.vue'),
       meta: {
         seoTitle: 'Страница не найдена — Shoria',
         seoDescription: 'Запрошенная страница не найдена.',

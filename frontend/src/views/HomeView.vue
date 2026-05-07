@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, ref, watch, type Ref } from 'vue'
 import type { Component } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
@@ -22,6 +22,11 @@ import { readRecentlyViewed, type RecentlyViewedItem } from '@/lib/recently-view
 import { toast } from '@/lib/toast'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
+import {
+  siteSettingsInjectionKey,
+  type SiteSettingsPayload,
+} from '@/lib/site-settings'
+import { isHomeSectionEnabled } from '@/lib/site-theme'
 
 type Category = {
   id: number
@@ -135,6 +140,12 @@ const brandsSlider = ref<HTMLElement | null>(null)
 const heroActiveIndex = ref(0)
 const brands = ref<Brand[]>([])
 const selectedFeaturedTagFilter = ref<'untagged' | string>('untagged')
+
+const siteSettingsRef = inject(siteSettingsInjectionKey) as Ref<SiteSettingsPayload> | undefined
+
+function homeSectionOn(key: string): boolean {
+  return isHomeSectionEnabled(siteSettingsRef?.value?.theme, key)
+}
 
 const FEATURED_TAG_ORDER = ['hit', 'new', 'customer_choice'] as const
 
@@ -427,12 +438,12 @@ async function subscribeToNewsletter() {
 <template>
   <main class="home">
     <template v-if="isLoading">
-      <section class="home-hero home-hero--skeleton" aria-hidden="true">
+      <section v-if="homeSectionOn('hero')" class="home-hero home-hero--skeleton" aria-hidden="true">
         <AppSkeleton class="home-hero__skeleton-plate" width="100%" height="clamp(380px, 52vh, 520px)" radius="0" />
       </section>
 
       <div class="home__container">
-      <section class="trust trust--skeleton">
+      <section v-if="homeSectionOn('trust')" class="trust trust--skeleton">
         <article v-for="index in 4" :key="`trust-skeleton-${index}`" class="trust-card trust-card--skeleton">
           <AppSkeleton width="42%" height="18px" />
           <AppSkeleton width="100%" height="14px" />
@@ -440,7 +451,7 @@ async function subscribeToNewsletter() {
         </article>
       </section>
 
-      <section class="section marketing marketing--skeleton" aria-hidden="true">
+      <section v-if="homeSectionOn('marketing')" class="section marketing marketing--skeleton" aria-hidden="true">
         <div class="marketing__grid">
           <article v-for="index in 3" :key="`mkt-skeleton-${index}`" class="marketing-card marketing-card--skeleton">
             <AppSkeleton width="100%" height="100%" radius="20px" />
@@ -448,7 +459,7 @@ async function subscribeToNewsletter() {
         </div>
       </section>
 
-      <section class="section">
+      <section v-if="homeSectionOn('categories')" class="section">
         <header class="section__header">
           <AppSkeleton width="180px" height="32px" />
           <AppSkeleton width="320px" height="16px" />
@@ -463,7 +474,7 @@ async function subscribeToNewsletter() {
         </div>
       </section>
 
-      <section class="section">
+      <section v-if="homeSectionOn('featured')" class="section">
         <header class="section__header">
           <AppSkeleton width="140px" height="32px" />
           <AppSkeleton width="280px" height="16px" />
@@ -496,7 +507,7 @@ async function subscribeToNewsletter() {
         </div>
       </section>
 
-      <section class="section">
+      <section v-if="homeSectionOn('news')" class="section">
         <header class="section__header">
           <AppSkeleton width="220px" height="32px" />
           <AppSkeleton width="300px" height="16px" />
@@ -517,7 +528,7 @@ async function subscribeToNewsletter() {
     </template>
 
     <template v-else>
-    <section class="home-hero" aria-label="Главный баннер">
+    <section v-if="homeSectionOn('hero')" class="home-hero" aria-label="Главный баннер">
       <div
         ref="heroSlider"
         class="home-hero__track"
@@ -570,7 +581,7 @@ async function subscribeToNewsletter() {
     </section>
 
     <div class="home__container">
-    <section class="trust">
+    <section v-if="homeSectionOn('trust')" class="trust">
       <article v-for="item in trustHighlights" :key="item.title" class="trust-card">
         <component :is="item.icon" class="trust-card__icon" :size="22" :stroke-width="1.75" aria-hidden="true" />
         <div class="trust-card__body">
@@ -581,7 +592,7 @@ async function subscribeToNewsletter() {
     </section>
 
     <section
-      v-if="(state.marketing_cards?.length ?? 0) > 0"
+      v-if="homeSectionOn('marketing') && (state.marketing_cards?.length ?? 0) > 0"
       class="section marketing"
       aria-label="Подборки и акции"
     >
@@ -615,7 +626,7 @@ async function subscribeToNewsletter() {
       </div>
     </section>
 
-    <section class="section">
+    <section v-if="homeSectionOn('categories')" class="section">
       <header class="section__header">
         <h2>Категории</h2>
         <p>Быстрый выбор по стилю и сценарию носки.</p>
@@ -644,7 +655,7 @@ async function subscribeToNewsletter() {
       </div>
     </section>
 
-    <section v-if="brands.length" class="section">
+    <section v-if="homeSectionOn('brands') && brands.length" class="section">
       <div class="section__toolbar">
         <header class="section__header">
           <h2>Бренды</h2>
@@ -676,7 +687,7 @@ async function subscribeToNewsletter() {
       </div>
     </section>
 
-    <section class="section">
+    <section v-if="homeSectionOn('featured')" class="section">
       <div class="section__toolbar">
         <header class="section__header">
           <h2>Рекомендуем</h2>
@@ -752,7 +763,7 @@ async function subscribeToNewsletter() {
       </div>
     </section>
 
-    <section v-if="recentlyViewed.length" class="section">
+    <section v-if="homeSectionOn('recent') && recentlyViewed.length" class="section">
       <div class="section__toolbar">
         <header class="section__header">
           <h2>Недавно просмотренные</h2>
@@ -779,7 +790,7 @@ async function subscribeToNewsletter() {
       </div>
     </section>
 
-    <section class="section why">
+    <section v-if="homeSectionOn('why')" class="section why">
       <header class="section__header">
         <h2>Почему Shoria</h2>
         <p>Коротко о том, что снижает риск для покупателя и повышает конверсию.</p>
@@ -795,7 +806,7 @@ async function subscribeToNewsletter() {
       <RouterLink class="why__cta" to="/catalog">Перейти к выбору моделей</RouterLink>
     </section>
 
-    <section class="section capture">
+    <section v-if="homeSectionOn('newsletter')" class="section capture">
       <header class="section__header">
         <h2>Подписка на дропы и скидки</h2>
         <p>Оставь email, чтобы получать подборки и важные релизы раньше.</p>
@@ -820,7 +831,7 @@ async function subscribeToNewsletter() {
       </p>
     </section>
 
-    <section class="section">
+    <section v-if="homeSectionOn('news')" class="section">
       <div class="section__toolbar section__toolbar--news">
         <header class="section__header">
           <h2>Новости и подборки</h2>

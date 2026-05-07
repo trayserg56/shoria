@@ -61,7 +61,7 @@ class OrderController extends Controller
         ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity($request);
 
         $query = Order::query()
-            ->with(['items', 'paymentTransactions'])
+            ->with(['items', 'paymentTransactions', 'giftCertificate', 'purchasedGiftCertificate'])
             ->where('order_number', $orderNumber);
 
         if ($user) {
@@ -72,9 +72,26 @@ class OrderController extends Controller
 
         $order = $query->firstOrFail();
 
+        $purchasedGiftPayload = null;
+
+        if (($order->checkout_kind ?? Order::CHECKOUT_KIND_CART) === Order::CHECKOUT_KIND_GIFT_CERTIFICATE) {
+            $issued = $order->purchasedGiftCertificate;
+
+            if ($issued) {
+                $purchasedGiftPayload = [
+                    'code' => $issued->code,
+                    'initial_amount' => (float) $issued->initial_amount,
+                    'balance_remaining' => (float) $issued->balance_remaining,
+                    'status' => $issued->status,
+                    'currency' => $issued->currency,
+                ];
+            }
+        }
+
         return response()->json([
             'order_number' => $order->order_number,
             'status' => $order->status,
+            'checkout_kind' => $order->checkout_kind ?? Order::CHECKOUT_KIND_CART,
             'order_status' => $order->order_status,
             'payment_status' => $order->payment_status,
             'fulfillment_status' => $order->fulfillment_status,
@@ -83,6 +100,9 @@ class OrderController extends Controller
             'delivery_method' => $order->delivery_method,
             'payment_method' => $order->payment_method,
             'promo_code' => $order->promo_code,
+            'gift_certificate_code' => $order->giftCertificate?->code,
+            'purchased_gift_certificate' => $purchasedGiftPayload,
+            'gift_certificate_discount_total' => (float) $order->gift_certificate_discount_total,
             'total' => (float) $order->total,
             'subtotal' => (float) $order->subtotal,
             'discount_total' => (float) $order->discount_total,

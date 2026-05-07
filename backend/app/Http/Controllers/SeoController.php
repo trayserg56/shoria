@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Category;
 use App\Models\NewsPost;
 use App\Models\Product;
+use App\Models\ServicePage;
 use Illuminate\Http\Response;
 
 class SeoController extends Controller
@@ -34,7 +36,63 @@ class SeoController extends Controller
             ['loc' => "{$base}/", 'priority' => '1.0', 'changefreq' => 'daily', 'lastmod' => now()->toDateString()],
             ['loc' => "{$base}/catalog", 'priority' => '0.9', 'changefreq' => 'daily', 'lastmod' => now()->toDateString()],
             ['loc' => "{$base}/news", 'priority' => '0.8', 'changefreq' => 'daily', 'lastmod' => now()->toDateString()],
+            ['loc' => "{$base}/brands", 'priority' => '0.7', 'changefreq' => 'weekly', 'lastmod' => now()->toDateString()],
+            ['loc' => "{$base}/loyalty-program", 'priority' => '0.6', 'changefreq' => 'monthly', 'lastmod' => now()->toDateString()],
         ];
+
+        $categories = Category::query()
+            ->where('is_active', true)
+            ->get(['id', 'slug', 'parent_id', 'updated_at']);
+
+        $categoriesById = $categories->keyBy('id');
+
+        $categoryUrls = $categories
+            ->map(function (Category $category) use ($base, $categoriesById): ?array {
+                $segments = [];
+                $current = $category;
+
+                while ($current instanceof Category) {
+                    array_unshift($segments, $current->slug);
+
+                    if ($current->parent_id === null) {
+                        break;
+                    }
+
+                    $current = $categoriesById->get($current->parent_id);
+
+                    if (! $current instanceof Category) {
+                        return null;
+                    }
+                }
+
+                $path = '/catalog/'.collect($segments)->map(fn (string $slug): string => rawurlencode($slug))->join('/');
+
+                return [
+                    'loc' => $base.$path,
+                    'priority' => '0.75',
+                    'changefreq' => 'daily',
+                    'lastmod' => optional($category->updated_at)->toDateString() ?? now()->toDateString(),
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
+
+        $servicePageUrls = ServicePage::query()
+            ->where('is_active', true)
+            ->where('slug', '!=', 'loyalty-program')
+            ->orderBy('sort_order')
+            ->get(['slug', 'updated_at'])
+            ->map(function (ServicePage $page) use ($base): array {
+                return [
+                    'loc' => "{$base}/pages/{$page->slug}",
+                    'priority' => '0.5',
+                    'changefreq' => 'monthly',
+                    'lastmod' => optional($page->updated_at)->toDateString() ?? now()->toDateString(),
+                ];
+            })
+            ->values()
+            ->all();
 
         $productUrls = Product::query()
             ->with('category:id,slug')
@@ -49,7 +107,7 @@ class SeoController extends Controller
                     : "/product/{$product->slug}";
 
                 return [
-                    'loc' => $base . $path,
+                    'loc' => $base.$path,
                     'priority' => '0.8',
                     'changefreq' => 'weekly',
                     'lastmod' => optional($product->updated_at)->toDateString() ?? now()->toDateString(),
@@ -75,7 +133,7 @@ class SeoController extends Controller
             ->values()
             ->all();
 
-        $urls = array_merge($staticUrls, $productUrls, $newsUrls);
+        $urls = array_merge($staticUrls, $categoryUrls, $servicePageUrls, $productUrls, $newsUrls);
 
         $xml = view('seo.sitemap', ['urls' => $urls])->render();
 

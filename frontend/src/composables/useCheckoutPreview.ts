@@ -6,6 +6,9 @@ import { useCartStore } from '@/stores/cart'
 type UseCheckoutPreviewParams = {
   deliveryMethod: Ref<string>
   promoCode: Ref<string>
+  giftCertificateCode: Ref<string>
+  /** Выбор сертификата из ЛК (взаимоисключающе с кодом). */
+  giftCertificateId?: Ref<number | null>
   loyaltyPointsToSpend: Ref<number>
   /** Если передан — уходит в `POST /api/checkout/preview` (влияет на персональные промо). */
   customerEmail?: Ref<string>
@@ -26,6 +29,7 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
 
   const subtotalAmount = ref(0)
   const discountAmount = ref(0)
+  const giftCertificateDiscountAmount = ref(0)
   const loyaltyDiscountAmount = ref(0)
   const deliveryAmount = ref(0)
   const checkoutTotalPreview = ref(0)
@@ -37,6 +41,9 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
 
   const promoStatusMessage = ref('')
   const promoStatusApplied = ref(false)
+
+  const giftCertificateStatusMessage = ref('')
+  const giftCertificateStatusApplied = ref(false)
 
   let previewRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -52,6 +59,9 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
     hasPreviewSnapshot.value ? subtotalAmount.value : cartSubtotalFallback.value,
   )
   const displayedDiscount = computed(() => (hasPreviewSnapshot.value ? discountAmount.value : 0))
+  const displayedGiftCertificateDiscount = computed(() =>
+    hasPreviewSnapshot.value ? giftCertificateDiscountAmount.value : 0,
+  )
   const displayedLoyaltyDiscount = computed(() =>
     hasPreviewSnapshot.value ? loyaltyDiscountAmount.value : 0,
   )
@@ -62,6 +72,7 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
     () =>
       displayedSubtotal.value
       - displayedDiscount.value
+      - displayedGiftCertificateDiscount.value
       - displayedLoyaltyDiscount.value
       + displayedDelivery.value,
   )
@@ -85,12 +96,21 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
       const payload: {
         delivery_method: string
         promo_code?: string
+        gift_certificate_code?: string
+        gift_certificate_id?: number
         customer_email?: string
         loyalty_points_to_spend: number
       } = {
         delivery_method: params.deliveryMethod.value,
         promo_code: params.promoCode.value.trim() || undefined,
         loyalty_points_to_spend: loyaltyEnabled.value ? params.loyaltyPointsToSpend.value : 0,
+      }
+
+      const id = params.giftCertificateId?.value
+      if (id != null && Number.isFinite(id)) {
+        payload.gift_certificate_id = id
+      } else {
+        payload.gift_certificate_code = params.giftCertificateCode.value.trim() || undefined
       }
 
       if (params.customerEmail) {
@@ -104,12 +124,15 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
 
       subtotalAmount.value = preview.subtotal
       discountAmount.value = preview.discount_total
+      giftCertificateDiscountAmount.value = preview.gift_certificate_discount_total
       loyaltyDiscountAmount.value = preview.loyalty_discount_total
       deliveryAmount.value = preview.delivery_total
       checkoutTotalPreview.value = preview.total
       hasPreviewSnapshot.value = true
       promoStatusMessage.value = preview.promo.message ?? ''
       promoStatusApplied.value = preview.promo.is_applied
+      giftCertificateStatusMessage.value = preview.gift_certificate.message ?? ''
+      giftCertificateStatusApplied.value = preview.gift_certificate.is_applied
       loyaltyMaxPoints.value = preview.loyalty.max_points_to_spend
       loyaltyPointsBalance.value = preview.loyalty.points_balance
       loyaltyPointsToEarn.value = preview.loyalty.points_to_earn
@@ -121,6 +144,7 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
       console.error(error)
       hasPreviewSnapshot.value = false
       discountAmount.value = 0
+      giftCertificateDiscountAmount.value = 0
       loyaltyDiscountAmount.value = 0
       deliveryAmount.value = selectedDeliveryFee.value
       subtotalAmount.value = cartSubtotalFallback.value
@@ -151,9 +175,12 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
     hasPreviewSnapshot,
     promoStatusMessage,
     promoStatusApplied,
+    giftCertificateStatusMessage,
+    giftCertificateStatusApplied,
     loyaltyEnabled,
     displayedSubtotal,
     displayedDiscount,
+    displayedGiftCertificateDiscount,
     displayedLoyaltyDiscount,
     displayedDelivery,
     displayedTotal,

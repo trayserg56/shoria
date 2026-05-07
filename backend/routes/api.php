@@ -2,15 +2,16 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BrandController;
-use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CartController;
+use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\EventController;
+use App\Http\Controllers\Api\GiftCertificateAccountController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\LoyaltyController;
-use App\Http\Controllers\Api\NewsletterSubscriptionController;
 use App\Http\Controllers\Api\NavigationController;
 use App\Http\Controllers\Api\NewsController;
+use App\Http\Controllers\Api\NewsletterSubscriptionController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PaymentWebhookController;
 use App\Http\Controllers\Api\ProductController;
@@ -77,6 +78,11 @@ Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])
 Route::get('/auth/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
     ->name('verification.verify');
 Route::middleware('auth:sanctum')->group(function (): void {
+    Route::get('/me/gift-certificates', [GiftCertificateAccountController::class, 'index']);
+    Route::get('/reviews/pending', [ProductReviewController::class, 'pending']);
+    Route::post('/reviews/quick', [ProductReviewController::class, 'quickRating']);
+    Route::post('/checkout/gift-certificate', [CheckoutController::class, 'purchaseGiftCertificate'])
+        ->middleware('throttle:checkout-write');
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::patch('/auth/profile', [AuthController::class, 'updateProfile']);
     Route::get('/reviews/me', [ProductReviewController::class, 'my']);

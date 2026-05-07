@@ -41,6 +41,8 @@ type CheckoutPayload = {
   delivery_method: string
   payment_method: string
   promo_code?: string
+  gift_certificate_code?: string
+  gift_certificate_id?: number
   loyalty_points_to_spend?: number
   comment?: string
 }
@@ -102,11 +104,18 @@ type CheckoutOptions = {
 type CheckoutPreview = {
   subtotal: number
   discount_total: number
+  gift_certificate_discount_total: number
   loyalty_discount_total: number
   delivery_total: number
   total: number
   currency: string
   promo: {
+    code: string | null
+    is_applied: boolean
+    message: string | null
+  }
+  gift_certificate: {
+    id: number | null
     code: string | null
     is_applied: boolean
     message: string | null
@@ -150,6 +159,8 @@ type CheckoutResponse = {
   delivery_method: string
   payment_method: string
   promo_code: string | null
+  gift_certificate_code: string | null
+  gift_certificate_discount_total: number
   subtotal: number
   discount_total: number
   loyalty_discount_total: number
@@ -175,6 +186,7 @@ type CheckoutResponse = {
     } | null
     amount_to_next_tier: number
   } | null
+  checkout_kind?: string
 }
 
 type OrderSummary = {
@@ -203,6 +215,7 @@ type OrdersPaginated = {
 type OrderDetails = {
   order_number: string
   status: string
+  checkout_kind?: string
   order_status: string
   payment_status: string
   fulfillment_status: string
@@ -211,6 +224,15 @@ type OrderDetails = {
   delivery_method: string
   payment_method: string
   promo_code: string | null
+  gift_certificate_code: string | null
+  purchased_gift_certificate?: {
+    code: string
+    initial_amount: number
+    balance_remaining: number
+    status: string
+    currency: string
+  } | null
+  gift_certificate_discount_total: number
   total: number
   subtotal: number
   discount_total: number
@@ -399,6 +421,16 @@ export const useCartStore = defineStore('cart', () => {
     }
   }
 
+  async function purchaseGiftCertificate(payload: { amount: number; payment_method: string }) {
+    return requestJson<CheckoutResponse>('/api/checkout/gift-certificate', {
+      method: 'POST',
+      body: JSON.stringify({
+        amount: payload.amount,
+        payment_method: payload.payment_method,
+      }),
+    })
+  }
+
   async function checkout(payload: CheckoutPayload) {
     const order = await requestJson<CheckoutResponse>('/api/checkout', {
       method: 'POST',
@@ -462,6 +494,8 @@ export const useCartStore = defineStore('cart', () => {
   async function previewCheckout(payload: {
     delivery_method: string
     promo_code?: string
+    gift_certificate_code?: string
+    gift_certificate_id?: number
     customer_email?: string
     loyalty_points_to_spend?: number
   }) {
@@ -544,6 +578,7 @@ export const useCartStore = defineStore('cart', () => {
     removeItem,
     clearCart,
     checkout,
+    purchaseGiftCertificate,
     oneClickCheckout,
     fetchOneClickSuggestions,
   }

@@ -1,24 +1,38 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, inject, onMounted } from 'vue'
+import type { Ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import {
+  defaultSiteFeatureFlags,
+  filterNavItemsByFeatureFlags,
+  siteSettingsInjectionKey,
+  type SiteSettingsPayload,
+} from '@/lib/site-settings'
 
 const authStore = useAuthStore()
 const route = useRoute()
 const { user } = storeToRefs(authStore)
 
-const navItems = [
-  { to: { name: 'account-overview' }, label: 'Обзор' },
-  { to: { name: 'account-settings' }, label: 'Настройки профиля' },
-  { to: { name: 'account-orders' }, label: 'Заказы' },
-  { to: { name: 'account-reviews' }, label: 'Ваши отзывы' },
-  { to: { name: 'account-loyalty' }, label: 'Лояльность' },
-  { to: { name: 'account-saved' }, label: 'Избранное и сравнение' },
-]
+const siteSettingsRef = inject(siteSettingsInjectionKey) as Ref<SiteSettingsPayload> | undefined
+
+const navItems = computed(() => {
+  const all: Array<{ to: { name: string }; label: string; path: string }> = [
+    { to: { name: 'account-overview' }, label: 'Обзор', path: '/account' },
+    { to: { name: 'account-settings' }, label: 'Настройки профиля', path: '/account/settings' },
+    { to: { name: 'account-orders' }, label: 'Заказы', path: '/account/orders' },
+    { to: { name: 'account-gift-certificates' }, label: 'Сертификаты', path: '/account/gift-certificates' },
+    { to: { name: 'account-reviews' }, label: 'Ваши отзывы', path: '/account/reviews' },
+    { to: { name: 'account-loyalty' }, label: 'Лояльность', path: '/account/loyalty' },
+    { to: { name: 'account-saved' }, label: 'Избранное и сравнение', path: '/account/saved' },
+  ]
+  const flags = siteSettingsRef?.value.feature_flags ?? defaultSiteFeatureFlags
+  return filterNavItemsByFeatureFlags(all, flags).map(({ path: _p, ...rest }) => rest)
+})
 
 const activeSectionLabel = computed(() => {
-  const matched = navItems.find((item) => route.name === item.to.name)
+  const matched = navItems.value.find((item) => route.name === item.to.name)
   return matched?.label ?? 'Кабинет'
 })
 

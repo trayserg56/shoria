@@ -2008,6 +2008,11 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 
+:root[data-catalog-density='compact'] .catalog-grid {
+  column-gap: 12px;
+  row-gap: 10px;
+}
+
 @media (max-width: 1360px) {
   .catalog-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));

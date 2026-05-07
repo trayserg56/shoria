@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasAuthorship;
+use App\Support\Store\StoreFeatureFlags;
+use App\Support\Store\StoreTheme;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 
@@ -16,6 +18,15 @@ class SiteSetting extends Model
         'phone_display',
         'phone_tel',
         'work_hours_short',
+        'support_email',
+        'footer_legal_line',
+        'feature_flags',
+        'theme',
+    ];
+
+    protected $casts = [
+        'feature_flags' => 'array',
+        'theme' => 'array',
     ];
 
     public function getLogoImageUrlAttribute(): ?string
@@ -42,5 +53,28 @@ class SiteSetting extends Model
         );
 
         return $row;
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    public function mergedFeatureFlags(): array
+    {
+        return StoreFeatureFlags::merge($this->feature_flags);
+    }
+
+    public function isFeatureEnabled(string $key): bool
+    {
+        $flags = $this->mergedFeatureFlags();
+
+        return ($flags[$key] ?? false) === true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function mergedTheme(): array
+    {
+        return StoreTheme::merge($this->theme);
     }
 }

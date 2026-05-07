@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, ref, watch } from 'vue'
+import type { Ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { Check, Heart, Trash2, X } from 'lucide-vue-next'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import { toProductRoute } from '@/lib/product-route'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
-import { fetchJson } from '@/lib/api'
+import { fetchJson, requestJson } from '@/lib/api'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 import { useWishlistStore } from '@/stores/wishlist'
 import { useCheckoutPreview } from '@/composables/useCheckoutPreview'
 import { saveCheckoutIncentives } from '@/lib/checkout-context'
+import {
+  defaultSiteFeatureFlags,
+  siteSettingsInjectionKey,
+  type SiteSettingsPayload,
+} from '@/lib/site-settings'
 
 const authStore = useAuthStore()
 const cartStore = useCartStore()
@@ -22,7 +28,25 @@ const { items, checkoutOptions, isLoading: isCartLoading, subtotal: cartSubtotal
   storeToRefs(cartStore)
 const { user } = storeToRefs(authStore)
 
+const siteSettingsRef = inject(siteSettingsInjectionKey) as Ref<SiteSettingsPayload> | undefined
+const giftCertificatesEnabled = computed(
+  () => siteSettingsRef?.value.feature_flags.gift_certificates ?? defaultSiteFeatureFlags.gift_certificates,
+)
+
 const promoCode = ref('')
+const giftCertificateCode = ref('')
+const giftCertificateId = ref<number | null>(null)
+const giftCodeExpanded = ref(false)
+const myGiftCertificates = ref<
+  Array<{
+    id: number
+    code: string
+    balance_remaining: number
+    initial_amount: number
+    currency: string
+    expires_at: string | null
+  }>
+>([])
 const loyaltyPointsToSpend = ref(0)
 const deliveryMethod = ref('')
 
@@ -30,8 +54,11 @@ const {
   previewLoading,
   promoStatusMessage,
   promoStatusApplied,
+  giftCertificateStatusMessage,
+  giftCertificateStatusApplied,
   loyaltyEnabled,
   displayedDiscount,
+  displayedGiftCertificateDiscount,
   displayedLoyaltyDiscount,
   loyaltyMaxPoints,
   loyaltyPointsBalance,
@@ -40,6 +67,8 @@ const {
 } = useCheckoutPreview({
   deliveryMethod,
   promoCode,
+  giftCertificateCode,
+  giftCertificateId,
   loyaltyPointsToSpend,
 })
 
@@ -128,9 +157,16 @@ const selectionRatio = computed(() => {
   return Math.min(1, Math.max(0, selectionSubtotal.value / full))
 })
 const sidebarDiscount = computed(() => selectionRatio.value * displayedDiscount.value)
+const sidebarGiftCertificateDiscount = computed(
+  () => selectionRatio.value * displayedGiftCertificateDiscount.value,
+)
 const sidebarLoyaltyDiscount = computed(() => selectionRatio.value * displayedLoyaltyDiscount.value)
 const sidebarTotal = computed(
-  () => selectionSubtotal.value - sidebarDiscount.value - sidebarLoyaltyDiscount.value,
+  () =>
+    selectionSubtotal.value
+    - sidebarDiscount.value
+    - sidebarGiftCertificateDiscount.value
+    - sidebarLoyaltyDiscount.value,
 )
 const hasSelection = computed(() => selectedIds.value.size > 0)
 
@@ -227,6 +263,8 @@ async function clearEntireCart() {
 function goCheckout() {
   saveCheckoutIncentives({
     promoCode: promoCode.value,
+    giftCertificateCode: giftCertificateCode.value,
+    giftCertificateId: giftCertificateId.value,
     loyaltyPointsToSpend: loyaltyPointsToSpend.value,
   })
   const code = promoCode.value.trim()
@@ -297,13 +335,77 @@ watch([allSelected, someSelected], async () => {
 })
 
 watch(
-  () => [deliveryMethod.value, promoCode.value, loyaltyPointsToSpend.value, cartSubtotal.value],
+    () =>
+      [
+        deliveryMethod.value,
+        promoCode.value,
+        giftCertificateCode.value,
+        giftCertificateId.value,
+        loyaltyPointsToSpend.value,
+        cartSubtotal.value,
+      ],
   () => {
     if (loyaltyPointsToSpend.value < 0) {
       loyaltyPointsToSpend.value = 0
       return
     }
     schedulePreviewRefresh()
+  },
+)
+
+async function loadMyGiftCertificates() {
+  if (!user.value) {
+    myGiftCertificates.value = []
+    return
+  }
+
+  try {
+    const response = await requestJson<{
+      data: Array<{
+        id: number
+        code: string
+        balance_remaining: number
+        initial_amount: number
+        currency: string
+        expires_at: string | null
+      }>
+    }>('/api/me/gift-certificates')
+    myGiftCertificates.value = response.data
+  } catch {
+    myGiftCertificates.value = []
+  }
+}
+
+function toggleGiftFromAccount(id: number) {
+  if (giftCertificateId.value === id) {
+    giftCertificateId.value = null
+  } else {
+    giftCertificateId.value = id
+    giftCertificateCode.value = ''
+    giftCodeExpanded.value = false
+  }
+  void refreshPreview()
+}
+
+function revealGiftCodeField() {
+  giftCodeExpanded.value = true
+  giftCertificateId.value = null
+  void refreshPreview()
+}
+
+watch(
+  () => giftCertificateCode.value,
+  (v) => {
+    if (v.trim() !== '') {
+      giftCertificateId.value = null
+    }
+  },
+)
+
+watch(
+  () => user.value?.id,
+  () => {
+    void loadMyGiftCertificates()
   },
 )
 
@@ -315,6 +417,7 @@ onMounted(async () => {
   await cartStore.loadCheckoutOptions()
   deliveryMethod.value = deliveryMethods.value[0]?.code ?? ''
   await cartStore.loadCart()
+  await loadMyGiftCertificates()
   await refreshPreview()
 })
 </script>
@@ -474,6 +577,10 @@ onMounted(async () => {
                 <dt>Скидка</dt>
                 <dd>−{{ formatPrice(sidebarDiscount) }}</dd>
               </div>
+              <div v-if="sidebarGiftCertificateDiscount > 0" class="order-summary__line order-summary__line--muted">
+                <dt>Сертификат</dt>
+                <dd>−{{ formatPrice(sidebarGiftCertificateDiscount) }}</dd>
+              </div>
               <div v-if="loyaltyEnabled && sidebarLoyaltyDiscount > 0" class="order-summary__line order-summary__line--muted">
                 <dt>Баллы</dt>
                 <dd>−{{ formatPrice(sidebarLoyaltyDiscount) }}</dd>
@@ -509,6 +616,41 @@ onMounted(async () => {
               </p>
             </div>
 
+            <div v-if="giftCertificatesEnabled" class="order-summary__gift">
+              <p v-if="user && myGiftCertificates.length" class="order-summary__gift-title">Ваши сертификаты</p>
+              <div v-if="user && myGiftCertificates.length" class="order-summary__gift-cards">
+                <button
+                  v-for="gc in myGiftCertificates"
+                  :key="gc.id"
+                  type="button"
+                  class="gift-card-tile"
+                  :class="{ 'gift-card-tile--active': giftCertificateId === gc.id }"
+                  @click="toggleGiftFromAccount(gc.id)"
+                >
+                  <span class="gift-card-tile__label">Сертификат</span>
+                  <span class="gift-card-tile__amount">{{ formatPrice(gc.balance_remaining) }}</span>
+                  <span class="gift-card-tile__hint">остаток</span>
+                </button>
+              </div>
+              <button
+                v-if="!giftCodeExpanded"
+                type="button"
+                class="order-summary__gift-code-toggle"
+                @click="revealGiftCodeField"
+              >
+                Ввести сертификат кодом
+              </button>
+              <input
+                v-else
+                v-model="giftCertificateCode"
+                class="order-summary__input"
+                type="text"
+                name="cart_gift_certificate_code"
+                autocomplete="off"
+                placeholder="Код подарочного сертификата"
+                @input="giftCertificateId = null"
+              />
+            </div>
             <div class="order-summary__promo">
               <input
                 v-model="promoCode"
@@ -522,6 +664,9 @@ onMounted(async () => {
             </div>
             <p v-if="promoStatusMessage" class="order-summary__promo-msg" :class="{ 'order-summary__promo-msg--ok': promoStatusApplied }">
               {{ promoStatusMessage }}
+            </p>
+            <p v-if="giftCertificateStatusMessage" class="order-summary__promo-msg" :class="{ 'order-summary__promo-msg--ok': giftCertificateStatusApplied }">
+              {{ giftCertificateStatusMessage }}
             </p>
 
             <div class="order-summary__cta-wrap">
@@ -993,6 +1138,88 @@ onMounted(async () => {
 
 .order-summary__cta-wrap {
   margin-top: 16px;
+}
+
+.order-summary__gift {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.order-summary__gift-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+
+.order-summary__gift-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.gift-card-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.gift-card-tile:hover {
+  border-color: #000;
+}
+
+.gift-card-tile--active {
+  border-color: #000;
+  box-shadow: 0 0 0 1px #000 inset;
+}
+
+.gift-card-tile__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+
+.gift-card-tile__amount {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.gift-card-tile__hint {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.order-summary__gift-code-toggle {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.order-summary__gift-code-toggle:hover {
+  opacity: 0.85;
 }
 
 .order-summary__promo {

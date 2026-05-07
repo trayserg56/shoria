@@ -2,6 +2,8 @@ const STORAGE_KEY = 'shoria_checkout_incentives_v1'
 
 export type CheckoutIncentivesPayload = {
   promoCode: string
+  giftCertificateCode: string
+  giftCertificateId: number | null
   loyaltyPointsToSpend: number
 }
 
@@ -11,6 +13,11 @@ export function saveCheckoutIncentives(payload: CheckoutIncentivesPayload): void
       STORAGE_KEY,
       JSON.stringify({
         promoCode: payload.promoCode.trim(),
+        giftCertificateCode: payload.giftCertificateCode.trim(),
+        giftCertificateId:
+          typeof payload.giftCertificateId === 'number' && Number.isFinite(payload.giftCertificateId)
+            ? payload.giftCertificateId
+            : null,
         loyaltyPointsToSpend: Math.max(0, Math.floor(Number(payload.loyaltyPointsToSpend) || 0)),
       }),
     )
@@ -26,8 +33,11 @@ export function loadCheckoutIncentives(): CheckoutIncentivesPayload | null {
       return null
     }
     const parsed = JSON.parse(raw) as Partial<CheckoutIncentivesPayload>
+    const idRaw = parsed.giftCertificateId
     return {
       promoCode: typeof parsed.promoCode === 'string' ? parsed.promoCode : '',
+      giftCertificateCode: typeof parsed.giftCertificateCode === 'string' ? parsed.giftCertificateCode : '',
+      giftCertificateId: typeof idRaw === 'number' && Number.isFinite(idRaw) ? idRaw : null,
       loyaltyPointsToSpend:
         typeof parsed.loyaltyPointsToSpend === 'number' ? parsed.loyaltyPointsToSpend : 0,
     }

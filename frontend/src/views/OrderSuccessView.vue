@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { CheckCircle2, Copy, Package } from 'lucide-vue-next'
 import AppSkeleton from '@/components/AppSkeleton.vue'
@@ -9,6 +9,7 @@ import { useCartStore } from '@/stores/cart'
 type OrderDetails = {
   order_number: string
   status: string
+  checkout_kind?: string
   order_status: string
   payment_status: string
   fulfillment_status: string
@@ -17,6 +18,15 @@ type OrderDetails = {
   delivery_method: string
   payment_method: string
   promo_code: string | null
+  gift_certificate_code: string | null
+  purchased_gift_certificate?: {
+    code: string
+    initial_amount: number
+    balance_remaining: number
+    status: string
+    currency: string
+  } | null
+  gift_certificate_discount_total: number
   total: number
   subtotal: number
   discount_total: number
@@ -55,6 +65,83 @@ const cartStore = useCartStore()
 const order = ref<OrderDetails | null>(null)
 const isLoading = ref(false)
 const hasError = ref(false)
+
+const pollTimer = ref<ReturnType<typeof setInterval> | null>(null)
+let pollAttempts = 0
+const MAX_GIFT_POLL_ATTEMPTS = 48
+
+const isGiftCertificateOrder = computed(
+  () => order.value?.checkout_kind === 'gift_certificate',
+)
+
+const purchasedGift = computed(() => order.value?.purchased_gift_certificate ?? null)
+
+const giftCertificatePending = computed(() => {
+  if (!isGiftCertificateOrder.value) {
+    return false
+  }
+
+  if (purchasedGift.value?.code) {
+    return false
+  }
+
+  const ps = order.value?.payment_status ?? ''
+
+  if (ps === 'failed' || ps === 'cancelled') {
+    return false
+  }
+
+  return true
+})
+
+function stopGiftPoll() {
+  if (pollTimer.value !== null) {
+    clearInterval(pollTimer.value)
+    pollTimer.value = null
+  }
+}
+
+function maybeStartGiftPoll() {
+  stopGiftPoll()
+
+  if (!giftCertificatePending.value) {
+    return
+  }
+
+  pollAttempts = 0
+  pollTimer.value = window.setInterval(() => {
+    void (async () => {
+      pollAttempts += 1
+
+      if (pollAttempts > MAX_GIFT_POLL_ATTEMPTS) {
+        stopGiftPoll()
+        return
+      }
+
+      const orderNumber = String(route.params.orderNumber ?? '')
+      if (!orderNumber) {
+        stopGiftPoll()
+        return
+      }
+
+      try {
+        order.value = await cartStore.loadOrderDetails(orderNumber)
+      } catch {
+        /* keep polling briefly */
+      }
+
+      if (order.value?.purchased_gift_certificate?.code) {
+        stopGiftPoll()
+        return
+      }
+
+      const ps = order.value?.payment_status ?? ''
+      if (ps === 'failed' || ps === 'cancelled') {
+        stopGiftPoll()
+      }
+    })()
+  }, 3500)
+}
 
 function formatPrice(value: number) {
   return new Intl.NumberFormat('ru-RU', {
@@ -132,6 +219,20 @@ function paymentMethodLabel(code: string) {
   )[code] ?? code
 }
 
+async function copyPurchasedGiftCode() {
+  const code = purchasedGift.value?.code
+  if (!code) {
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(code)
+    toast.success('Код сертификата скопирован')
+  } catch {
+    toast.error('Не удалось скопировать код')
+  }
+}
+
 async function copyOrderNumber() {
   if (!order.value?.order_number) {
     return
@@ -157,6 +258,7 @@ async function loadOrder() {
   try {
     order.value = await cartStore.loadOrderDetails(orderNumber)
     hasError.value = false
+    maybeStartGiftPoll()
   } catch (error) {
     console.error(error)
     hasError.value = true
@@ -165,7 +267,13 @@ async function loadOrder() {
   }
 }
 
-onMounted(loadOrder)
+onMounted(() => {
+  void loadOrder()
+})
+
+onBeforeUnmount(() => {
+  stopGiftPoll()
+})
 </script>
 
 <template>
@@ -202,7 +310,12 @@ onMounted(loadOrder)
           </div>
           <h1 class="success-hero__title">Спасибо за заказ</h1>
           <p class="success-hero__lead">
-            Сохраните номер заказа — по нему можно отследить статус. Краткая сводка ниже.
+            <template v-if="isGiftCertificateOrder">
+              Вы купили подарочный сертификат. Код для передачи другому человеку будет ниже — после подтверждения оплаты он появится автоматически.
+            </template>
+            <template v-else>
+              Сохраните номер заказа — по нему можно отследить статус. Краткая сводка ниже.
+            </template>
           </p>
 
           <div class="order-number-card">
@@ -221,6 +334,35 @@ onMounted(loadOrder)
             <p class="order-number-card__value">
               {{ order.order_number }}
             </p>
+          </div>
+
+          <div v-if="isGiftCertificateOrder" class="gift-cert-card">
+            <template v-if="purchasedGift?.code">
+              <div class="gift-cert-card__head">
+                <span class="gift-cert-card__label">Код подарочного сертификата</span>
+                <button
+                  type="button"
+                  class="order-number-card__copy"
+                  aria-label="Скопировать код сертификата"
+                  @click="copyPurchasedGiftCode"
+                >
+                  <Copy :size="16" :stroke-width="1.75" aria-hidden="true" />
+                  <span>Скопировать</span>
+                </button>
+              </div>
+              <p class="gift-cert-card__value">{{ purchasedGift.code }}</p>
+              <p class="gift-cert-card__hint">
+                Номинал {{ formatPrice(purchasedGift.initial_amount) }}. Код также в разделе
+                <RouterLink to="/account/gift-certificates">«Сертификаты»</RouterLink>
+                в профиле.
+              </p>
+            </template>
+            <div v-else class="gift-cert-card--pending" role="status">
+              <p class="gift-cert-card__pending-title">Код появится после оплаты</p>
+              <p class="gift-cert-card__pending-text">
+                Завершите оплату, если браузер не открыл платёжную страницу. Мы обновим эту страницу, как только платёж пройдёт.
+              </p>
+            </div>
           </div>
         </header>
 
@@ -260,6 +402,18 @@ onMounted(loadOrder)
             <div v-if="order.promo_code" class="meta-pair">
               <dt>Промокод</dt>
               <dd>{{ order.promo_code }}</dd>
+            </div>
+            <div v-if="purchasedGift?.code" class="meta-pair">
+              <dt>Код сертификата</dt>
+              <dd class="meta-pair__mono">{{ purchasedGift.code }}</dd>
+            </div>
+            <div v-if="order.gift_certificate_code" class="meta-pair">
+              <dt>Подарочный сертификат</dt>
+              <dd>{{ order.gift_certificate_code }}</dd>
+            </div>
+            <div v-if="order.gift_certificate_discount_total > 0" class="meta-pair">
+              <dt>Списано с сертификата</dt>
+              <dd>{{ formatPrice(order.gift_certificate_discount_total) }}</dd>
             </div>
           </dl>
         </div>
@@ -461,6 +615,72 @@ onMounted(loadOrder)
   letter-spacing: 0.02em;
   word-break: break-all;
   color: var(--foreground);
+}
+
+.gift-cert-card {
+  margin: 16px auto 0;
+  max-width: 28rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+  padding: 14px 16px;
+  text-align: left;
+}
+
+.gift-cert-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.gift-cert-card__label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+
+.gift-cert-card__value {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  word-break: break-all;
+}
+
+.gift-cert-card__hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+}
+
+.gift-cert-card__hint a {
+  color: inherit;
+  font-weight: 600;
+}
+
+.gift-cert-card--pending .gift-cert-card__pending-title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.gift-cert-card--pending .gift-cert-card__pending-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+}
+
+.meta-pair__mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  word-break: break-all;
 }
 
 .success-section {

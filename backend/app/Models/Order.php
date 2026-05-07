@@ -3,19 +3,26 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasAuthorship;
+use App\Services\GiftCertificates\IssuePurchasedGiftCertificate;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Order extends Model
 {
     use HasAuthorship, HasFactory;
 
+    public const CHECKOUT_KIND_CART = 'cart';
+
+    public const CHECKOUT_KIND_GIFT_CERTIFICATE = 'gift_certificate';
+
     protected $fillable = [
         'user_id',
         'order_number',
         'session_id',
+        'checkout_kind',
         'status',
         'order_status',
         'payment_status',
@@ -47,6 +54,10 @@ class Order extends Model
         'confirmed_at',
         'cancelled_at',
         'completed_at',
+        'marketing_review_reminder_sent_at',
+        'gift_certificate_issued_at',
+        'gift_certificate_id',
+        'gift_certificate_discount_total',
     ];
 
     protected $casts = [
@@ -55,10 +66,13 @@ class Order extends Model
         'loyalty_discount_total' => 'decimal:2',
         'delivery_total' => 'decimal:2',
         'total' => 'decimal:2',
+        'gift_certificate_discount_total' => 'decimal:2',
         'placed_at' => 'datetime',
         'confirmed_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'completed_at' => 'datetime',
+        'marketing_review_reminder_sent_at' => 'datetime',
+        'gift_certificate_issued_at' => 'datetime',
     ];
 
     protected static function booted(): void
@@ -104,6 +118,22 @@ class Order extends Model
                 ]);
             }
         });
+
+        static::updated(function (Order $order): void {
+            if (! $order->wasChanged('payment_status')) {
+                return;
+            }
+
+            if ($order->payment_status !== 'paid') {
+                return;
+            }
+
+            if (($order->checkout_kind ?? self::CHECKOUT_KIND_CART) !== self::CHECKOUT_KIND_GIFT_CERTIFICATE) {
+                return;
+            }
+
+            IssuePurchasedGiftCertificate::run($order);
+        });
     }
 
     public function items(): HasMany
@@ -129,6 +159,19 @@ class Order extends Model
     public function paymentWebhookLogs(): HasMany
     {
         return $this->hasMany(PaymentWebhookLog::class)->latest();
+    }
+
+    public function giftCertificate(): BelongsTo
+    {
+        return $this->belongsTo(GiftCertificate::class);
+    }
+
+    /**
+     * Сертификат, выпущенный при оплате заказа покупки сертификата (gift checkout).
+     */
+    public function purchasedGiftCertificate(): HasOne
+    {
+        return $this->hasOne(GiftCertificate::class, 'purchased_order_id');
     }
 
     public function resolveLegacyStatus(): string
