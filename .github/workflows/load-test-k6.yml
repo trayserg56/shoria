@@ -1,0 +1,49 @@
+name: Load test (k6)
+
+# Только вручную — не гоняем нагрузку против продакшена при каждом push.
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Корень витрины (тот же URL, что в браузере), без хвоста /"
+        required: true
+        type: string
+        default: "https://example.com"
+      vus:
+        description: "Виртуальные пользователи (k6 VUS)"
+        required: false
+        default: "8"
+        type: string
+      duration:
+        description: "Длительность сценария (например 30s, 1m)"
+        required: false
+        default: "45s"
+        type: string
+
+concurrency:
+  group: load-test-k6
+  cancel-in-progress: false
+
+jobs:
+  k6:
+    name: k6 catalog core
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run k6
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          VUS: ${{ inputs.vus }}
+          DURATION: ${{ inputs.duration }}
+        run: |
+          set -euo pipefail
+          echo "BASE_URL=${BASE_URL}"
+          echo "VUS=${VUS} DURATION=${DURATION}"
+          k6 run ops/load-tests/k6/catalog-core.js

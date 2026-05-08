@@ -745,7 +745,7 @@ README — главный источник проектной памяти. Вс
 
 Эти шаги выполняем сразу после завершения ключевого функционала витрины (сейчас двигаем **потихоньку** как **спринт 20 / Hardening**):
 
-1. Нагрузочные тесты API: сценарий **k6** в репозитории — `ops/load-tests/k6/catalog-core.js` (см. README в этой папке); целевые пороги p95/p99 настраиваются в скрипте.
+1. Нагрузочные тесты API: сценарий **k6** в репозитории — `ops/load-tests/k6/catalog-core.js` (см. README в этой папке); при желании запуск из GitHub: workflow **Load test (k6)** (`workflow_dispatch`).
 2. Производительность каталога: индексы БД + **Redis** (`CACHE_STORE=redis`) и кэш JSON для каталога, поиска, рекомендаций, главной, категорий, навигации, настроек сайта и брендов — `config/catalog_performance.php`, инвалидация через revision (`CatalogCacheInvalidator`).
 3. Production-надежность: **CDN отложен**; для мониторинга — **`GET /api/health`** (БД + cache store), лог **медленных запросов** при `SLOW_REQUEST_LOG_MS > 0`, далее алерты на своей стороне по логам/metrics; контроль slow queries в БД — типично `log_min_duration_statement` в PostgreSQL на проде (операционно).
 
