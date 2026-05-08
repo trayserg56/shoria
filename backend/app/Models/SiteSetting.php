@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasAuthorship;
+use App\Models\Concerns\InvalidatesCatalogCache;
 use App\Support\Store\StoreFeatureFlags;
 use App\Support\Store\StoreTheme;
 use Illuminate\Database\Eloquent\Model;
@@ -10,7 +11,7 @@ use Illuminate\Support\Facades\Storage;
 
 class SiteSetting extends Model
 {
-    use HasAuthorship;
+    use HasAuthorship, InvalidatesCatalogCache;
 
     protected $fillable = [
         'logo_text',

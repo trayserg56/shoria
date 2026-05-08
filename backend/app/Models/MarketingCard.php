@@ -3,13 +3,15 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasAuthorship;
+use App\Models\Concerns\InvalidatesCatalogCache;
 use App\Support\MediaUrl;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 
 class MarketingCard extends Model
 {
-    use HasAuthorship;
+    use HasAuthorship, InvalidatesCatalogCache;
 
     protected $fillable = [
         'label',
@@ -76,9 +78,9 @@ class MarketingCard extends Model
         return $query->whereNotNull('link_url')->where('link_url', '!=', '');
     }
 
-    protected function imageUrl(): \Illuminate\Database\Eloquent\Casts\Attribute
+    protected function imageUrl(): Attribute
     {
-        return \Illuminate\Database\Eloquent\Casts\Attribute::make(
+        return Attribute::make(
             get: fn (?string $value): ?string => MediaUrl::resolve($value),
         );
     }

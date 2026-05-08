@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CheckoutController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\GiftCertificateAccountController;
+use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\LoyaltyController;
 use App\Http\Controllers\Api\NavigationController;
@@ -19,6 +20,8 @@ use App\Http\Controllers\Api\ProductReviewController;
 use App\Http\Controllers\Api\ServicePageController;
 use App\Http\Controllers\Api\SiteSettingController;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/health', HealthController::class)->middleware('throttle:180,1');
 
 Route::middleware('throttle:public-api')->group(function (): void {
     Route::get('/home', HomeController::class);

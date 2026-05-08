@@ -5,13 +5,33 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Product;
+use App\Support\Catalog\CatalogCacheKeys;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 class CategoryController extends Controller
 {
     public function index(): JsonResponse
+    {
+        if (! config('catalog_performance.cache_enabled')) {
+            return response()->json($this->buildCategoriesTreePayload());
+        }
+
+        $payload = Cache::remember(
+            CatalogCacheKeys::categoriesTree(),
+            (int) config('catalog_performance.categories_tree_ttl'),
+            fn (): array => $this->buildCategoriesTreePayload(),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildCategoriesTreePayload(): array
     {
         $columns = [
             'id',
@@ -92,12 +112,11 @@ class CategoryController extends Controller
             return $payload;
         };
 
-        $categories = $byParent
+        return $byParent
             ->get(0, collect())
             ->map(fn (Category $category): ?array => $mapNode($category))
             ->filter()
-            ->values();
-
-        return response()->json($categories);
+            ->values()
+            ->all();
     }
 }

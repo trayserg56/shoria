@@ -8,13 +8,33 @@ use App\Models\Category;
 use App\Models\MarketingCard;
 use App\Models\NewsPost;
 use App\Models\Product;
+use App\Support\Catalog\CatalogCacheKeys;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 class HomeController extends Controller
 {
     public function __invoke(): JsonResponse
+    {
+        if (! config('catalog_performance.cache_enabled')) {
+            return response()->json($this->buildHomePayload());
+        }
+
+        $payload = Cache::remember(
+            CatalogCacheKeys::home(),
+            (int) config('catalog_performance.home_ttl'),
+            fn (): array => $this->buildHomePayload(),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildHomePayload(): array
     {
         $now = Carbon::now();
 
@@ -105,13 +125,13 @@ class HomeController extends Controller
             ->map(fn (MarketingCard $card): array => $card->toApiArray())
             ->values();
 
-        return response()->json([
+        return [
             'banner' => $banner,
             'banners' => $banners,
             'categories' => $categories,
             'featured_products' => $products,
             'news' => $news,
             'marketing_cards' => $marketingCards,
-        ]);
+        ];
     }
 }

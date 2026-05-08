@@ -3,13 +3,15 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasAuthorship;
+use App\Models\Concerns\InvalidatesCatalogCache;
 use App\Support\MediaUrl;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Banner extends Model
 {
-    use HasAuthorship, HasFactory;
+    use HasAuthorship, HasFactory, InvalidatesCatalogCache;
 
     protected $fillable = [
         'title',
@@ -30,9 +32,9 @@ class Banner extends Model
         'ends_at' => 'datetime',
     ];
 
-    protected function imageUrl(): \Illuminate\Database\Eloquent\Casts\Attribute
+    protected function imageUrl(): Attribute
     {
-        return \Illuminate\Database\Eloquent\Casts\Attribute::make(
+        return Attribute::make(
             get: fn (?string $value): ?string => MediaUrl::resolve($value),
         );
     }

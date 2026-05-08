@@ -54,6 +54,31 @@ final class CatalogCacheKeys
         return self::scopedPrefix().':personal:'.hash('sha256', $sessionId);
     }
 
+    public static function home(): string
+    {
+        return self::scopedPrefix().':home';
+    }
+
+    public static function categoriesTree(): string
+    {
+        return self::scopedPrefix().':categories-tree';
+    }
+
+    public static function navigation(): string
+    {
+        return self::scopedPrefix().':navigation';
+    }
+
+    public static function siteSettings(): string
+    {
+        return self::scopedPrefix().':site-settings';
+    }
+
+    public static function brandsList(): string
+    {
+        return self::scopedPrefix().':brands';
+    }
+
     private static function scopedPrefix(): string
     {
         return self::PREFIX.':r'.self::currentRevision();

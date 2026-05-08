@@ -3,14 +3,16 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasAuthorship;
+use App\Models\Concerns\InvalidatesCatalogCache;
 use App\Support\MediaUrl;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class NewsPost extends Model
 {
-    use HasAuthorship, HasFactory;
+    use HasAuthorship, HasFactory, InvalidatesCatalogCache;
 
     protected $fillable = [
         'title',
@@ -30,9 +32,9 @@ class NewsPost extends Model
         'is_published' => 'boolean',
     ];
 
-    protected function coverUrl(): \Illuminate\Database\Eloquent\Casts\Attribute
+    protected function coverUrl(): Attribute
     {
-        return \Illuminate\Database\Eloquent\Casts\Attribute::make(
+        return Attribute::make(
             get: fn (?string $value): ?string => MediaUrl::resolve($value),
         );
     }

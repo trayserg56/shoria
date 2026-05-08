@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasAuthorship;
+use App\Models\Concerns\InvalidatesCatalogCache;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class NavigationMenuItem extends Model
 {
-    use HasAuthorship, HasFactory;
+    use HasAuthorship, HasFactory, InvalidatesCatalogCache;
 
     public const LOCATION_HEADER = 'header';
 

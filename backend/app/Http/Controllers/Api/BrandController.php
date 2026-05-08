@@ -4,13 +4,33 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Brand;
+use App\Support\Catalog\CatalogCacheKeys;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 
 class BrandController extends Controller
 {
     public function index(): JsonResponse
     {
-        $brands = Brand::query()
+        if (! config('catalog_performance.cache_enabled')) {
+            return response()->json($this->buildBrandsPayload());
+        }
+
+        $payload = Cache::remember(
+            CatalogCacheKeys::brandsList(),
+            (int) config('catalog_performance.brands_ttl'),
+            fn (): array => $this->buildBrandsPayload(),
+        );
+
+        return response()->json($payload);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function buildBrandsPayload(): array
+    {
+        return Brand::query()
             ->where('is_active', true)
             ->withCount([
                 'products as products_count' => fn ($query) => $query->where('is_active', true),
@@ -26,8 +46,7 @@ class BrandController extends Controller
                 'slug' => $brand->slug,
                 'image_url' => $brand->image_url,
                 'products_count' => (int) $brand->products_count,
-            ]);
-
-        return response()->json($brands);
+            ])
+            ->all();
     }
 }
