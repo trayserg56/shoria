@@ -18,6 +18,9 @@ Route::permanentRedirect('/pages/loyalty-program', '/loyalty-program');
 Route::middleware('web')->group(function (): void {
     Route::get('/oauth/vk/redirect', [OAuthController::class, 'redirectToVk'])->name('oauth.vk.redirect');
     Route::get('/oauth/vk/callback', [OAuthController::class, 'handleVkCallback'])->name('oauth.vk.callback');
+
+    Route::get('/oauth/yandex/redirect', [OAuthController::class, 'redirectToYandex'])->name('oauth.yandex.redirect');
+    Route::get('/oauth/yandex/callback', [OAuthController::class, 'handleYandexCallback'])->name('oauth.yandex.callback');
 });
 
 Route::get('/{path}', [SpaShellController::class, 'showPath'])->where('path', '^(?!api|admin|storage|livewire|sanctum|oauth).*$');

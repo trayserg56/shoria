@@ -21,6 +21,11 @@ const vkOAuthHref = computed(() => {
   return base ? `${base}/oauth/vk/redirect` : ''
 })
 
+const yandexOAuthHref = computed(() => {
+  const base = getOAuthBackendBaseUrl().replace(/\/$/, '')
+  return base ? `${base}/oauth/yandex/redirect` : ''
+})
+
 const mode = ref<Mode>('register')
 const isSubmitting = ref(false)
 const errorMessage = ref('')
@@ -161,6 +166,24 @@ async function submitForgotPassword() {
         </button>
       </form>
 
+      <div v-if="mode === 'register' && (vkOAuthHref || yandexOAuthHref)" class="social-login">
+        <span class="social-divider">или войти через</span>
+        <div class="social-buttons">
+          <a v-if="yandexOAuthHref" class="social-btn yandex-btn" :href="yandexOAuthHref">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <path d="M13.31 11.53H11.7V6.34h1.68c2.01 0 3.04.94 3.04 2.57 0 1.7-1.08 2.62-3.11 2.62ZM21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9ZM14.42 14.1c1.8-.56 2.88-2.01 2.88-3.86 0-2.56-1.76-4.24-4.76-4.24H9.7V18h2V13.1h1.42l2.74 4.9h2.22l-3.06-4.9h.4Z"/>
+            </svg>
+            Яндекс
+          </a>
+          <a v-if="vkOAuthHref" class="social-btn vk-btn" :href="vkOAuthHref">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <path d="M21.547 7h-3.29a.743.743 0 0 0-.655.392s-1.312 2.416-1.734 3.23C14.734 12.813 14 12.126 14 11.11V7.603A1.104 1.104 0 0 0 12.896 6.5h-2.474a1.982 1.982 0 0 0-1.75.813s1.255-.204 1.255 1.49c0 .42.022 1.626.04 2.64a.73.73 0 0 1-1.272.503 21.54 21.54 0 0 1-2.498-4.543.693.693 0 0 0-.63-.403h-2.99a.508.508 0 0 0-.48.685C3.005 10.175 6.918 18 11.38 18h1.878a.742.742 0 0 0 .742-.742v-1.135a.73.73 0 0 1 1.23-.53l2.247 2.112a1.09 1.09 0 0 0 .746.295h2.953c1.424 0 1.424-.988.647-1.753-.546-.538-2.518-2.617-2.518-2.617a1.02 1.02 0 0 1-.078-1.323c.637-.84 1.68-2.212 2.122-2.8.603-.804 1.697-2.507.197-2.507z"/>
+            </svg>
+            ВКонтакте
+          </a>
+        </div>
+      </div>
+
       <template v-else-if="mode === 'login'">
         <form class="form" @submit.prevent="submitLogin">
           <label>
@@ -176,8 +199,22 @@ async function submitForgotPassword() {
           </button>
         </form>
 
-        <div v-if="vkOAuthHref" class="social-login">
-          <a class="vk-link" :href="vkOAuthHref">Войти через ВКонтакте</a>
+        <div v-if="vkOAuthHref || yandexOAuthHref" class="social-login">
+          <span class="social-divider">или войти через</span>
+          <div class="social-buttons">
+            <a v-if="yandexOAuthHref" class="social-btn yandex-btn" :href="yandexOAuthHref">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M13.31 11.53H11.7V6.34h1.68c2.01 0 3.04.94 3.04 2.57 0 1.7-1.08 2.62-3.11 2.62ZM21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9ZM14.42 14.1c1.8-.56 2.88-2.01 2.88-3.86 0-2.56-1.76-4.24-4.76-4.24H9.7V18h2V13.1h1.42l2.74 4.9h2.22l-3.06-4.9h.4Z"/>
+              </svg>
+              Яндекс
+            </a>
+            <a v-if="vkOAuthHref" class="social-btn vk-btn" :href="vkOAuthHref">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21.547 7h-3.29a.743.743 0 0 0-.655.392s-1.312 2.416-1.734 3.23C14.734 12.813 14 12.126 14 11.11V7.603A1.104 1.104 0 0 0 12.896 6.5h-2.474a1.982 1.982 0 0 0-1.75.813s1.255-.204 1.255 1.49c0 .42.022 1.626.04 2.64a.73.73 0 0 1-1.272.503 21.54 21.54 0 0 1-2.498-4.543.693.693 0 0 0-.63-.403h-2.99a.508.508 0 0 0-.48.685C3.005 10.175 6.918 18 11.38 18h1.878a.742.742 0 0 0 .742-.742v-1.135a.73.73 0 0 1 1.23-.53l2.247 2.112a1.09 1.09 0 0 0 .746.295h2.953c1.424 0 1.424-.988.647-1.753-.546-.538-2.518-2.617-2.518-2.617a1.02 1.02 0 0 1-.078-1.323c.637-.84 1.68-2.212 2.122-2.8.603-.804 1.697-2.507.197-2.507z"/>
+              </svg>
+              ВКонтакте
+            </a>
+          </div>
         </div>
       </template>
 
@@ -292,22 +329,44 @@ h2 {
   border-top: 1px solid #e8e5df;
 }
 
-.vk-link {
+.social-divider {
+  display: block;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: #9b9690;
+  margin-bottom: 8px;
+}
+
+.social-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.social-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
+  gap: 7px;
+  flex: 1;
   border-radius: 10px;
   padding: 10px 14px;
-  background: rgb(39 136 229);
   color: #fff;
   font-weight: 600;
   text-decoration: none;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
+  transition: filter 0.15s;
 }
 
-.vk-link:hover {
-  filter: brightness(1.06);
+.social-btn:hover {
+  filter: brightness(1.07);
+}
+
+.yandex-btn {
+  background: #fc3f1d;
+}
+
+.vk-btn {
+  background: rgb(39 136 229);
 }
 
 .switches {

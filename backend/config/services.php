@@ -41,4 +41,10 @@ return [
         'redirect' => env('VKONTAKTE_REDIRECT_URI', rtrim((string) env('APP_URL', ''), '/').'/oauth/vk/callback'),
     ],
 
+    'yandex' => [
+        'client_id' => env('YANDEX_CLIENT_ID'),
+        'client_secret' => env('YANDEX_CLIENT_SECRET'),
+        'redirect' => env('YANDEX_REDIRECT_URI', rtrim((string) env('APP_URL', ''), '/').'/oauth/yandex/callback'),
+    ],
+
 ];

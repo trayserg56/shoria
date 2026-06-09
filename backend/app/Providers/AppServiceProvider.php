@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use SocialiteProviders\Manager\SocialiteWasCalled;
 use SocialiteProviders\VKontakte\VKontakteExtendSocialite;
+use SocialiteProviders\Yandex\YandexExtendSocialite;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -51,6 +52,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Event::listen(SocialiteWasCalled::class, [VKontakteExtendSocialite::class, 'handle']);
+        Event::listen(SocialiteWasCalled::class, [YandexExtendSocialite::class, 'handle']);
 
         RateLimiter::for('public-api', function (Request $request): Limit {
             return Limit::perMinute((int) env('RATE_LIMIT_PUBLIC_API', 180))
