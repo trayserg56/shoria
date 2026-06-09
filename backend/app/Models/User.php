@@ -91,6 +91,7 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail
             'navigation_menu_items',
             'service_pages',
             'site_settings',
+            'yandex_feed',
         ], true);
     }
 

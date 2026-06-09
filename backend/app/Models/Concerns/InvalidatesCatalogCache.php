@@ -3,6 +3,7 @@
 namespace App\Models\Concerns;
 
 use App\Support\Catalog\CatalogCacheInvalidator;
+use Illuminate\Support\Facades\Cache;
 
 trait InvalidatesCatalogCache
 {
@@ -10,10 +11,12 @@ trait InvalidatesCatalogCache
     {
         static::saved(static function (): void {
             CatalogCacheInvalidator::bump();
+            Cache::forget('shoria:feed:yandex:yml');
         });
 
         static::deleted(static function (): void {
             CatalogCacheInvalidator::bump();
+            Cache::forget('shoria:feed:yandex:yml');
         });
     }
 }

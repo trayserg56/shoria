@@ -4,12 +4,14 @@ use App\Http\Controllers\OAuthController;
 use App\Http\Controllers\PublicStorageController;
 use App\Http\Controllers\SeoController;
 use App\Http\Controllers\SpaShellController;
+use App\Http\Controllers\YandexFeedController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', [SpaShellController::class, 'showRoot']);
 
 Route::get('/robots.txt', [SeoController::class, 'robots']);
 Route::get('/sitemap.xml', [SeoController::class, 'sitemap']);
+Route::get('/feed/yandex.xml', [YandexFeedController::class, 'feed'])->name('feed.yandex');
 Route::get('/storage/{path}', [PublicStorageController::class, 'show'])
     ->where('path', '.*');
 

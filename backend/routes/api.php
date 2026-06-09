@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\YandexFeedController;
 use App\Http\Controllers\Api\BrandController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CategoryController;
@@ -91,6 +92,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('/reviews/me', [ProductReviewController::class, 'my']);
     Route::post('/products/{slug}/reviews', [ProductReviewController::class, 'upsert']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
+    Route::post('/feed/yandex/refresh', [YandexFeedController::class, 'refresh']);
     Route::post('/auth/email/verification-notification', [AuthController::class, 'resendVerificationEmail'])
         ->middleware('throttle:6,1');
     Route::get('/loyalty/me', [LoyaltyController::class, 'me']);
