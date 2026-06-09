@@ -8,14 +8,11 @@ use App\Support\Admin\AdminAccess;
 use App\Support\Store\StoreFeedSettings;
 use BackedEnum;
 use Filament\Actions\Action;
-use Filament\Forms\Components\CheckboxList;
-use Filament\Forms\Components\Grid;
-use Filament\Forms\Components\Section;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
+use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Exceptions\Halt;
 use Filament\Support\Icons\Heroicon;
@@ -39,11 +36,6 @@ class YandexFeedPage extends Page
     /** @var array<string, mixed>|null */
     public ?array $data = [];
 
-    public function getView(): string
-    {
-        return 'filament.pages.yandex-feed';
-    }
-
     public static function canAccess(): bool
     {
         return AdminAccess::canManageContentResource('yandex_feed');
@@ -55,7 +47,7 @@ class YandexFeedPage extends Page
         $this->form->fill(SiteSetting::current()->mergedFeedSettings());
     }
 
-    public function defaultForm(Schema $schema): Schema
+    public function form(Schema $schema): Schema
     {
         $categoryOptions = Category::query()
             ->select(['id', 'name', 'parent_id'])
@@ -68,33 +60,52 @@ class YandexFeedPage extends Page
             })
             ->all();
 
+        $appUrl = rtrim((string) config('app.url', ''), '/');
+        $feedUrl = $appUrl.'/feed/yandex.xml';
+        $cacheStatus = Cache::has('shoria:feed:yandex:yml') ? '🟢 Кэш активен' : '🟡 Кэш пуст (перестроится при первом запросе)';
+
         return $schema
             ->statePath('data')
             ->components([
+                Section::make('Статус фида')
+                    ->schema([
+                        Forms\Components\Placeholder::make('feed_status')
+                            ->label('Состояние кэша')
+                            ->content($cacheStatus),
+                        Forms\Components\Placeholder::make('feed_url')
+                            ->label('URL фида для Яндекс.Маркет')
+                            ->content($feedUrl),
+                        Forms\Components\Placeholder::make('feed_instruction')
+                            ->label('Инструкция')
+                            ->content('Перейдите на partner.market.yandex.ru → Добавить магазин → Прайс-лист (YML) → вставьте URL выше.'),
+                    ])
+                    ->collapsible()
+                    ->collapsed(),
+
                 Section::make('Основное')
                     ->description('Название магазина и компании в фиде')
                     ->schema([
                         Grid::make(2)->schema([
-                            TextInput::make('shop_name')
+                            Forms\Components\TextInput::make('shop_name')
                                 ->label('Название магазина')
                                 ->placeholder(config('app.name', 'Shoria'))
                                 ->helperText('Если пусто — берётся название приложения из конфига')
                                 ->maxLength(255),
 
-                            TextInput::make('company_name')
+                            Forms\Components\TextInput::make('company_name')
                                 ->label('Название компании (юр.лицо)')
                                 ->placeholder('ООО «Шория»')
                                 ->maxLength(255),
                         ]),
 
                         Grid::make(2)->schema([
-                            Select::make('currency')
+                            Forms\Components\Select::make('currency')
                                 ->label('Валюта')
                                 ->options(['RUB' => 'RUB — Российский рубль'])
                                 ->default('RUB')
                                 ->required(),
 
-                            TextInput::make('sales_notes')
+                            Forms\Components\TextInput::make('sales_notes')
                                 ->label('Условия продажи (sales_notes)')
                                 ->placeholder('Доставка по всей России')
                                 ->maxLength(50)
@@ -106,14 +117,14 @@ class YandexFeedPage extends Page
                     ->description('Управляйте тем, какие товары попадают в фид')
                     ->schema([
                         Grid::make(2)->schema([
-                            TextInput::make('min_price')
+                            Forms\Components\TextInput::make('min_price')
                                 ->label('Минимальная цена (₽)')
                                 ->numeric()
                                 ->minValue(0)
                                 ->default(0)
                                 ->helperText('Товары дешевле указанной цены не попадут в фид. 0 = без ограничения'),
 
-                            Select::make('max_images')
+                            Forms\Components\Select::make('max_images')
                                 ->label('Макс. кол-во фото на товар')
                                 ->options(array_combine(range(1, 10), range(1, 10)))
                                 ->default(10)
@@ -121,12 +132,12 @@ class YandexFeedPage extends Page
                         ]),
 
                         Grid::make(2)->schema([
-                            Toggle::make('include_out_of_stock')
+                            Forms\Components\Toggle::make('include_out_of_stock')
                                 ->label('Включать товары без наличия')
                                 ->helperText('Если выключено — товары с остатком 0 не попадут в фид')
                                 ->default(false),
 
-                            Toggle::make('enable_oldprice')
+                            Forms\Components\Toggle::make('enable_oldprice')
                                 ->label('Показывать старую цену')
                                 ->helperText('Зачёркнутая цена на Маркете (если есть скидка)')
                                 ->default(true),
@@ -136,7 +147,7 @@ class YandexFeedPage extends Page
                 Section::make('Исключённые категории')
                     ->description('Отмеченные категории (и все их подкатегории) не попадут в фид')
                     ->schema([
-                        CheckboxList::make('excluded_category_ids')
+                        Forms\Components\CheckboxList::make('excluded_category_ids')
                             ->label('')
                             ->options($categoryOptions)
                             ->columns(3)
