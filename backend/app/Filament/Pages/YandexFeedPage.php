@@ -7,6 +7,7 @@ use App\Models\SiteSetting;
 use App\Support\Admin\AdminAccess;
 use App\Support\Store\StoreFeedSettings;
 use BackedEnum;
+use App\Filament\Forms\Components\CategoryTreeField;
 use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Notifications\Notification;
@@ -63,18 +64,6 @@ class YandexFeedPage extends Page
 
     public function form(Schema $schema): Schema
     {
-        $categories = Category::query()
-            ->select(['id', 'name', 'parent_id'])
-            ->orderBy('parent_id')
-            ->orderBy('name')
-            ->get();
-
-        $categoryOptions = $categories
-            ->mapWithKeys(function ($cat) {
-                $prefix = $cat->parent_id ? '↳ ' : '';
-                return [(string) $cat->id => $prefix.$cat->name];
-            })
-            ->all();
 
         $appUrl = rtrim((string) config('app.url', ''), '/');
         $feedUrl = $appUrl.'/feed/yandex.xml';
@@ -163,11 +152,8 @@ class YandexFeedPage extends Page
                 Section::make('Категории')
                     ->description('Снимите галочку с категории — она и все её подкатегории не попадут в фид')
                     ->schema([
-                        Forms\Components\CheckboxList::make('included_category_ids')
-                            ->label('')
-                            ->options($categoryOptions)
-                            ->columns(3)
-                            ->gridDirection('row'),
+                        CategoryTreeField::make('included_category_ids')
+                            ->label(''),
                     ]),
             ]);
     }
