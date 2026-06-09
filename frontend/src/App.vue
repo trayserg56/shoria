@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { NConfigProvider, dateRuRU, ruRU, type GlobalThemeOverrides } from 'naive-ui'
+import { NConfigProvider, darkTheme, dateRuRU, ruRU, type GlobalThemeOverrides } from 'naive-ui'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import AuthModal from '@/components/AuthModal.vue'
 import OneClickCheckoutModal from '@/components/OneClickCheckoutModal.vue'
@@ -10,7 +10,8 @@ import ProductQuickViewModal from '@/components/ProductQuickViewModal.vue'
 import QuickReviewPrompt from '@/components/QuickReviewPrompt.vue'
 import { buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { naiveThemeOverrides } from '@/theme/naive-theme'
+import { naiveThemeOverrides, naiveDarkThemeOverrides } from '@/theme/naive-theme'
+import { useColorScheme } from '@/lib/color-scheme'
 import { cn } from '@/lib/utils'
 import {
   ChevronDown,
@@ -18,9 +19,11 @@ import {
   Heart,
   LayoutGrid,
   Menu,
+  Moon,
   Phone,
   Search as SearchIcon,
   ShoppingCart,
+  Sun,
   X,
 } from 'lucide-vue-next'
 import { Toaster, toast } from '@/lib/toast'
@@ -249,10 +252,14 @@ const footerToneClass = computed(() => {
   return 'footer--tone-muted'
 })
 
+const { scheme: colorScheme, toggleColorScheme, initColorScheme } = useColorScheme()
+
+const naiveActiveTheme = computed(() => colorScheme.value === 'dark' ? darkTheme : null)
+
 const naiveThemeMerged = computed<GlobalThemeOverrides>(() => {
   const t = siteSettings.value.theme.general
   const r = t.button_radius_px
-  const base = naiveThemeOverrides
+  const base = colorScheme.value === 'dark' ? naiveDarkThemeOverrides : naiveThemeOverrides
   return {
     ...base,
     common: {
@@ -524,6 +531,7 @@ onMounted(async () => {
   document.addEventListener('pointerdown', onDocumentPointerDownCloseCatalog, true)
   document.addEventListener('keydown', onDocumentKeydownCloseCatalog)
 
+  initColorScheme()
   captureFirstTouchAttribution()
   wishlistStore.hydrate()
   compareStore.hydrate()
@@ -593,9 +601,13 @@ async function loadNavigationMenu() {
   }
 }
 
-async function loadHeaderCategories() {
+async function loadHeaderCategories(retry = true) {
   try {
     const payload = await fetchJson<HeaderCategory[]>('/api/categories')
+    if (payload.length === 0 && retry) {
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+      return loadHeaderCategories(false)
+    }
     headerCategories.value = payload
   } catch (error) {
     console.error(error)
@@ -707,7 +719,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <NConfigProvider :theme-overrides="naiveThemeMerged" :locale="ruRU" :date-locale="dateRuRU">
+  <NConfigProvider :theme="naiveActiveTheme" :theme-overrides="naiveThemeMerged" :locale="ruRU" :date-locale="dateRuRU">
   <div class="app-shell">
     <header
       class="site-header"
@@ -946,6 +958,15 @@ onBeforeUnmount(() => {
                   <ShoppingCart :size="20" />
                   <span class="site-header__tool-count">{{ totalItems }}</span>
                 </RouterLink>
+                <button
+                  type="button"
+                  class="site-header__tool site-header__theme-toggle"
+                  :aria-label="colorScheme === 'dark' ? 'Светлая тема' : 'Тёмная тема'"
+                  @click="toggleColorScheme"
+                >
+                  <Sun v-if="colorScheme === 'dark'" :size="20" />
+                  <Moon v-else :size="20" />
+                </button>
               </div>
               <button
                 v-if="!isAuthenticated"
@@ -1216,7 +1237,7 @@ onBeforeUnmount(() => {
     <AuthModal :open="authModalOpen" @close="closeAuthModal" @authenticated="onAuthenticated" />
     <OneClickCheckoutModal />
     <ProductQuickViewModal />
-    <Toaster position="bottom-right" :rich-colors="true" close-button />
+    <Toaster position="bottom-right" theme="dark" close-button />
   </div>
   </NConfigProvider>
 </template>
