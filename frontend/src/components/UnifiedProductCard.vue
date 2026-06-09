@@ -29,6 +29,7 @@ type ProductCardData = {
   stock: number
   currency: string
   image_url: string | null
+  hover_image_url?: string | null
   category: {
     name: string
     slug: string
@@ -388,9 +389,18 @@ watch(
             :src="productImageUrl"
             :alt="product.name"
             loading="lazy"
+            class="product-card__image-primary"
             :class="{ 'product-card__image--hidden': showImageSkeleton && isImageLoading }"
             @error="onProductImageError"
             @load="onProductImageLoad"
+          />
+          <img
+            v-if="product.hover_image_url"
+            :src="product.hover_image_url"
+            :alt="product.name"
+            loading="lazy"
+            class="product-card__image-hover"
+            aria-hidden="true"
           />
         </div>
         <button
@@ -519,7 +529,7 @@ watch(
   display: flex;
   flex-direction: column;
   border-radius: 14px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   cursor: pointer;
   /* без «серой подложки»: лёгкая тень только по контуру */
@@ -556,7 +566,7 @@ watch(
 .product-card__media {
   position: relative;
   overflow: hidden;
-  background: #fff;
+  background: var(--card);
   border: none;
   border-bottom: 1px solid var(--border);
   aspect-ratio: 4 / 3;
@@ -573,6 +583,25 @@ watch(
   height: 100%;
   object-fit: cover;
   padding: 0;
+}
+
+.product-card__image-primary {
+  transition: opacity 0.35s ease;
+}
+
+.product-card__image-hover {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.product-card__media:hover .product-card__image-hover {
+  opacity: 1;
+}
+
+.product-card__media:hover .product-card__image-primary {
+  opacity: 0;
 }
 
 .product-card__image-skeleton {
@@ -696,7 +725,6 @@ watch(
   gap: 8px;
   padding: 12px 14px 8px;
   flex: 1 1 auto;
-  background: #fff;
 }
 
 .product-card__actions {
@@ -821,10 +849,11 @@ watch(
   cursor: pointer;
   line-height: 1.2;
   transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
 }
 
 .action--cart {
@@ -835,7 +864,15 @@ watch(
 }
 
 .action--cart:hover {
-  background: color-mix(in srgb, var(--primary), #000 8%);
+  background: color-mix(in srgb, var(--primary), #fff 12%);
+  box-shadow: 0 4px 12px rgb(37 99 235 / 35%);
+  transform: translateY(-2px);
+}
+
+.action--cart:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgb(37 99 235 / 20%);
+  background: color-mix(in srgb, var(--primary), #000 10%);
 }
 
 .action--wishlist {
@@ -885,7 +922,7 @@ watch(
   height: 32px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--card);
   font: inherit;
   font-size: 22px;
   line-height: 0.9;
