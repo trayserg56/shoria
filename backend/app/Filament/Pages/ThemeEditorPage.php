@@ -6,6 +6,7 @@ use App\Models\SiteSetting;
 use App\Support\Admin\AdminAccess;
 use App\Support\Store\StoreTheme;
 use BackedEnum;
+use App\Filament\Forms\Components\VariantPicker;
 use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Notifications\Notification;
@@ -157,15 +158,25 @@ class ThemeEditorPage extends Page
                             ]),
                         Tab::make('Шапка')
                             ->schema([
-                                Forms\Components\Select::make('header.variant')
+                                VariantPicker::make('header.variant')
                                     ->label('Вариант шапки (экраны от 1024 px)')
-                                    ->options([
-                                        'classic' => 'Классический — блок слева (меню, каталог, лого), поиск, действия',
-                                        'centered' => 'Лого по центру верхнего ряда — каталог слева, действия справа, поиск ниже',
-                                        'wide_search' => 'Широкий поиск — расширенная средняя колонка поиска',
-                                    ])
-                                    ->required()
-                                    ->native(false),
+                                    ->variants([
+                                        'classic' => [
+                                            'label' => 'Классический',
+                                            'description' => 'Лого и меню слева, поиск по центру, иконки справа',
+                                            'preview' => 'header-classic',
+                                        ],
+                                        'centered' => [
+                                            'label' => 'Лого по центру',
+                                            'description' => 'Лого вверху по центру, поиск в нижней строке',
+                                            'preview' => 'header-centered',
+                                        ],
+                                        'wide_search' => [
+                                            'label' => 'Широкий поиск',
+                                            'description' => 'Расширенная строка поиска по центру',
+                                            'preview' => 'header-wide-search',
+                                        ],
+                                    ]),
                                 Forms\Components\Toggle::make('header.sticky')
                                     ->label('Фиксировать шапку при прокрутке')
                                     ->default(true),
@@ -186,14 +197,20 @@ class ThemeEditorPage extends Page
                             ->schema([
                                 Section::make('Главный баннер (слайдер)')
                                     ->schema([
-                                        Forms\Components\Select::make('hero.variant')
+                                        VariantPicker::make('hero.variant')
                                             ->label('Вариант слайдера')
-                                            ->options([
-                                                'overlay' => 'Оверлей — текст поверх картинки с затемнением',
-                                                'split' => 'Сплит — текст слева, картинка справа',
-                                            ])
-                                            ->required()
-                                            ->native(false),
+                                            ->variants([
+                                                'overlay' => [
+                                                    'label' => 'Оверлей',
+                                                    'description' => 'Текст поверх картинки с тёмным затемнением',
+                                                    'preview' => 'hero-overlay',
+                                                ],
+                                                'split' => [
+                                                    'label' => 'Сплит',
+                                                    'description' => 'Текст слева на белом фоне, картинка справа',
+                                                    'preview' => 'hero-split',
+                                                ],
+                                            ]),
                                     ]),
                                 Section::make('Блоки страницы')
                                     ->description('Отключённые блоки не показываются на главной.')
