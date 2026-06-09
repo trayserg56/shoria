@@ -49,10 +49,12 @@ const props = withDefaults(
     product: ProductCardData
     source?: string
     showImageSkeleton?: boolean
+    listMode?: boolean
   }>(),
   {
     source: 'catalog',
     showImageSkeleton: true,
+    listMode: false,
   },
 )
 
@@ -374,6 +376,7 @@ watch(
   <RouterLink :to="productRoute" custom v-slot="{ navigate }">
     <article
       class="unified-product-card"
+      :class="{ 'unified-product-card--list': listMode }"
       @click="onCardNavigate($event, navigate)"
     >
       <div class="product-card__media">
@@ -988,5 +991,46 @@ watch(
   .product-card__meta-row {
     font-size: 11px;
   }
+}
+
+/* ── List mode (горизонтальная карточка) ──────────────────────── */
+.unified-product-card--list {
+  flex-direction: row;
+  height: auto;
+}
+
+.unified-product-card--list .product-card__media {
+  flex: 0 0 160px;
+  width: 160px;
+  min-height: 160px;
+  border-radius: 14px 0 0 14px;
+}
+
+.unified-product-card--list .product-link {
+  border-radius: 14px 0 0 14px;
+}
+
+.unified-product-card--list .product-card__rail {
+  flex-direction: column;
+  top: 10px;
+  right: 8px;
+  bottom: auto;
+}
+
+.unified-product-card--list .product-card__content {
+  flex: 1;
+  padding: 14px 16px 8px;
+}
+
+.unified-product-card--list .product-card__actions {
+  flex: 0 0 auto;
+  width: 160px;
+  padding: 14px 14px 14px 0;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.unified-product-card--list .action--cart {
+  white-space: nowrap;
 }
 </style>

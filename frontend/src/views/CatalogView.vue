@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { LayoutGrid, LayoutList, Grip } from 'lucide-vue-next'
 import { trackEvent } from '@/lib/analytics'
 import { fetchJson } from '@/lib/api'
 import { buildCatalogPath } from '@/lib/catalog-path'
@@ -10,6 +11,14 @@ import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+
+type ViewMode = 'grid' | 'list' | 'compact'
+const VIEW_MODE_KEY = 'shoria:catalog-view-mode'
+const viewMode = ref<ViewMode>((localStorage.getItem(VIEW_MODE_KEY) as ViewMode | null) ?? 'grid')
+function setViewMode(mode: ViewMode) {
+  viewMode.value = mode
+  localStorage.setItem(VIEW_MODE_KEY, mode)
+}
 
 type Category = {
   id: number
@@ -1325,6 +1334,43 @@ onBeforeUnmount(() => {
           </div>
         </section>
 
+        <!-- Переключатель режима отображения -->
+        <div class="view-mode-bar">
+          <span class="view-mode-bar__label">Вид:</span>
+          <div class="view-mode-bar__btns" role="group" aria-label="Режим отображения товаров">
+            <button
+              type="button"
+              class="view-mode-btn"
+              :class="{ 'view-mode-btn--active': viewMode === 'grid' }"
+              aria-label="Сетка"
+              :aria-pressed="viewMode === 'grid'"
+              @click="setViewMode('grid')"
+            >
+              <LayoutGrid :size="16" :stroke-width="1.75" />
+            </button>
+            <button
+              type="button"
+              class="view-mode-btn"
+              :class="{ 'view-mode-btn--active': viewMode === 'compact' }"
+              aria-label="Компактная сетка"
+              :aria-pressed="viewMode === 'compact'"
+              @click="setViewMode('compact')"
+            >
+              <Grip :size="16" :stroke-width="1.75" />
+            </button>
+            <button
+              type="button"
+              class="view-mode-btn"
+              :class="{ 'view-mode-btn--active': viewMode === 'list' }"
+              aria-label="Список"
+              :aria-pressed="viewMode === 'list'"
+              @click="setViewMode('list')"
+            >
+              <LayoutList :size="16" :stroke-width="1.75" />
+            </button>
+          </div>
+        </div>
+
         <section v-if="isLoading" class="catalog-grid" aria-hidden="true">
           <article v-for="index in 6" :key="`catalog-skeleton-${index}`" class="catalog-skeleton-card">
             <div class="catalog-skeleton-card__media">
@@ -1348,12 +1394,17 @@ onBeforeUnmount(() => {
           </article>
         </section>
 
-        <section v-else-if="products.data.length" class="catalog-grid">
+        <section
+          v-else-if="products.data.length"
+          class="catalog-grid"
+          :class="`catalog-grid--${viewMode}`"
+        >
           <UnifiedProductCard
             v-for="product in products.data"
             :key="product.id"
             :product="product"
             source="catalog_grid"
+            :list-mode="viewMode === 'list'"
           />
         </section>
 
@@ -2002,10 +2053,64 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+/* ── Переключатель вида ───────────────────────── */
+.view-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.view-mode-bar__label {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+
+.view-mode-bar__btns {
+  display: flex;
+  gap: 4px;
+}
+
+.view-mode-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--muted-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.view-mode-btn:hover {
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--border), var(--foreground) 20%);
+}
+.view-mode-btn--active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* ── Сетка товаров ────────────────────────────── */
 .catalog-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
+}
+
+/* Компактная: 5 колонок, меньше зазор */
+.catalog-grid--compact {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* Список: одна колонка, карточка горизонтальная */
+.catalog-grid--list {
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
 
 :root[data-catalog-density='compact'] .catalog-grid {
