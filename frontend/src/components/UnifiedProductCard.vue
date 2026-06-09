@@ -698,9 +698,24 @@ watch(
   place-items: center;
   box-shadow: 0 1px 3px rgb(15 23 42 / 6%);
   transition:
-    color 0.2s ease,
-    border-color 0.2s ease,
-    background-color 0.2s ease;
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.rail-btn:hover {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary), transparent 55%);
+  background: #fff;
+  box-shadow: 0 3px 10px rgb(37 99 235 / 18%);
+  transform: translateY(-1px);
+}
+
+.rail-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
 }
 
 .rail-btn svg {
