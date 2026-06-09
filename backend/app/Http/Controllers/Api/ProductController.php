@@ -78,6 +78,13 @@ class ProductController extends Controller
                         ['sort_order', 'asc'],
                     ])
                     ->first()?->url,
+                'hover_image_url' => $product->images
+                    ->sortBy([
+                        ['is_cover', 'desc'],
+                        ['sort_order', 'asc'],
+                    ])
+                    ->skip(1)
+                    ->first()?->url,
             ]);
 
         $products->appends($request->query());
@@ -423,6 +430,11 @@ class ProductController extends Controller
             ->select(['products.id', 'products.characteristics'])
             ->get();
 
+        // Характеристики, которые не показываем в фасетах каталога:
+        // «Артикул» — уникален для каждого товара, фильтр бессмысленен;
+        // «Бренд» — дублирует отдельный фильтр по брендам.
+        $characteristicsFacetBlacklist = array_flip(['Артикул', 'Бренд']);
+
         $characteristicsMatrix = [];
 
         foreach ($characteristicsFacetBase as $product) {
@@ -434,6 +446,10 @@ class ProductController extends Controller
                 $value = trim((string) ($characteristic['value'] ?? ''));
 
                 if ($name === '' || $value === '') {
+                    continue;
+                }
+
+                if (isset($characteristicsFacetBlacklist[$name])) {
                     continue;
                 }
 
@@ -1442,6 +1458,13 @@ class ProductController extends Controller
                     ['is_cover', 'desc'],
                     ['sort_order', 'asc'],
                 ])
+                ->first()?->url,
+            'hover_image_url' => $product->images
+                ->sortBy([
+                    ['is_cover', 'desc'],
+                    ['sort_order', 'asc'],
+                ])
+                ->skip(1)
                 ->first()?->url,
         ];
     }
