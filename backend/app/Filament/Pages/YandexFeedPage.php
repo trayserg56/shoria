@@ -11,6 +11,10 @@ use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Actions;
+use Filament\Schemas\Components\Component;
+use Filament\Schemas\Components\EmbeddedSchema;
+use Filament\Schemas\Components\Form;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -154,6 +158,22 @@ class YandexFeedPage extends Page
                             ->gridDirection('row'),
                     ]),
             ]);
+    }
+
+    public function content(Schema $schema): Schema
+    {
+        return $schema->components([
+            Form::make([EmbeddedSchema::make('form')])
+                ->id('yandex-feed-form')
+                ->livewireSubmitHandler('save')
+                ->footer([
+                    Actions::make([
+                        Action::make('save_form')
+                            ->label('Сохранить настройки')
+                            ->submit('save'),
+                    ]),
+                ]),
+        ]);
     }
 
     public function save(): void
