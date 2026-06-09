@@ -6,48 +6,49 @@
     @endphp
 
     <div class="space-y-6">
-        {{-- Статус --}}
+        {{-- Статус и ссылка --}}
         <x-filament::section>
             <x-slot name="heading">Статус фида</x-slot>
 
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-4">
                 @if ($cacheExists)
                     <x-filament::badge color="success">Кэш активен</x-filament::badge>
-                    <span class="text-sm text-gray-500">Фид закэширован и готов к отдаче</span>
                 @else
                     <x-filament::badge color="warning">Кэш пуст</x-filament::badge>
-                    <span class="text-sm text-gray-500">Фид будет построен при первом запросе (это займёт несколько секунд)</span>
                 @endif
+
+                <code class="rounded bg-gray-100 px-3 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                    {{ $feedUrl }}
+                </code>
             </div>
+
+            <p class="mt-2 text-xs text-gray-400">
+                Фид кэшируется на 4 часа. При изменении любого товара кэш сбрасывается автоматически.
+                Для принудительного сброса используйте кнопку «Сбросить кэш» вверху.
+            </p>
         </x-filament::section>
 
-        {{-- Как подключить --}}
-        <x-filament::section>
-            <x-slot name="heading">Подключение в Яндекс.Маркет</x-slot>
+        {{-- Форма настроек --}}
+        <x-filament-panels::form wire:submit="save">
+            {{ $this->form }}
 
-            <div class="space-y-4 text-sm text-gray-700 dark:text-gray-300">
-                <p>Скопируйте ссылку на фид и вставьте в кабинете Яндекс.Маркет при добавлении магазина.</p>
-
-                <div class="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
-                    <code class="flex-1 break-all font-mono text-xs text-gray-800 dark:text-gray-200">{{ $feedUrl }}</code>
-                    <a href="{{ $feedUrl }}" target="_blank"
-                       class="shrink-0 text-primary-600 hover:text-primary-500 dark:text-primary-400">
-                        Открыть ↗
-                    </a>
-                </div>
-
-                <ol class="list-inside list-decimal space-y-1 text-gray-600 dark:text-gray-400">
-                    <li>Зайдите в <a href="https://partner.market.yandex.ru" target="_blank" class="underline">partner.market.yandex.ru</a></li>
-                    <li>Добавьте магазин → выберите «Прайс-лист (YML/CSV)»</li>
-                    <li>Вставьте ссылку выше и нажмите «Проверить»</li>
-                    <li>Яндекс будет обновлять фид автоматически раз в несколько часов</li>
-                </ol>
-
-                <p class="text-xs text-gray-400">
-                    Фид кэшируется на 4 часа. При изменении товаров кэш сбрасывается автоматически.
-                    Для принудительного обновления используйте кнопку «Обновить фид» вверху страницы.
-                </p>
+            <div class="flex justify-end">
+                <x-filament::button type="submit" size="lg">
+                    Сохранить настройки
+                </x-filament::button>
             </div>
+        </x-filament-panels::form>
+
+        {{-- Инструкция --}}
+        <x-filament::section>
+            <x-slot name="heading">Как подключить в Яндекс.Маркет</x-slot>
+
+            <ol class="list-inside list-decimal space-y-1 text-sm text-gray-600 dark:text-gray-400">
+                <li>Зайдите в <a href="https://partner.market.yandex.ru" target="_blank" class="underline">partner.market.yandex.ru</a></li>
+                <li>Добавьте магазин → выберите «Прайс-лист (YML/CSV)»</li>
+                <li>Вставьте URL фида: <code class="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">{{ $feedUrl }}</code></li>
+                <li>Яндекс будет обновлять фид автоматически раз в несколько часов</li>
+            </ol>
         </x-filament::section>
     </div>
 </x-filament-panels::page>

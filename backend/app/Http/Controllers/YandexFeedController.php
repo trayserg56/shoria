@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Category;
 use App\Models\Product;
-use App\Support\Catalog\CatalogCacheInvalidator;
+use App\Models\SiteSetting;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
@@ -38,26 +38,48 @@ class YandexFeedController extends Controller
 
     private function buildXml(): string
     {
-        $shopName = config('app.name', 'Shoria');
+        $settings = SiteSetting::current()->mergedFeedSettings();
+
+        $shopName = $settings['shop_name'] ?: config('app.name', 'Shoria');
+        $companyName = $settings['company_name'] ?: $shopName;
+        $currency = $settings['currency'] ?? 'RUB';
+        $salesNotes = $settings['sales_notes'] ?? '';
+        $enableOldprice = (bool) ($settings['enable_oldprice'] ?? true);
+        $maxImages = max(1, min(10, (int) ($settings['max_images'] ?? 10)));
+        $minPrice = (float) ($settings['min_price'] ?? 0);
+        $includeOutOfStock = (bool) ($settings['include_out_of_stock'] ?? false);
+        $excludedCategoryIds = array_filter(array_map('intval', (array) ($settings['excluded_category_ids'] ?? [])));
+
         $appUrl = rtrim((string) config('app.url', 'http://localhost'), '/');
         $frontendUrl = rtrim((string) config('app.frontend_url', $appUrl), '/');
-        $currency = 'RUB';
         $date = now()->format('Y-m-d H:i');
 
-        // Категории
-        $categories = Category::query()
+        // Категории — исключаем выбранные и их потомков
+        $allCategories = Category::query()
             ->select(['id', 'name', 'parent_id'])
             ->orderBy('id')
             ->get();
 
-        // Товары: только активные, в наличии, с категорией
-        $products = Product::query()
+        $excludedIds = $this->resolveExcludedCategoryIds($allCategories, $excludedCategoryIds);
+
+        $categories = $allCategories->reject(fn ($c) => in_array($c->id, $excludedIds));
+
+        // Товары
+        $query = Product::query()
             ->with(['images' => fn ($q) => $q->orderBy('sort_order')->limit(10), 'category'])
             ->where('is_active', true)
-            ->where('stock', '>', 0)
             ->whereNotNull('category_id')
-            ->orderBy('id')
-            ->get();
+            ->whereNotIn('category_id', $excludedIds);
+
+        if (! $includeOutOfStock) {
+            $query->where('stock', '>', 0);
+        }
+
+        if ($minPrice > 0) {
+            $query->where('price', '>=', $minPrice);
+        }
+
+        $products = $query->orderBy('id')->get();
 
         $xml = new \SimpleXMLElement(
             '<?xml version="1.0" encoding="UTF-8"?>'
@@ -67,7 +89,7 @@ class YandexFeedController extends Controller
 
         $shop = $xml->shop;
         $shop->addChild('name', htmlspecialchars($shopName));
-        $shop->addChild('company', htmlspecialchars($shopName));
+        $shop->addChild('company', htmlspecialchars($companyName));
         $shop->addChild('url', $frontendUrl);
 
         // Валюты
@@ -81,7 +103,7 @@ class YandexFeedController extends Controller
         foreach ($categories as $cat) {
             $catNode = $categoriesNode->addChild('category', htmlspecialchars((string) $cat->name));
             $catNode->addAttribute('id', (string) $cat->id);
-            if ($cat->parent_id) {
+            if ($cat->parent_id && ! in_array($cat->parent_id, $excludedIds)) {
                 $catNode->addAttribute('parentId', (string) $cat->parent_id);
             }
         }
@@ -91,21 +113,21 @@ class YandexFeedController extends Controller
         foreach ($products as $product) {
             $offer = $offersNode->addChild('offer');
             $offer->addAttribute('id', (string) $product->id);
-            $offer->addAttribute('available', 'true');
+            $offer->addAttribute('available', $product->stock > 0 ? 'true' : 'false');
 
             $offer->addChild('url', $frontendUrl.'/product/'.$product->slug);
             $offer->addChild('price', (string) (int) $product->price);
-            if ($product->old_price && $product->old_price > $product->price) {
+
+            if ($enableOldprice && $product->old_price && $product->old_price > $product->price) {
                 $offer->addChild('oldprice', (string) (int) $product->old_price);
             }
+
             $offer->addChild('currencyId', $currency);
             $offer->addChild('categoryId', (string) $product->category_id);
 
-            // Картинки (до 10 штук)
-            foreach ($product->images->take(10) as $image) {
+            foreach ($product->images->take($maxImages) as $image) {
                 $imgUrl = $image->url;
                 if ($imgUrl) {
-                    // Если относительный путь — делаем абсолютным
                     if (! str_starts_with($imgUrl, 'http')) {
                         $imgUrl = $appUrl.'/'.ltrim($imgUrl, '/');
                     }
@@ -120,17 +142,46 @@ class YandexFeedController extends Controller
             }
 
             if ($product->description) {
-                $desc = strip_tags((string) $product->description);
-                $desc = mb_substr($desc, 0, 3000);
+                $desc = mb_substr(strip_tags((string) $product->description), 0, 3000);
                 $offer->addChild('description', htmlspecialchars($desc));
             }
 
-            $offer->addChild('sales_notes', 'Доставка по всей России');
+            if ($salesNotes) {
+                $offer->addChild('sales_notes', htmlspecialchars($salesNotes));
+            }
         }
 
-        // SimpleXMLElement не умеет DOCTYPE — собираем финальный XML вручную
         $rawXml = $xml->asXML();
 
         return $rawXml !== false ? $rawXml : '';
+    }
+
+    /**
+     * Возвращает ID исключённых категорий вместе со всеми их потомками.
+     *
+     * @param  \Illuminate\Support\Collection<int, \App\Models\Category>  $allCategories
+     * @param  int[]  $rootExcluded
+     * @return int[]
+     */
+    private function resolveExcludedCategoryIds(\Illuminate\Support\Collection $allCategories, array $rootExcluded): array
+    {
+        if (empty($rootExcluded)) {
+            return [];
+        }
+
+        $excluded = $rootExcluded;
+        $changed = true;
+
+        while ($changed) {
+            $changed = false;
+            foreach ($allCategories as $cat) {
+                if (! in_array($cat->id, $excluded) && in_array($cat->parent_id, $excluded)) {
+                    $excluded[] = $cat->id;
+                    $changed = true;
+                }
+            }
+        }
+
+        return array_unique($excluded);
     }
 }

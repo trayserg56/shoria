@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\HasAuthorship;
 use App\Models\Concerns\InvalidatesCatalogCache;
+use App\Support\Store\StoreFeedSettings;
 use App\Support\Store\StoreFeatureFlags;
 use App\Support\Store\StoreTheme;
 use Illuminate\Database\Eloquent\Model;
@@ -23,11 +24,13 @@ class SiteSetting extends Model
         'footer_legal_line',
         'feature_flags',
         'theme',
+        'feed_settings',
     ];
 
     protected $casts = [
         'feature_flags' => 'array',
         'theme' => 'array',
+        'feed_settings' => 'array',
     ];
 
     public function getLogoImageUrlAttribute(): ?string
@@ -77,5 +80,13 @@ class SiteSetting extends Model
     public function mergedTheme(): array
     {
         return StoreTheme::merge($this->theme);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function mergedFeedSettings(): array
+    {
+        return StoreFeedSettings::merge($this->feed_settings);
     }
 }

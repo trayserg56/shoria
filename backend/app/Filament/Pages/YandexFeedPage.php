@@ -2,11 +2,22 @@
 
 namespace App\Filament\Pages;
 
+use App\Models\Category;
+use App\Models\SiteSetting;
 use App\Support\Admin\AdminAccess;
+use App\Support\Store\StoreFeedSettings;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Section;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Schemas\Schema;
+use Filament\Support\Exceptions\Halt;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Cache;
 use UnitEnum;
@@ -25,6 +36,9 @@ class YandexFeedPage extends Page
 
     protected static ?string $slug = 'yandex-feed';
 
+    /** @var array<string, mixed>|null */
+    public ?array $data = [];
+
     public function getView(): string
     {
         return 'filament.pages.yandex-feed';
@@ -33,6 +47,123 @@ class YandexFeedPage extends Page
     public static function canAccess(): bool
     {
         return AdminAccess::canManageContentResource('yandex_feed');
+    }
+
+    public function mount(): void
+    {
+        abort_unless(static::canAccess(), 403);
+        $this->form->fill(SiteSetting::current()->mergedFeedSettings());
+    }
+
+    public function defaultForm(Schema $schema): Schema
+    {
+        $categoryOptions = Category::query()
+            ->select(['id', 'name', 'parent_id'])
+            ->orderBy('parent_id')
+            ->orderBy('name')
+            ->get()
+            ->mapWithKeys(function ($cat) {
+                $prefix = $cat->parent_id ? '↳ ' : '';
+                return [$cat->id => $prefix.$cat->name];
+            })
+            ->all();
+
+        return $schema
+            ->statePath('data')
+            ->components([
+                Section::make('Основное')
+                    ->description('Название магазина и компании в фиде')
+                    ->schema([
+                        Grid::make(2)->schema([
+                            TextInput::make('shop_name')
+                                ->label('Название магазина')
+                                ->placeholder(config('app.name', 'Shoria'))
+                                ->helperText('Если пусто — берётся название приложения из конфига')
+                                ->maxLength(255),
+
+                            TextInput::make('company_name')
+                                ->label('Название компании (юр.лицо)')
+                                ->placeholder('ООО «Шория»')
+                                ->maxLength(255),
+                        ]),
+
+                        Grid::make(2)->schema([
+                            Select::make('currency')
+                                ->label('Валюта')
+                                ->options(['RUB' => 'RUB — Российский рубль'])
+                                ->default('RUB')
+                                ->required(),
+
+                            TextInput::make('sales_notes')
+                                ->label('Условия продажи (sales_notes)')
+                                ->placeholder('Доставка по всей России')
+                                ->maxLength(50)
+                                ->helperText('До 50 символов. Показывается покупателю на Маркете'),
+                        ]),
+                    ]),
+
+                Section::make('Фильтрация товаров')
+                    ->description('Управляйте тем, какие товары попадают в фид')
+                    ->schema([
+                        Grid::make(2)->schema([
+                            TextInput::make('min_price')
+                                ->label('Минимальная цена (₽)')
+                                ->numeric()
+                                ->minValue(0)
+                                ->default(0)
+                                ->helperText('Товары дешевле указанной цены не попадут в фид. 0 = без ограничения'),
+
+                            Select::make('max_images')
+                                ->label('Макс. кол-во фото на товар')
+                                ->options(array_combine(range(1, 10), range(1, 10)))
+                                ->default(10)
+                                ->required(),
+                        ]),
+
+                        Grid::make(2)->schema([
+                            Toggle::make('include_out_of_stock')
+                                ->label('Включать товары без наличия')
+                                ->helperText('Если выключено — товары с остатком 0 не попадут в фид')
+                                ->default(false),
+
+                            Toggle::make('enable_oldprice')
+                                ->label('Показывать старую цену')
+                                ->helperText('Зачёркнутая цена на Маркете (если есть скидка)')
+                                ->default(true),
+                        ]),
+                    ]),
+
+                Section::make('Исключённые категории')
+                    ->description('Отмеченные категории (и все их подкатегории) не попадут в фид')
+                    ->schema([
+                        CheckboxList::make('excluded_category_ids')
+                            ->label('')
+                            ->options($categoryOptions)
+                            ->columns(3)
+                            ->gridDirection('row'),
+                    ]),
+            ]);
+    }
+
+    public function save(): void
+    {
+        try {
+            $data = $this->form->getState();
+            $data['excluded_category_ids'] = array_values(array_map('intval', $data['excluded_category_ids'] ?? []));
+
+            $settings = SiteSetting::current();
+            $settings->forceFill(['feed_settings' => $data])->save();
+
+            // Сбросить кэш фида — настройки изменились
+            Cache::forget('shoria:feed:yandex:yml');
+
+            Notification::make()
+                ->title('Настройки фида сохранены')
+                ->success()
+                ->send();
+        } catch (Halt) {
+            // пользователь нажал отмену в confirmation modal
+        }
     }
 
     protected function getHeaderActions(): array
@@ -48,7 +179,7 @@ class YandexFeedPage extends Page
                 ->url($feedUrl, shouldOpenInNewTab: true),
 
             Action::make('refresh_feed')
-                ->label('Обновить фид')
+                ->label('Сбросить кэш')
                 ->icon(Heroicon::OutlinedArrowPath)
                 ->color('warning')
                 ->requiresConfirmation()
@@ -61,6 +192,11 @@ class YandexFeedPage extends Page
                         ->success()
                         ->send();
                 }),
+
+            Action::make('save')
+                ->label('Сохранить настройки')
+                ->icon(Heroicon::OutlinedCheck)
+                ->action('save'),
         ];
     }
 }
