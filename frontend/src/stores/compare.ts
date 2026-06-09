@@ -6,6 +6,7 @@ export type CompareItem = {
   id: number
   slug: string
   name: string
+  brand?: string | null
   price: number
   old_price: number | null
   currency: string
@@ -19,6 +20,10 @@ export type CompareItem = {
     code: string
     label: string
   }>
+  reviews_summary?: {
+    count: number
+    average: number | null
+  }
 }
 
 const STORAGE_KEY = 'shoria_compare_v1'
