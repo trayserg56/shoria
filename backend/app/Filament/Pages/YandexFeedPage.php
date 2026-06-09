@@ -48,19 +48,31 @@ class YandexFeedPage extends Page
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
-        $this->form->fill(SiteSetting::current()->mergedFeedSettings());
+
+        $settings = SiteSetting::current()->mergedFeedSettings();
+
+        // Если included_category_ids не задан (null) — считаем что все выбраны
+        if (! isset($settings['included_category_ids']) || $settings['included_category_ids'] === null) {
+            $settings['included_category_ids'] = Category::query()->pluck('id')->map(fn ($id) => (string) $id)->all();
+        } else {
+            $settings['included_category_ids'] = array_map('strval', $settings['included_category_ids']);
+        }
+
+        $this->form->fill($settings);
     }
 
     public function form(Schema $schema): Schema
     {
-        $categoryOptions = Category::query()
+        $categories = Category::query()
             ->select(['id', 'name', 'parent_id'])
             ->orderBy('parent_id')
             ->orderBy('name')
-            ->get()
+            ->get();
+
+        $categoryOptions = $categories
             ->mapWithKeys(function ($cat) {
                 $prefix = $cat->parent_id ? '↳ ' : '';
-                return [$cat->id => $prefix.$cat->name];
+                return [(string) $cat->id => $prefix.$cat->name];
             })
             ->all();
 
@@ -148,10 +160,10 @@ class YandexFeedPage extends Page
                         ]),
                     ]),
 
-                Section::make('Исключённые категории')
-                    ->description('Отмеченные категории (и все их подкатегории) не попадут в фид')
+                Section::make('Категории')
+                    ->description('Снимите галочку с категории — она и все её подкатегории не попадут в фид')
                     ->schema([
-                        Forms\Components\CheckboxList::make('excluded_category_ids')
+                        Forms\Components\CheckboxList::make('included_category_ids')
                             ->label('')
                             ->options($categoryOptions)
                             ->columns(3)
@@ -180,7 +192,12 @@ class YandexFeedPage extends Page
     {
         try {
             $data = $this->form->getState();
-            $data['excluded_category_ids'] = array_values(array_map('intval', $data['excluded_category_ids'] ?? []));
+            $allCategoryIds = Category::query()->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $checked = array_map('intval', $data['included_category_ids'] ?? []);
+            // Если выбраны все — храним null (= без ограничений)
+            sort($checked);
+            sort($allCategoryIds);
+            $data['included_category_ids'] = $checked === $allCategoryIds ? null : array_values($checked);
 
             $settings = SiteSetting::current();
             $settings->forceFill(['feed_settings' => $data])->save();

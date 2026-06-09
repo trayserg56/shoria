@@ -18,7 +18,8 @@ final class StoreFeedSettings
             'currency' => 'RUB',
 
             // Фильтрация товаров
-            'excluded_category_ids' => [],  // ID категорий, которые НЕ попадают в фид
+            // null = все категории включены; массив ID = только эти категории попадают в фид
+            'included_category_ids' => null,
             'min_price' => 0,               // минимальная цена оффера (0 = без ограничения)
             'include_out_of_stock' => false, // включать товары с stock = 0
 

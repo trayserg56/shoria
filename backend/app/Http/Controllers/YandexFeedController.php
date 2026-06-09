@@ -48,28 +48,36 @@ class YandexFeedController extends Controller
         $maxImages = max(1, min(10, (int) ($settings['max_images'] ?? 10)));
         $minPrice = (float) ($settings['min_price'] ?? 0);
         $includeOutOfStock = (bool) ($settings['include_out_of_stock'] ?? false);
-        $excludedCategoryIds = array_filter(array_map('intval', (array) ($settings['excluded_category_ids'] ?? [])));
-
+        $includedCategoryIds = $settings['included_category_ids']; // null = все
         $appUrl = rtrim((string) config('app.url', 'http://localhost'), '/');
         $frontendUrl = rtrim((string) config('app.frontend_url', $appUrl), '/');
         $date = now()->format('Y-m-d H:i');
 
-        // Категории — исключаем выбранные и их потомков
         $allCategories = Category::query()
             ->select(['id', 'name', 'parent_id'])
             ->orderBy('id')
             ->get();
 
-        $excludedIds = $this->resolveExcludedCategoryIds($allCategories, $excludedCategoryIds);
+        // Если задан список включённых — резолвим с учётом дочерних
+        if (is_array($includedCategoryIds) && count($includedCategoryIds) > 0) {
+            $allowedIds = $this->resolveIncludedCategoryIds($allCategories, $includedCategoryIds);
+        } else {
+            $allowedIds = null; // все
+        }
 
-        $categories = $allCategories->reject(fn ($c) => in_array($c->id, $excludedIds));
+        $categories = $allowedIds === null
+            ? $allCategories
+            : $allCategories->filter(fn ($c) => in_array($c->id, $allowedIds));
 
         // Товары
         $query = Product::query()
             ->with(['images' => fn ($q) => $q->orderBy('sort_order')->limit(10), 'category'])
             ->where('is_active', true)
-            ->whereNotNull('category_id')
-            ->whereNotIn('category_id', $excludedIds);
+            ->whereNotNull('category_id');
+
+        if ($allowedIds !== null) {
+            $query->whereIn('category_id', $allowedIds);
+        }
 
         if (! $includeOutOfStock) {
             $query->where('stock', '>', 0);
@@ -103,7 +111,7 @@ class YandexFeedController extends Controller
         foreach ($categories as $cat) {
             $catNode = $categoriesNode->addChild('category', htmlspecialchars((string) $cat->name));
             $catNode->addAttribute('id', (string) $cat->id);
-            if ($cat->parent_id && ! in_array($cat->parent_id, $excludedIds)) {
+            if ($cat->parent_id && ($allowedIds === null || in_array($cat->parent_id, $allowedIds))) {
                 $catNode->addAttribute('parentId', (string) $cat->parent_id);
             }
         }
@@ -157,31 +165,28 @@ class YandexFeedController extends Controller
     }
 
     /**
-     * Возвращает ID исключённых категорий вместе со всеми их потомками.
+     * Возвращает ID включённых категорий вместе со всеми их потомками.
+     * Если выбрана родительская категория — все дочерние тоже включаются.
      *
      * @param  \Illuminate\Support\Collection<int, \App\Models\Category>  $allCategories
-     * @param  int[]  $rootExcluded
+     * @param  int[]  $rootIncluded
      * @return int[]
      */
-    private function resolveExcludedCategoryIds(\Illuminate\Support\Collection $allCategories, array $rootExcluded): array
+    private function resolveIncludedCategoryIds(\Illuminate\Support\Collection $allCategories, array $rootIncluded): array
     {
-        if (empty($rootExcluded)) {
-            return [];
-        }
-
-        $excluded = $rootExcluded;
+        $included = $rootIncluded;
         $changed = true;
 
         while ($changed) {
             $changed = false;
             foreach ($allCategories as $cat) {
-                if (! in_array($cat->id, $excluded) && in_array($cat->parent_id, $excluded)) {
-                    $excluded[] = $cat->id;
+                if (! in_array($cat->id, $included) && in_array($cat->parent_id, $included)) {
+                    $included[] = $cat->id;
                     $changed = true;
                 }
             }
         }
 
-        return array_unique($excluded);
+        return array_unique($included);
     }
 }
