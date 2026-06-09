@@ -106,6 +106,13 @@ class HomeController extends Controller
                             ['sort_order', 'asc'],
                         ])
                         ->first()?->url,
+                    'hover_image_url' => $product->images
+                        ->sortBy([
+                            ['is_cover', 'desc'],
+                            ['sort_order', 'asc'],
+                        ])
+                        ->skip(1)
+                        ->first()?->url,
                 ];
             });
 
@@ -126,12 +133,12 @@ class HomeController extends Controller
             ->values();
 
         return [
-            'banner' => $banner,
-            'banners' => $banners,
-            'categories' => $categories,
-            'featured_products' => $products,
-            'news' => $news,
-            'marketing_cards' => $marketingCards,
+            'banner' => $banner?->toArray(),
+            'banners' => $banners->toArray(),
+            'categories' => $categories->toArray(),
+            'featured_products' => $products->values()->all(),
+            'news' => $news->toArray(),
+            'marketing_cards' => $marketingCards->values()->all(),
         ];
     }
 }
