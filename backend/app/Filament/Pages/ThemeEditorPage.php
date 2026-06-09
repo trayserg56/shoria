@@ -184,6 +184,17 @@ class ThemeEditorPage extends Page
                             ]),
                         Tab::make('Главная')
                             ->schema([
+                                Section::make('Главный баннер (слайдер)')
+                                    ->schema([
+                                        Forms\Components\Select::make('hero.variant')
+                                            ->label('Вариант слайдера')
+                                            ->options([
+                                                'overlay' => 'Оверлей — текст поверх картинки с затемнением',
+                                                'split' => 'Сплит — текст слева, картинка справа',
+                                            ])
+                                            ->required()
+                                            ->native(false),
+                                    ]),
                                 Section::make('Блоки страницы')
                                     ->description('Отключённые блоки не показываются на главной.')
                                     ->schema($homeFields)

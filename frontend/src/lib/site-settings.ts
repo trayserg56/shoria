@@ -30,6 +30,9 @@ export type StoreTheme = {
     sticky: boolean
     variant: 'classic' | 'centered' | 'wide_search'
   }
+  hero: {
+    variant: 'overlay' | 'split'
+  }
   footer: {
     tone: 'light' | 'muted' | 'dark'
   }
@@ -74,6 +77,7 @@ export function defaultStoreTheme(): StoreTheme {
       primary_foreground_hex: '#fafafa',
     },
     header: { sticky: true, variant: 'classic' },
+    hero: { variant: 'overlay' },
     footer: { tone: 'muted' },
     catalog: { grid_density: 'comfortable' },
     home: {
@@ -100,6 +104,7 @@ export function mergeStoreTheme(raw: StoreTheme | undefined | null): StoreTheme 
   }
   const g = (raw.general && typeof raw.general === 'object' ? raw.general : {}) as Record<string, unknown>
   const h = (raw.header && typeof raw.header === 'object' ? raw.header : {}) as Record<string, unknown>
+  const hr = (raw.hero && typeof raw.hero === 'object' ? raw.hero : {}) as Record<string, unknown>
   const f = (raw.footer && typeof raw.footer === 'object' ? raw.footer : {}) as Record<string, unknown>
   const c = (raw.catalog && typeof raw.catalog === 'object' ? raw.catalog : {}) as Record<string, unknown>
   const ho = (raw.home && typeof raw.home === 'object' ? raw.home : {}) as Record<string, unknown>
@@ -164,6 +169,9 @@ export function mergeStoreTheme(raw: StoreTheme | undefined | null): StoreTheme 
         h.variant === 'centered' || h.variant === 'wide_search' || h.variant === 'classic'
           ? h.variant
           : d.header.variant,
+    },
+    hero: {
+      variant: hr.variant === 'split' ? 'split' : 'overlay',
     },
     footer: {
       tone: f.tone === 'light' || f.tone === 'dark' || f.tone === 'muted' ? f.tone : d.footer.tone,

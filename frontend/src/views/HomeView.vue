@@ -147,6 +147,8 @@ function homeSectionOn(key: string): boolean {
   return isHomeSectionEnabled(siteSettingsRef?.value?.theme, key)
 }
 
+const heroVariant = computed(() => siteSettingsRef?.value?.theme?.hero?.variant ?? 'overlay')
+
 const FEATURED_TAG_ORDER = ['hit', 'new', 'customer_choice'] as const
 
 const tagsPresentInFeatured = computed(() => {
@@ -542,36 +544,72 @@ async function subscribeToNewsletter() {
     </template>
 
     <template v-else>
-    <section v-if="homeSectionOn('hero')" class="home-hero" aria-label="Главный баннер">
+    <section
+      v-if="homeSectionOn('hero')"
+      class="home-hero"
+      :class="`home-hero--${heroVariant}`"
+      aria-label="Главный баннер"
+    >
       <div
         ref="heroSlider"
         class="home-hero__track"
         @scroll.passive="updateHeroIndexFromScroll"
       >
-        <article
-          v-for="(banner, index) in heroBanners"
-          :key="`${banner.title}-${index}`"
-          class="home-hero__slide"
-          :style="{
-            '--hero-bg': banner.bg_color ?? '#1d4ed8',
-            '--hero-image': resolveBackgroundImage(banner.image_url),
-          }"
-        >
-          <component :is="bannerLinkTag(banner)" class="home-hero__link" v-bind="bannerLinkProps(banner)">
-            <div class="home-hero__overlay" />
-            <div class="home-hero__inner">
-              <p class="home-hero__eyebrow">Интернет-магазин Shoria</p>
-              <h1>{{ banner.title ?? 'Shoria' }}</h1>
-              <p class="home-hero__subtitle">
-                {{ banner.subtitle ?? 'Магазин кроссовок с живым API и админкой на Filament.' }}
-              </p>
-              <span class="home-hero__cta">
-                {{ banner.cta_label ?? 'Смотреть каталог' }}
-              </span>
-            </div>
-          </component>
-        </article>
+        <!-- Вариант: overlay (текст поверх картинки) -->
+        <template v-if="heroVariant === 'overlay'">
+          <article
+            v-for="(banner, index) in heroBanners"
+            :key="`${banner.title}-${index}`"
+            class="home-hero__slide"
+            :style="{
+              '--hero-bg': banner.bg_color ?? '#1d4ed8',
+              '--hero-image': resolveBackgroundImage(banner.image_url),
+            }"
+          >
+            <component :is="bannerLinkTag(banner)" class="home-hero__link" v-bind="bannerLinkProps(banner)">
+              <div class="home-hero__overlay" />
+              <div class="home-hero__inner">
+                <p class="home-hero__eyebrow">Интернет-магазин Shoria</p>
+                <h1>{{ banner.title ?? 'Shoria' }}</h1>
+                <p class="home-hero__subtitle">
+                  {{ banner.subtitle ?? 'Магазин кроссовок с живым API и админкой на Filament.' }}
+                </p>
+                <span class="home-hero__cta">
+                  {{ banner.cta_label ?? 'Смотреть каталог' }}
+                </span>
+              </div>
+            </component>
+          </article>
+        </template>
+
+        <!-- Вариант: split (текст слева, картинка справа) -->
+        <template v-else-if="heroVariant === 'split'">
+          <article
+            v-for="(banner, index) in heroBanners"
+            :key="`${banner.title}-${index}`"
+            class="home-hero__slide home-hero__slide--split"
+            :style="{ '--hero-bg': banner.bg_color ?? '#1d4ed8' }"
+          >
+            <component :is="bannerLinkTag(banner)" class="home-hero__link" v-bind="bannerLinkProps(banner)">
+              <div class="home-hero__split-text">
+                <p class="home-hero__eyebrow">Интернет-магазин Shoria</p>
+                <h1>{{ banner.title ?? 'Shoria' }}</h1>
+                <p class="home-hero__subtitle">
+                  {{ banner.subtitle ?? 'Магазин кроссовок с живым API и админкой на Filament.' }}
+                </p>
+                <span class="home-hero__cta home-hero__cta--dark">
+                  {{ banner.cta_label ?? 'Смотреть каталог' }}
+                </span>
+              </div>
+              <div
+                class="home-hero__split-image"
+                :style="{ '--hero-image': resolveBackgroundImage(banner.image_url) }"
+              />
+            </component>
+          </article>
+        </template>
       </div>
+
       <div v-if="heroBanners.length > 1" class="home-hero__dots" role="tablist" aria-label="Слайды баннера">
         <button
           v-for="(_, i) in heroBanners"
@@ -1088,6 +1126,79 @@ async function subscribeToNewsletter() {
 .home-hero__arrow:focus-visible {
   outline: 2px solid #fff;
   outline-offset: 2px;
+}
+
+/* ── Вариант: split ──────────────────────────────────── */
+.home-hero--split .home-hero__slide--split {
+  background: #fff;
+  color: var(--foreground);
+  min-height: clamp(360px, 52vh, 520px);
+}
+
+.home-hero--split .home-hero__link {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: inherit;
+}
+
+.home-hero__split-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(28px, 5vw, 64px) clamp(20px, 4vw, 56px);
+}
+
+.home-hero--split .home-hero__eyebrow {
+  border-color: color-mix(in srgb, var(--primary), transparent 70%);
+  color: var(--primary);
+}
+
+.home-hero--split h1 {
+  color: var(--foreground);
+}
+
+.home-hero--split .home-hero__subtitle {
+  color: var(--muted-foreground);
+}
+
+.home-hero__cta--dark {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.home-hero__split-image {
+  background-image: var(--hero-image);
+  background-size: cover;
+  background-position: center;
+  min-height: inherit;
+}
+
+/* split dots/arrows — тёмные на светлом фоне */
+.home-hero--split .home-hero__dot {
+  background: color-mix(in srgb, var(--primary), transparent 70%);
+}
+
+.home-hero--split .home-hero__dot--active {
+  background: var(--primary);
+}
+
+.home-hero--split .home-hero__arrow {
+  background: rgb(0 0 0 / 8%);
+  color: var(--foreground);
+}
+
+.home-hero--split .home-hero__arrow:hover {
+  background: rgb(0 0 0 / 15%);
+}
+
+@media (max-width: 768px) {
+  .home-hero--split .home-hero__link {
+    grid-template-columns: 1fr;
+  }
+
+  .home-hero__split-image {
+    min-height: 220px;
+  }
 }
 
 /* Фильтр подборки по меткам */

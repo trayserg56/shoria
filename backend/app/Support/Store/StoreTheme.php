@@ -62,6 +62,9 @@ final class StoreTheme
                 'sticky' => true,
                 'variant' => 'classic',
             ],
+            'hero' => [
+                'variant' => 'overlay',
+            ],
             'footer' => [
                 'tone' => 'muted',
             ],
@@ -89,8 +92,24 @@ final class StoreTheme
         $merged = array_replace_recursive($base, $stored);
         $merged['home']['sections'] = self::mergeHomeSections($merged['home']['sections'] ?? []);
         $merged['header'] = self::normalizeHeader($merged['header'] ?? []);
+        $merged['hero'] = self::normalizeHero($merged['hero'] ?? []);
 
         return $merged;
+    }
+
+    /**
+     * @param  array<string, mixed>  $hero
+     * @return array{variant: string}
+     */
+    private static function normalizeHero(array $hero): array
+    {
+        $allowed = ['overlay', 'split'];
+        $variant = $hero['variant'] ?? 'overlay';
+        if (! is_string($variant) || ! in_array($variant, $allowed, true)) {
+            $variant = 'overlay';
+        }
+
+        return ['variant' => $variant];
     }
 
     /**
