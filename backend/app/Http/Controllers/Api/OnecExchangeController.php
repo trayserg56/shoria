@@ -101,7 +101,13 @@ class OnecExchangeController extends Controller
         }
 
         try {
-            if (str_contains($filename, 'offers') || $type === 'offers') {
+            $base = strtolower(basename($filename, '.xml'));
+
+            if (in_array($base, ['offers', 'prices', 'rests'], true) || $type === 'offers') {
+                // offers.xml — цены + остатки вместе
+                // prices.xml — только цены (offers.xml без блока складов)
+                // rests.xml  — только остатки (offers.xml без блока цен)
+                // Один метод обрабатывает все три: отсутствующий блок просто пропускается
                 $counts = $this->importer->importOffers($content);
             } else {
                 $counts = $this->importer->importCatalog($content);
