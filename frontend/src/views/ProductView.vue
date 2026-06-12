@@ -63,6 +63,7 @@ type ProductPayload = {
   old_price: number | null
   currency: string
   stock: number
+  prices_by_city: Array<{ city: string; price: number }>
   stock_cities: string[]
   has_variants: boolean
   category: {
@@ -1204,6 +1205,16 @@ watch(
           >· {{ product.stock_cities.join(', ') }}</span>
         </p>
 
+        <ul
+          v-if="product.prices_by_city?.length"
+          class="details__city-prices"
+        >
+          <li v-for="cp in product.prices_by_city" :key="cp.city">
+            <span class="details__city-prices-city">{{ cp.city }}</span>
+            <span class="details__city-prices-price">{{ formatPrice(cp.price, product.currency) }}</span>
+          </li>
+        </ul>
+
         <div class="cta-stack">
           <div class="cta-row">
             <button
@@ -1686,6 +1697,34 @@ watch(
 .details__stock-cities {
   color: #5a6379;
   font-size: 13px;
+}
+
+.details__city-prices {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.details__city-prices li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  background: var(--color-surface, #f5f5f7);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.details__city-prices-city {
+  color: #5a6379;
+}
+
+.details__city-prices-price {
+  font-weight: 600;
+  color: #1f2233;
 }
 
 .details__stock--empty {

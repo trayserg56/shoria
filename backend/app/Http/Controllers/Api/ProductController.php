@@ -8,8 +8,10 @@ use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductReview;
 use App\Models\ProductVariant;
+use App\Models\ProductPrice;
 use App\Models\StockLevel;
 use App\Models\TrackingEvent;
+use App\Models\Warehouse;
 use App\Models\User;
 use App\Support\Catalog\CatalogCacheKeys;
 use App\Support\ProductCharacteristics;
@@ -907,6 +909,7 @@ class ProductController extends Controller
             'price' => (float) $product->price,
             'old_price' => $product->old_price !== null ? (float) $product->old_price : null,
             'currency' => $product->currency,
+            'prices_by_city' => $this->resolvePricesByCity($product->id),
             'stock' => $product->stock,
             'stock_cities' => $this->resolveStockCities($product->id, $activeVariants->pluck('id')->all()),
             'tags' => $this->resolveProductTags($product),
@@ -1524,6 +1527,49 @@ class ProductController extends Controller
      *
      * @return array<int, array{name: string, slug: string}>
      */
+    private function resolvePricesByCity(int $productId): array
+    {
+        // Склады, у которых задан свой тип цены
+        $warehouses = Warehouse::query()
+            ->whereNotNull('price_type_id')
+            ->where('is_active', true)
+            ->whereNotNull('city')
+            ->with('priceType:id')
+            ->get(['id', 'city', 'price_type_id']);
+
+        if ($warehouses->isEmpty()) {
+            return [];
+        }
+
+        $priceTypeIds = $warehouses->pluck('price_type_id')->unique()->all();
+
+        $prices = ProductPrice::query()
+            ->where('product_id', $productId)
+            ->whereNull('product_variant_id')
+            ->whereIn('price_type_id', $priceTypeIds)
+            ->pluck('price', 'price_type_id');
+
+        $result = [];
+        foreach ($warehouses as $warehouse) {
+            if (isset($prices[$warehouse->price_type_id])) {
+                $result[] = [
+                    'city' => $warehouse->city,
+                    'price' => (float) $prices[$warehouse->price_type_id],
+                ];
+            }
+        }
+
+        // Убираем дубли городов (берём первый склад по приоритету)
+        $seen = [];
+        return array_values(array_filter($result, function ($item) use (&$seen) {
+            if (isset($seen[$item['city']])) {
+                return false;
+            }
+            $seen[$item['city']] = true;
+            return true;
+        }));
+    }
+
     private function resolveStockCities(int $productId, array $variantIds): array
     {
         return StockLevel::query()

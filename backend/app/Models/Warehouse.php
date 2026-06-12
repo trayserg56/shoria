@@ -17,6 +17,7 @@ class Warehouse extends Model
         'is_active',
         'is_default',
         'external_id',
+        'price_type_id',
     ];
 
     protected $casts = [
@@ -32,6 +33,16 @@ class Warehouse extends Model
     public function stockMovements(): HasMany
     {
         return $this->hasMany(StockMovement::class);
+    }
+
+    public function priceType(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(PriceType::class);
+    }
+
+    public function effectivePriceTypeId(): ?int
+    {
+        return $this->price_type_id ?? PriceType::retail()?->id ?? PriceType::default()?->id;
     }
 
     public static function default(): ?self

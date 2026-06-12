@@ -7,6 +7,8 @@ use App\Filament\Resources\Warehouses\Pages\EditWarehouse;
 use App\Filament\Resources\Warehouses\Pages\ListWarehouses;
 use App\Models\Warehouse;
 use BackedEnum;
+use App\Models\PriceType;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
@@ -40,6 +42,13 @@ class WarehouseResource extends Resource
             TextInput::make('address')->label('Адрес')->maxLength(255)->columnSpanFull(),
             TextInput::make('priority')->label('Приоритет')->numeric()->default(100),
             TextInput::make('external_id')->label('ID в 1С')->maxLength(255),
+            Select::make('price_type_id')
+                ->label('Тип цены склада')
+                ->options(PriceType::query()->pluck('name', 'id'))
+                ->placeholder('Розничная (по умолчанию)')
+                ->nullable()
+                ->searchable()
+                ->helperText('Если не задан, используется розничный тип цены'),
             Toggle::make('is_active')->label('Активен')->default(true),
             Toggle::make('is_default')->label('Склад по умолчанию')->default(false),
         ]);
