@@ -3,6 +3,9 @@
 namespace App\Filament\Resources\Products\RelationManagers;
 
 use App\Models\Warehouse;
+use Filament\Actions\CreateAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\EditAction;
 use Filament\Forms;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
@@ -72,11 +75,11 @@ class StockLevelsRelationManager extends RelationManager
                     ->toggleable(),
             ])
             ->headerActions([
-                Tables\Actions\CreateAction::make()->label('Добавить склад'),
+                CreateAction::make()->label('Добавить склад'),
             ])
             ->recordActions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                EditAction::make(),
+                DeleteAction::make(),
             ])
             ->defaultSort('warehouse.name');
     }

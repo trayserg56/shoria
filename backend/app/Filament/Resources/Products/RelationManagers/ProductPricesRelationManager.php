@@ -3,6 +3,9 @@
 namespace App\Filament\Resources\Products\RelationManagers;
 
 use App\Models\PriceType;
+use Filament\Actions\CreateAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\EditAction;
 use Filament\Forms;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
@@ -60,11 +63,11 @@ class ProductPricesRelationManager extends RelationManager
                     ->toggleable(),
             ])
             ->headerActions([
-                Tables\Actions\CreateAction::make()->label('Добавить цену'),
+                CreateAction::make()->label('Добавить цену'),
             ])
             ->recordActions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+                EditAction::make(),
+                DeleteAction::make(),
             ])
             ->defaultSort('price_type_id');
     }
