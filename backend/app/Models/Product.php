@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\StockLevel;
+use App\Models\ProductPrice;
 use Laravel\Scout\Searchable;
 
 class Product extends Model
@@ -85,6 +87,16 @@ class Product extends Model
     public function reviews(): HasMany
     {
         return $this->hasMany(ProductReview::class);
+    }
+
+    public function stockLevels(): HasMany
+    {
+        return $this->hasMany(StockLevel::class)->whereNull('product_variant_id');
+    }
+
+    public function productPrices(): HasMany
+    {
+        return $this->hasMany(ProductPrice::class)->whereNull('product_variant_id');
     }
 
     /**

@@ -38,4 +38,9 @@ class Warehouse extends Model
     {
         return static::where('is_default', true)->where('is_active', true)->first();
     }
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true)->orderBy('priority')->orderBy('name');
+    }
 }
