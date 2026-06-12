@@ -5,12 +5,19 @@ namespace Tests\Feature;
 use App\Models\User;
 use Database\Seeders\ShopDemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class CheckoutOneClickTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        RateLimiter::clear('checkout-one-click');
+    }
 
     public function test_one_click_requires_authentication(): void
     {

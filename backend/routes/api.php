@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AddressSuggestController;
 use App\Http\Controllers\Api\OnecExchangeController;
+use App\Http\Controllers\Api\OnecRestController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\YandexFeedController;
 use App\Http\Controllers\Api\BrandController;
@@ -29,10 +30,20 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class)->middleware('throttle:180,1');
 
-// 1С CommerceML 2 обмен
+// 1С: CommerceML 2 обмен + REST API (защищены HTTP Basic Auth)
 Route::any('/1c/exchange', [OnecExchangeController::class, 'handle'])
     ->middleware(['App\Http\Middleware\OnecBasicAuth', 'throttle:1c-exchange'])
     ->withoutMiddleware(['throttle:api']);
+
+Route::middleware(['App\Http\Middleware\OnecBasicAuth', 'throttle:1c-exchange'])
+    ->withoutMiddleware(['throttle:api'])
+    ->prefix('1c')
+    ->group(function (): void {
+        Route::get('/products', [OnecRestController::class, 'products']);
+        Route::get('/stock', [OnecRestController::class, 'stock']);
+        Route::get('/orders', [OnecRestController::class, 'orders']);
+        Route::patch('/orders/{orderNumber}', [OnecRestController::class, 'updateOrder']);
+    });
 
 Route::middleware('throttle:public-api')->group(function (): void {
     Route::get('/home', HomeController::class);
