@@ -18,6 +18,7 @@ import { saveRecentlyViewed } from '@/lib/recently-viewed'
 import { toast } from '@/lib/toast'
 import { characteristicsCatalogRoute } from '@/lib/catalog-characteristics'
 import { siteSettingsInjectionKey, defaultSiteFeatureFlags, type SiteSettingsPayload } from '@/lib/site-settings'
+import { useSiteCityStore } from '@/stores/site-city'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 import ProductImageLightbox from '@/components/ProductImageLightbox.vue'
@@ -62,6 +63,7 @@ type ProductPayload = {
   old_price: number | null
   currency: string
   stock: number
+  stock_cities: string[]
   has_variants: boolean
   category: {
     name: string
@@ -150,6 +152,7 @@ const { items: cartItems } = storeToRefs(cartStore)
 const { isAuthenticated } = storeToRefs(authStore)
 const wishlistStore = useWishlistStore()
 const compareStore = useCompareStore()
+const cityStore = useSiteCityStore()
 const siteSettingsRef = inject(siteSettingsInjectionKey) as Ref<SiteSettingsPayload> | undefined
 const wishlistFeatureEnabled = computed(
   () => siteSettingsRef?.value.feature_flags.wishlist ?? defaultSiteFeatureFlags.wishlist,
@@ -362,6 +365,14 @@ function reviewInitials(name: string): string {
   return compact.slice(0, 2).toUpperCase() || '?'
 }
 
+function formatDeliveryPeriod(min: number | null, max: number | null) {
+  if (min == null && max == null) {
+    return ''
+  }
+
+  return min === max ? `${min} дн.` : `${min}–${max} дн.`
+}
+
 function formatReviewCount(value: number) {
   const normalized = Math.max(0, Math.trunc(value))
   const mod10 = normalized % 10
@@ -536,6 +547,41 @@ async function selectColor(colorLabel: string) {
   }
 
   await openVariant(candidate)
+}
+
+type DeliveryEstimateOption = {
+  code: string
+  name: string
+  fee: number
+  period_min: number | null
+  period_max: number | null
+}
+
+const deliveryEstimates = ref<DeliveryEstimateOption[]>([])
+const deliveryEstimateLoading = ref(false)
+const deliveryEstimateError = ref('')
+
+async function loadDeliveryEstimate() {
+  const city = cityStore.name.trim()
+  if (!city) {
+    deliveryEstimates.value = []
+    return
+  }
+
+  deliveryEstimateLoading.value = true
+  deliveryEstimateError.value = ''
+
+  try {
+    const response = await requestJson<{ data: DeliveryEstimateOption[] }>(
+      `/api/delivery/estimate?city=${encodeURIComponent(city)}`,
+    )
+    deliveryEstimates.value = response.data
+  } catch (error) {
+    console.error(error)
+    deliveryEstimateError.value = 'Не удалось рассчитать стоимость доставки.'
+  } finally {
+    deliveryEstimateLoading.value = false
+  }
 }
 
 async function loadProduct() {
@@ -915,6 +961,7 @@ async function submitReview() {
 }
 
 onMounted(loadProduct)
+watch(() => cityStore.name, loadDeliveryEstimate, { immediate: true })
 
 watch(
   () => route.fullPath,
@@ -947,7 +994,6 @@ watch(
 
     <section v-if="isLoading && !product" class="product-layout product-layout--skeleton" aria-hidden="true">
       <div class="gallery gallery--skeleton">
-        <AppSkeleton class="gallery__main-skeleton" width="100%" height="min(62vw, 560px)" radius="0" />
         <div class="gallery__thumbs gallery__thumbs--skeleton">
           <AppSkeleton
             v-for="index in 4"
@@ -957,6 +1003,7 @@ watch(
             radius="10px"
           />
         </div>
+        <AppSkeleton class="gallery__main-skeleton" width="100%" height="min(62vw, 560px)" radius="16px" style="aspect-ratio: 1 / 1" />
       </div>
       <article class="details details--skeleton">
         <AppSkeleton width="24%" height="12px" />
@@ -966,10 +1013,7 @@ watch(
           <AppSkeleton width="70px" height="28px" radius="999px" />
           <AppSkeleton width="86px" height="28px" radius="999px" />
         </div>
-        <AppSkeleton width="42%" height="36px" />
         <AppSkeleton width="38%" height="16px" />
-        <AppSkeleton width="100%" height="16px" />
-        <AppSkeleton width="88%" height="16px" />
         <div class="sizes__grid sizes__grid--skeleton">
           <AppSkeleton
             v-for="index in 4"
@@ -979,8 +1023,15 @@ watch(
             radius="12px"
           />
         </div>
-        <AppSkeleton width="100%" height="54px" radius="16px" />
+        <AppSkeleton width="100%" height="16px" />
+        <AppSkeleton width="88%" height="16px" />
       </article>
+      <aside class="buy-box buy-box--skeleton">
+        <AppSkeleton width="42%" height="36px" />
+        <AppSkeleton width="38%" height="16px" />
+        <AppSkeleton width="100%" height="54px" radius="16px" />
+        <AppSkeleton width="100%" height="48px" radius="12px" />
+      </aside>
     </section>
     <p v-if="hasError" class="status status--warn">Товар не найден или API недоступно.</p>
 
@@ -998,6 +1049,18 @@ watch(
       </nav>
 
       <div class="gallery">
+        <div class="gallery__thumbs">
+          <button
+            v-for="(image, index) in product.images"
+            :key="`${image.url}-${index}`"
+            type="button"
+            class="thumb"
+            :class="{ 'thumb--active': index === activeImageIndex }"
+            @click="activeImageIndex = index"
+          >
+            <img :src="resolveImageSrc(image.url)" :alt="image.alt ?? product.name" @error="applyImageFallback" />
+          </button>
+        </div>
         <button
           v-if="activeImage"
           type="button"
@@ -1012,18 +1075,6 @@ watch(
             @error="applyImageFallback"
           />
         </button>
-        <div class="gallery__thumbs">
-          <button
-            v-for="(image, index) in product.images"
-            :key="`${image.url}-${index}`"
-            type="button"
-            class="thumb"
-            :class="{ 'thumb--active': index === activeImageIndex }"
-            @click="activeImageIndex = index"
-          >
-            <img :src="resolveImageSrc(image.url)" :alt="image.alt ?? product.name" @error="applyImageFallback" />
-          </button>
-        </div>
       </div>
 
       <ProductImageLightbox
@@ -1049,11 +1100,6 @@ watch(
           </span>
         </div>
         <p class="details__sku">SKU: {{ product.sku ?? 'N/A' }}</p>
-
-        <div class="price-row">
-          <strong>{{ formatPrice(effectivePrice, product.currency) }}</strong>
-          <s v-if="product.old_price">{{ formatPrice(product.old_price, product.currency) }}</s>
-        </div>
         <p class="details__reviews-summary">
           <template v-if="product.reviews_summary.count > 0">
             ★ {{ product.reviews_summary.average?.toFixed(1) ?? '—' }} ·
@@ -1103,9 +1149,6 @@ watch(
           </div>
         </div>
 
-        <p class="details__stock" :class="{ 'details__stock--empty': effectiveStock <= 0 }">
-          {{ effectiveStock > 0 ? `В наличии: ${effectiveStock} шт.` : 'Нет в наличии' }}
-        </p>
         <p class="details__description">{{ product.description ?? 'Описание скоро обновим.' }}</p>
         <section v-if="groupedCharacteristics.length" class="details__characteristics">
           <article
@@ -1144,6 +1187,22 @@ watch(
             </ul>
           </article>
         </section>
+
+      </article>
+
+      <aside class="buy-box">
+        <div class="price-row">
+          <strong>{{ formatPrice(effectivePrice, product.currency) }}</strong>
+          <s v-if="product.old_price">{{ formatPrice(product.old_price, product.currency) }}</s>
+        </div>
+
+        <p class="details__stock" :class="{ 'details__stock--empty': effectiveStock <= 0 }">
+          {{ effectiveStock > 0 ? `В наличии: ${effectiveStock} шт.` : 'Нет в наличии' }}
+          <span
+            v-if="effectiveStock > 0 && product.stock_cities?.length"
+            class="details__stock-cities"
+          >· {{ product.stock_cities.join(', ') }}</span>
+        </p>
 
         <div class="cta-stack">
           <div class="cta-row">
@@ -1209,7 +1268,24 @@ watch(
           </button>
         </div>
         <p v-if="addError" class="status status--warn">{{ addError }}</p>
-      </article>
+
+        <section class="delivery-estimate">
+          <h3 class="delivery-estimate__title">Стоимость доставки</h3>
+          <p v-if="deliveryEstimateLoading" class="delivery-estimate__hint">Считаем стоимость…</p>
+          <p v-else-if="deliveryEstimateError" class="delivery-estimate__hint">{{ deliveryEstimateError }}</p>
+          <ul v-else-if="deliveryEstimates.length" class="delivery-estimate__list">
+            <li v-for="option in deliveryEstimates" :key="option.code">
+              <span>{{ option.name }}</span>
+              <span>
+                {{ option.fee > 0 ? formatPrice(option.fee, product?.currency ?? 'RUB') : 'Бесплатно' }}
+                <template v-if="formatDeliveryPeriod(option.period_min, option.period_max)">
+                  · {{ formatDeliveryPeriod(option.period_min, option.period_max) }}
+                </template>
+              </span>
+            </li>
+          </ul>
+        </section>
+      </aside>
     </section>
 
     <section v-if="isRecommendationsLoading" class="recommendations recommendations--skeleton" aria-hidden="true">
@@ -1408,8 +1484,9 @@ watch(
 
 .product-layout {
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
-  gap: 22px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.85fr) minmax(280px, 340px);
+  gap: 24px;
+  align-items: start;
 }
 
 .product-layout--skeleton {
@@ -1417,29 +1494,35 @@ watch(
 }
 
 .gallery {
+  display: flex;
+  gap: 12px;
   border-radius: 22px;
   background: #fff;
-  overflow: hidden;
+  padding: 12px;
   box-shadow: 0 12px 40px rgb(16 24 40 / 9%);
+  position: sticky;
+  top: calc(var(--header-h, 0px) + 16px);
 }
 
 .gallery--skeleton {
-  overflow: hidden;
+  position: static;
 }
 
 .gallery__main-skeleton {
+  flex: 1 1 auto;
   display: block;
 }
 
 .gallery__main-trigger {
   display: block;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
   padding: 0;
   border: none;
   background: transparent;
   cursor: zoom-in;
-  border-radius: 0 0 20px 20px;
+  border-radius: 16px;
   overflow: hidden;
 }
 
@@ -1450,25 +1533,28 @@ watch(
 
 .gallery__main {
   width: 100%;
-  height: min(62vw, 560px);
+  aspect-ratio: 1 / 1;
   object-fit: cover;
   display: block;
-  /* Скругление только у кадра: ниже — превью, контейнер .gallery режет верх целиком */
-  border-radius: 0 0 20px 20px;
+  border-radius: 16px;
 }
 
 .gallery__thumbs {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  padding: 10px;
+  width: 76px;
+  max-height: 100%;
+  overflow-y: auto;
 }
 
 .gallery__thumbs--skeleton {
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  flex-direction: column;
 }
 
 .thumb {
+  flex: 0 0 auto;
   border: 1px solid #dfdcd5;
   border-radius: 10px;
   background: #fff;
@@ -1493,6 +1579,22 @@ watch(
   background: #fff;
   box-shadow: 0 12px 40px rgb(16 24 40 / 9%);
   padding: 24px 20px;
+}
+
+.buy-box {
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 12px 40px rgb(16 24 40 / 9%);
+  padding: 24px 20px;
+  position: sticky;
+  top: calc(var(--header-h, 0px) + 16px);
+  display: flex;
+  flex-direction: column;
+}
+
+.buy-box--skeleton {
+  display: grid;
+  gap: 14px;
 }
 
 .details--skeleton {
@@ -1558,11 +1660,11 @@ watch(
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 16px;
+  margin-top: 0;
 }
 
 .price-row strong {
-  font-size: 30px;
+  font-size: 34px;
 }
 
 .price-row s {
@@ -1579,6 +1681,11 @@ watch(
 .details__stock {
   margin-top: 10px;
   color: #1f2233;
+}
+
+.details__stock-cities {
+  color: #5a6379;
+  font-size: 13px;
 }
 
 .details__stock--empty {
@@ -2179,6 +2286,41 @@ watch(
   color: #b95b09;
 }
 
+.delivery-estimate {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--background);
+}
+
+.delivery-estimate__title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 10px;
+}
+
+.delivery-estimate__hint {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.delivery-estimate__list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.delivery-estimate__list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
 .recommendations {
   margin-top: 24px;
 }
@@ -2275,9 +2417,28 @@ watch(
   cursor: pointer;
 }
 
+@media (max-width: 1180px) {
+  .product-layout {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .buy-box {
+    grid-column: 1 / -1;
+    position: static;
+  }
+}
+
 @media (max-width: 880px) {
   .product-layout {
     grid-template-columns: 1fr;
+  }
+
+  .gallery {
+    position: static;
+  }
+
+  .gallery__thumbs {
+    width: 64px;
   }
 
   .cta-row {

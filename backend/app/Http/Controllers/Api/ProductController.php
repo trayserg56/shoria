@@ -8,6 +8,7 @@ use App\Models\OrderItem;
 use App\Models\Product;
 use App\Models\ProductReview;
 use App\Models\ProductVariant;
+use App\Models\StockLevel;
 use App\Models\TrackingEvent;
 use App\Models\User;
 use App\Support\Catalog\CatalogCacheKeys;
@@ -907,6 +908,7 @@ class ProductController extends Controller
             'old_price' => $product->old_price !== null ? (float) $product->old_price : null,
             'currency' => $product->currency,
             'stock' => $product->stock,
+            'stock_cities' => $this->resolveStockCities($product->id, $activeVariants->pluck('id')->all()),
             'tags' => $this->resolveProductTags($product),
             'has_variants' => $variants->isNotEmpty(),
             'selected_variant_slug' => $selectedVariant?->slug,
@@ -1522,6 +1524,26 @@ class ProductController extends Controller
      *
      * @return array<int, array{name: string, slug: string}>
      */
+    private function resolveStockCities(int $productId, array $variantIds): array
+    {
+        return StockLevel::query()
+            ->with('warehouse:id,name,city')
+            ->where(function ($q) use ($productId, $variantIds) {
+                $q->where('product_id', $productId);
+                if ($variantIds) {
+                    $q->whereIn('product_variant_id', $variantIds)->orWhereNull('product_variant_id');
+                }
+            })
+            ->where('qty', '>', 0)
+            ->get()
+            ->groupBy('warehouse.city')
+            ->filter(fn ($levels, $city) => $city && $levels->sum(fn ($l) => $l->qty - $l->reserved_qty) > 0)
+            ->keys()
+            ->filter()
+            ->values()
+            ->all();
+    }
+
     private function resolveCategoryBreadcrumbPath(?Category $category): array
     {
         if (! $category) {
