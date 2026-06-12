@@ -36,6 +36,8 @@ class Product extends Model
         'is_active',
         'stock',
         'sort_order',
+        'external_id',
+        'barcode',
     ];
 
     protected $casts = [

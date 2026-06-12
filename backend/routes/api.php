@@ -1,11 +1,14 @@
 <?php
 
+use App\Http\Controllers\Api\AddressSuggestController;
+use App\Http\Controllers\Api\OnecExchangeController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\YandexFeedController;
 use App\Http\Controllers\Api\BrandController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\CheckoutController;
+use App\Http\Controllers\Api\DeliveryController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\GiftCertificateAccountController;
 use App\Http\Controllers\Api\HealthController;
@@ -20,12 +23,20 @@ use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProductReviewController;
 use App\Http\Controllers\Api\ServicePageController;
 use App\Http\Controllers\Api\SiteSettingController;
+use App\Http\Controllers\Api\StatsController;
+use App\Http\Controllers\Api\UserAddressController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class)->middleware('throttle:180,1');
 
+// 1С CommerceML 2 обмен
+Route::any('/1c/exchange', [OnecExchangeController::class, 'handle'])
+    ->middleware(['App\Http\Middleware\OnecBasicAuth', 'throttle:1c-exchange'])
+    ->withoutMiddleware(['throttle:api']);
+
 Route::middleware('throttle:public-api')->group(function (): void {
     Route::get('/home', HomeController::class);
+    Route::get('/stats', StatsController::class);
     Route::get('/navigation', NavigationController::class);
     Route::get('/site-settings', SiteSettingController::class);
     Route::get('/categories', [CategoryController::class, 'index']);
@@ -45,8 +56,12 @@ Route::middleware('throttle:public-api')->group(function (): void {
     Route::get('/loyalty/info', [LoyaltyController::class, 'info']);
     Route::get('/cart', [CartController::class, 'show']);
     Route::get('/checkout/options', [CheckoutController::class, 'options']);
+    Route::get('/delivery/cdek/pickup-points', [DeliveryController::class, 'cdekPickupPoints']);
+    Route::get('/delivery/estimate', [DeliveryController::class, 'estimate']);
+    Route::get('/address/suggest', [AddressSuggestController::class, 'suggest']);
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/orders/{orderNumber}', [OrderController::class, 'show']);
+    Route::get('/orders/{orderNumber}/payment-url', [OrderController::class, 'paymentUrl']);
 });
 
 Route::post('/events', [EventController::class, 'store'])
@@ -99,4 +114,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/checkout/one-click', [CheckoutController::class, 'oneClick'])
         ->middleware('throttle:checkout-one-click');
     Route::get('/checkout/one-click/suggestions', [CheckoutController::class, 'oneClickSuggestions']);
+    Route::get('/me/addresses', [UserAddressController::class, 'index']);
+    Route::post('/me/addresses', [UserAddressController::class, 'store']);
+    Route::patch('/me/addresses/{address}', [UserAddressController::class, 'update']);
+    Route::delete('/me/addresses/{address}', [UserAddressController::class, 'destroy']);
 });

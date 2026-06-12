@@ -47,4 +47,15 @@ return [
         'redirect' => env('YANDEX_REDIRECT_URI', rtrim((string) env('APP_URL', ''), '/').'/oauth/yandex/callback'),
     ],
 
+    'dadata' => [
+        'api_key' => env('DADATA_API_KEY'),
+    ],
+
+    'onec' => [
+        'username' => env('ONEC_USERNAME', '1c'),
+        'password' => env('ONEC_PASSWORD', ''),
+        'webhook_url' => env('ONEC_WEBHOOK_URL', ''),
+        'webhook_secret' => env('ONEC_WEBHOOK_SECRET', ''),
+    ],
+
 ];

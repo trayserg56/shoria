@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Models\Order;
+use App\Observers\OrderObserver;
 use App\Support\Delivery\Contracts\DeliveryGateway;
 use App\Support\Delivery\DeliveryGatewayRegistry;
 use App\Support\Delivery\Gateways\CdekDeliveryGateway;
@@ -51,6 +53,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Order::observe(OrderObserver::class);
+
         Event::listen(SocialiteWasCalled::class, [VKontakteExtendSocialite::class, 'handle']);
         Event::listen(SocialiteWasCalled::class, [YandexExtendSocialite::class, 'handle']);
 
@@ -123,6 +127,10 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute((int) env('RATE_LIMIT_WEBHOOKS', 240))
                 ->by($request->ip().'|'.$providerCode);
+        });
+
+        RateLimiter::for('1c-exchange', function (Request $request): Limit {
+            return Limit::perMinute(60)->by($request->ip());
         });
     }
 }
