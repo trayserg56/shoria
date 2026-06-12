@@ -6,9 +6,11 @@ use App\Models\Category;
 use App\Models\OnecExchangeSession;
 use App\Models\PriceType;
 use App\Models\Product;
+use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\Warehouse;
 use App\Services\Stock\StockService;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use SimpleXMLElement;
 
@@ -192,12 +194,70 @@ class CommerceMLImporter
 
         $product->save();
 
+        // Изображения
+        $this->importProductImages($product, $item);
+
         // Характеристики / варианты
         foreach ($item->ХарактеристикиТовара->ХарактеристикаТовара ?? [] as $char) {
             $this->importVariant($product, $char, $counts);
         }
 
         $isNew ? $counts['created']++ : $counts['updated']++;
+    }
+
+    private function importProductImages(Product $product, SimpleXMLElement $item): void
+    {
+        // Собираем все пути из <Картинка> и <Картинки><Картинка>
+        $paths = [];
+
+        if (isset($item->Картинка) && (string) $item->Картинка !== '') {
+            $paths[] = (string) $item->Картинка;
+        }
+
+        foreach ($item->Картинки->Картинка ?? [] as $img) {
+            $path = (string) $img;
+            if ($path !== '') {
+                $paths[] = $path;
+            }
+        }
+
+        if (empty($paths)) {
+            return;
+        }
+
+        $existingUrls = $product->images()->pluck('url')->map(fn ($u) => basename($u))->flip();
+        $sortOrder = $product->images()->max('sort_order') ?? 0;
+        $hasCover = $product->images()->where('is_cover', true)->exists();
+
+        foreach ($paths as $srcPath) {
+            // srcPath: "import_files/product-001.jpg" или просто "product-001.jpg"
+            $filename = basename($srcPath);
+
+            if ($existingUrls->has($filename)) {
+                continue; // уже загружено
+            }
+
+            // Ищем файл на диске (1С загрузил его раньше через mode=file)
+            $storageSrc = '1c-import/' . ltrim($srcPath, '/');
+            if (! Storage::disk('public')->exists($storageSrc)) {
+                continue; // файл ещё не пришёл — пропускаем
+            }
+
+            // Копируем в постоянную папку
+            $destPath = 'products/1c/' . $filename;
+            Storage::disk('public')->copy($storageSrc, $destPath);
+
+            $sortOrder++;
+            ProductImage::create([
+                'product_id' => $product->id,
+                'url' => $destPath,
+                'alt' => $product->name,
+                'is_cover' => ! $hasCover,
+                'sort_order' => $sortOrder,
+            ]);
+
+            $hasCover = true;
+        }
     }
 
     private function importVariant(Product $product, SimpleXMLElement $char, array &$counts): void

@@ -8,6 +8,7 @@ use App\Services\Onec\OrdersExporter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * CommerceML 2 endpoint для обмена с 1С.
@@ -71,6 +72,16 @@ class OnecExchangeController extends Controller
 
         if (empty($content)) {
             return response('failure' . PHP_EOL . 'Пустой файл', 400);
+        }
+
+        // Изображения (из папки import_files/) сохраняем на диск, XML — в Redis
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) {
+            // Filename может содержать путь: "import_files/product-001.jpg"
+            $storagePath = '1c-import/' . ltrim($filename, '/');
+            Storage::disk('public')->put($storagePath, $content);
+
+            return response('success');
         }
 
         $key = "1c_exchange_{$type}_{$filename}";
