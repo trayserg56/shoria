@@ -248,8 +248,27 @@ const variantsByColor = computed(() => {
     (variant) => (variant.color_label?.trim() ?? '') === selectedColorLabel.value,
   )
 })
-const effectivePrice = computed(() => selectedVariant.value?.price ?? product.value?.price ?? 0)
+const effectivePrice = computed(() => {
+  const basePrice = selectedVariant.value?.price ?? product.value?.price ?? 0
+  if (!product.value?.prices_by_city?.length) return basePrice
+
+  // Ищем цену для текущего города пользователя
+  const userCity = cityStore.name.trim().toLowerCase()
+  const cityPrice = product.value.prices_by_city.find(
+    (cp) => cp.city.trim().toLowerCase() === userCity,
+  )
+  return cityPrice ? cityPrice.price : basePrice
+})
 const effectiveStock = computed(() => selectedVariant.value?.stock ?? product.value?.stock ?? 0)
+
+const otherCityPrices = computed(() => {
+  const prices = product.value?.prices_by_city ?? []
+  const userCity = cityStore.name.trim().toLowerCase()
+  // Показываем города с другой ценой, не текущий город
+  return prices.filter(
+    (cp) => cp.city.trim().toLowerCase() !== userCity && cp.price !== effectivePrice.value,
+  )
+})
 const isWishlisted = computed(() => (product.value ? wishlistStore.has(product.value.id) : false))
 const isCompared = computed(() => (product.value ? compareStore.has(product.value.id) : false))
 const selectedCartVariantId = computed(() => (product.value?.has_variants ? selectedVariantId.value : null))
@@ -1205,11 +1224,12 @@ watch(
           >· {{ product.stock_cities.join(', ') }}</span>
         </p>
 
+        <!-- Показываем цены других городов только если они отличаются от текущей -->
         <ul
-          v-if="product.prices_by_city?.length"
+          v-if="otherCityPrices.length"
           class="details__city-prices"
         >
-          <li v-for="cp in product.prices_by_city" :key="cp.city">
+          <li v-for="cp in otherCityPrices" :key="cp.city">
             <span class="details__city-prices-city">{{ cp.city }}</span>
             <span class="details__city-prices-price">{{ formatPrice(cp.price, product.currency) }}</span>
           </li>
