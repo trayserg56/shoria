@@ -463,5 +463,29 @@ class CommerceMLImporter
 
             $counts['updated']++;
         }
+
+        // Синхронизируем price/stock продукта из вариантов
+        $affectedProductIds = collect();
+        foreach ($xml->ПакетПредложений->Предложения->Предложение ?? [] as $offer) {
+            [$productExtId] = array_pad(explode('#', (string) $offer->Ид, 2), 2, null);
+            $p = Product::where('external_id', $productExtId)->first();
+            if ($p) {
+                $affectedProductIds->push($p->id);
+            }
+        }
+
+        foreach ($affectedProductIds->unique() as $productId) {
+            $p = Product::find($productId);
+            if (! $p) {
+                continue;
+            }
+            $minPrice = $p->variants()->min('price');
+            $totalStock = $p->variants()->sum('stock');
+            if ($minPrice !== null) {
+                $p->price = $minPrice;
+            }
+            $p->stock = $totalStock;
+            $p->save();
+        }
     }
 }
