@@ -203,6 +203,12 @@ class OrderController extends Controller
             ]);
         }
 
+        if ($sessionId !== '' && ! preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $sessionId)) {
+            throw ValidationException::withMessages([
+                'session_id' => 'Некорректный session_id.',
+            ]);
+        }
+
         return [
             'user' => $user,
             'session_id' => $sessionId !== '' ? $sessionId : null,

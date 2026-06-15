@@ -113,7 +113,7 @@ class CheckoutController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'session_id' => ['nullable', 'string', 'max:64'],
+            'session_id' => ['nullable', 'uuid'],
             'customer_name' => ['required', 'string', 'max:120'],
             'customer_email' => ['required', 'email', 'max:255'],
             'customer_phone' => ['required', 'string', 'max:30'],
@@ -663,7 +663,7 @@ class CheckoutController extends Controller
     public function preview(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'session_id' => ['nullable', 'string', 'max:64'],
+            'session_id' => ['nullable', 'uuid'],
             'delivery_method' => ['required', 'string', 'max:32'],
             'promo_code' => ['nullable', 'string', 'max:64'],
             'gift_certificate_code' => ['nullable', 'string', 'max:64'],

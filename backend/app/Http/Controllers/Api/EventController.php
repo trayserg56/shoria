@@ -17,7 +17,7 @@ class EventController extends Controller
             'event_name' => ['required', 'string', 'max:64'],
             'page_url' => ['nullable', 'string', 'max:2048'],
             'referrer' => ['nullable', 'string', 'max:2048'],
-            'session_id' => ['nullable', 'string', 'max:64'],
+            'session_id' => ['nullable', 'uuid'],
             'attribution' => ['nullable', 'array'],
             'payload' => ['nullable', 'array'],
             'occurred_at' => ['nullable', 'date'],

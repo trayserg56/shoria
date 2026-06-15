@@ -18,7 +18,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-flow';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $cartResponse = $this->getJson("/api/cart?session_id={$sessionId}");
         $cartResponse->assertOk();
@@ -97,7 +97,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-stock-limit';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $response = $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -113,7 +113,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-remove-item';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $addItemResponse = $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -137,7 +137,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-price-refresh';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $addItemResponse = $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -163,7 +163,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-out-of-stock';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -186,7 +186,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-unavailable-checkout';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -218,7 +218,7 @@ class CartCheckoutFlowTest extends TestCase
     public function test_checkout_validates_customer_fields(): void
     {
         $response = $this->postJson('/api/checkout', [
-            'session_id' => 'test-session-validation',
+            'session_id' => (string) \Illuminate\Support\Str::uuid(),
             'customer_name' => '',
             'customer_email' => 'not-an-email',
             'customer_phone' => '',
@@ -237,7 +237,7 @@ class CartCheckoutFlowTest extends TestCase
     public function test_checkout_fails_when_cart_is_empty(): void
     {
         $response = $this->postJson('/api/checkout', [
-            'session_id' => 'test-session-empty-cart',
+            'session_id' => (string) \Illuminate\Support\Str::uuid(),
             'customer_name' => 'Buyer',
             'customer_email' => 'buyer@example.com',
             'customer_phone' => '+79998887766',
@@ -253,7 +253,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-orders-filters';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -330,7 +330,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-variants';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $product = Product::query()
             ->with('variants')
@@ -374,7 +374,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-checkout-v2';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -418,7 +418,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-bad-promo';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -444,7 +444,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-preview-promo';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -477,7 +477,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-preview-without-promo';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -499,7 +499,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-attribution';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -543,7 +543,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-promo-once';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -587,7 +587,7 @@ class CartCheckoutFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-item-scoped-promo';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $cityFrameOne = Product::query()->where('slug', 'city-frame-one')->firstOrFail();
 
@@ -637,7 +637,7 @@ class CartCheckoutFlowTest extends TestCase
                 'free_delivery' => true,
             ]);
 
-        $sessionId = 'test-session-free-delivery-promo';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -702,7 +702,7 @@ class CartCheckoutFlowTest extends TestCase
                 'first_order_only' => true,
             ]);
 
-        $sessionId = 'test-session-first-order-only';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
         $token = $user->createToken('test')->plainTextToken;
 
         $this->postJson('/api/cart/items', [

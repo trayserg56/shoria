@@ -28,7 +28,7 @@ class CartController extends Controller
     public function addItem(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'session_id' => ['nullable', 'string', 'max:64'],
+            'session_id' => ['nullable', 'uuid'],
             'product_slug' => ['required', 'string', 'max:255'],
             'product_variant_id' => ['nullable', 'integer', 'exists:product_variants,id'],
             'qty' => ['nullable', 'integer', 'min:1', 'max:99'],
@@ -116,7 +116,7 @@ class CartController extends Controller
     public function updateItem(Request $request, int $itemId): JsonResponse
     {
         $validated = $request->validate([
-            'session_id' => ['nullable', 'string', 'max:64'],
+            'session_id' => ['nullable', 'uuid'],
             'qty' => ['required', 'integer', 'min:1', 'max:99'],
         ]);
 
