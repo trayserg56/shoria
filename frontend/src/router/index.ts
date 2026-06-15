@@ -2,10 +2,52 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { getAuthToken } from '@/lib/auth-token'
 import { clearStructuredData, setSeoMeta } from '@/lib/seo'
 
+const SCROLL_KEY = 'scroll_restore'
+
+// Убираем ?preview из пути при сравнении — он управляется через history.replaceState
+function stripPreview(p: string): string {
+  return p.replace(/([?&])preview=[^&]*(&|$)/, '$1').replace(/[?&]$/, '')
+}
+
 if (typeof window !== 'undefined') {
   if ('scrollRestoration' in window.history) {
     window.history.scrollRestoration = 'manual'
   }
+
+  // Сохраняем позицию при уходе со страницы
+  window.addEventListener('beforeunload', () => {
+    if (window.scrollY > 0) {
+      sessionStorage.setItem(
+        SCROLL_KEY,
+        JSON.stringify({ path: location.pathname + location.search, y: Math.round(window.scrollY) }),
+      )
+    }
+  })
+
+  // Восстанавливаем позицию независимо от scrollBehavior роутера.
+  // Запускаем сразу, но ждём пока страница наберёт нужную высоту.
+  try {
+    const raw = sessionStorage.getItem(SCROLL_KEY)
+    if (raw) {
+      const { path, y } = JSON.parse(raw) as { path: string; y: number }
+      if (stripPreview(path) === stripPreview(location.pathname + location.search) && y > 0) {
+        sessionStorage.removeItem(SCROLL_KEY)
+        const deadline = Date.now() + 4000
+        const tryScroll = () => {
+          if (document.documentElement.scrollHeight >= y + window.innerHeight) {
+            window.scrollTo({ top: y, behavior: 'instant' })
+          } else if (Date.now() < deadline) {
+            requestAnimationFrame(tryScroll)
+          } else {
+            // Контент так и не вырос — скроллим на всё что есть
+            window.scrollTo({ top: y, behavior: 'instant' })
+          }
+        }
+        // Ждём завершения первого рендера и роутерного скролла к нулю
+        setTimeout(() => requestAnimationFrame(tryScroll), 500)
+      }
+    }
+  } catch { /* ignore */ }
 }
 
 const router = createRouter({
@@ -294,6 +336,16 @@ const router = createRouter({
           meta: {
             seoTitle: 'Ваши отзывы — Shoria',
             seoDescription: 'Оставленные отзывы и товары, по которым можно поделиться впечатлением.',
+            seoRobots: 'noindex,nofollow',
+          },
+        },
+        {
+          path: 'addresses',
+          name: 'account-addresses',
+          component: () => import('../views/AccountAddressesView.vue'),
+          meta: {
+            seoTitle: 'Адреса доставки — Shoria',
+            seoDescription: 'Сохранённые адреса доставки в личном кабинете Shoria.',
             seoRobots: 'noindex,nofollow',
           },
         },

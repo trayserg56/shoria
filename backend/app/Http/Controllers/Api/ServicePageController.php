@@ -37,6 +37,7 @@ class ServicePageController extends Controller
             'slug' => $page->slug,
             'excerpt' => $page->excerpt,
             'content' => $page->content,
+            'blocks' => $page->blocks ?? [],
             'seo_title' => $page->seo_title,
             'seo_description' => $page->seo_description,
             'updated_at' => optional($page->updated_at)?->toIso8601String(),

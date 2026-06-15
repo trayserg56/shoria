@@ -61,3 +61,68 @@ export const naiveThemeOverrides: GlobalThemeOverrides = {
     zIndex: 5000,
   },
 }
+
+export const naiveDarkThemeOverrides: GlobalThemeOverrides = {
+  common: {
+    primaryColor: '#e4e4e7',
+    primaryColorHover: '#f4f4f5',
+    primaryColorPressed: '#ffffff',
+    primaryColorSuppl: '#d4d4d8',
+    bodyColor: '#0f1117',
+    baseColor: '#0f1117',
+    textColorBase: '#f0f0f2',
+    textColor1: '#f0f0f2',
+    textColor2: '#c4c4ce',
+    textColor3: '#8b8fa8',
+    borderColor: '#2a2e42',
+    dividerColor: '#2a2e42',
+    hoverColor: '#22263a',
+    popoverColor: '#1a1d27',
+    tableColor: '#1a1d27',
+    cardColor: '#1a1d27',
+    modalColor: '#1a1d27',
+    placeholderColor: '#8b8fa8',
+    closeIconColor: '#8b8fa8',
+    closeIconColorHover: '#f0f0f2',
+    closeIconColorPressed: '#f0f0f2',
+    borderRadius: '8px',
+    borderRadiusSmall: '6px',
+    fontFamily: 'var(--font-body)',
+    fontSize: '16px',
+    fontSizeMedium: '16px',
+    heightMedium: '44px',
+    heightLarge: '48px',
+    heightSmall: '36px',
+  },
+  Button: {
+    borderRadiusTiny: '6px',
+    borderRadiusSmall: '8px',
+    borderRadiusMedium: '8px',
+    borderRadiusLarge: '10px',
+    fontWeightStrong: '600',
+  },
+  Input: {
+    borderRadius: '8px',
+    heightMedium: '44px',
+    heightLarge: '48px',
+    heightSmall: '36px',
+  },
+  InternalSelection: {
+    borderRadius: '8px',
+    heightMedium: '44px',
+  },
+  Checkbox: {
+    borderRadius: '4px',
+    sizeMedium: '16px',
+  },
+  Progress: {
+    railColor: '#2a2e42',
+    fillColor: '#e4e4e7',
+  },
+  Popover: {
+    zIndex: 5000,
+  },
+  InternalSelectMenu: {
+    zIndex: 5000,
+  },
+}

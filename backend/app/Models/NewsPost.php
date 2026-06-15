@@ -20,6 +20,7 @@ class NewsPost extends Model
         'content_type',
         'excerpt',
         'content',
+        'blocks',
         'cover_url',
         'seo_title',
         'seo_description',
@@ -28,6 +29,7 @@ class NewsPost extends Model
     ];
 
     protected $casts = [
+        'blocks' => 'array',
         'published_at' => 'datetime',
         'is_published' => 'boolean',
     ];

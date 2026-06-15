@@ -22,6 +22,7 @@ const navItems = computed(() => {
     { to: { name: 'account-overview' }, label: 'Обзор', path: '/account' },
     { to: { name: 'account-settings' }, label: 'Настройки профиля', path: '/account/settings' },
     { to: { name: 'account-orders' }, label: 'Заказы', path: '/account/orders' },
+    { to: { name: 'account-addresses' }, label: 'Адреса доставки', path: '/account/addresses' },
     { to: { name: 'account-gift-certificates' }, label: 'Сертификаты', path: '/account/gift-certificates' },
     { to: { name: 'account-reviews' }, label: 'Ваши отзывы', path: '/account/reviews' },
     { to: { name: 'account-loyalty' }, label: 'Лояльность', path: '/account/loyalty' },
@@ -153,7 +154,7 @@ onMounted(async () => {
 
 .account-shell__sidebar {
   position: sticky;
-  top: 18px;
+  top: calc(var(--site-header-sticky-offset, 118px) + 16px);
 }
 
 .account-shell__nav {

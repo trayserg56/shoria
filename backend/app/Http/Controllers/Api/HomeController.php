@@ -55,7 +55,7 @@ class HomeController extends Controller
             ->whereNull('parent_id')
             ->orderByDesc('is_featured')
             ->orderBy('sort_order')
-            ->limit(6)
+            ->limit(10)
             ->get(['id', 'name', 'slug', 'image_url']);
 
         $products = Product::query()

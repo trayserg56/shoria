@@ -261,6 +261,18 @@ const effectivePrice = computed(() => {
 })
 const effectiveStock = computed(() => selectedVariant.value?.stock ?? product.value?.stock ?? 0)
 
+// Есть ли товар в наличии именно в выбранном городе.
+// Если город не выбран — опираемся на общий stock.
+const isInStockInCurrentCity = computed(() => {
+  const userCity = cityStore.name.trim().toLowerCase()
+  if (!userCity) return effectiveStock.value > 0
+
+  const stockCities = product.value?.stock_cities ?? []
+  if (!stockCities.length) return effectiveStock.value > 0
+
+  return stockCities.some((c) => c.trim().toLowerCase() === userCity)
+})
+
 const otherCityPrices = computed(() => {
   const prices = product.value?.prices_by_city ?? []
   const userCity = cityStore.name.trim().toLowerCase()
@@ -1095,6 +1107,10 @@ watch(
             @error="applyImageFallback"
           />
         </button>
+        <!-- Заглушка когда нет изображений -->
+        <div v-if="!activeImage" class="gallery__main-trigger gallery__main-trigger--placeholder">
+          <img class="gallery__main" src="/images/product-fallback.svg" :alt="product.name" />
+        </div>
       </div>
 
       <ProductImageLightbox
@@ -1216,12 +1232,18 @@ watch(
           <s v-if="product.old_price">{{ formatPrice(product.old_price, product.currency) }}</s>
         </div>
 
-        <p class="details__stock" :class="{ 'details__stock--empty': effectiveStock <= 0 }">
-          {{ effectiveStock > 0 ? `В наличии: ${effectiveStock} шт.` : 'Нет в наличии' }}
-          <span
-            v-if="effectiveStock > 0 && product.stock_cities?.length"
-            class="details__stock-cities"
-          >· {{ product.stock_cities.join(', ') }}</span>
+        <p class="details__stock" :class="{ 'details__stock--empty': effectiveStock <= 0, 'details__stock--order': effectiveStock > 0 && !isInStockInCurrentCity }">
+          <template v-if="effectiveStock <= 0">Нет в наличии</template>
+          <template v-else-if="!isInStockInCurrentCity">
+            Под заказ · есть в {{ product.stock_cities?.join(', ') }}
+          </template>
+          <template v-else>
+            В наличии: {{ effectiveStock }} шт.
+            <span
+              v-if="product.stock_cities?.length"
+              class="details__stock-cities"
+            >· {{ product.stock_cities.join(', ') }}</span>
+          </template>
         </p>
 
         <!-- Показываем цены других городов только если они отличаются от текущей -->
@@ -1241,6 +1263,7 @@ watch(
               v-if="currentCartQty === 0"
               type="button"
               class="buy-button"
+              :class="{ 'buy-button--order': effectiveStock > 0 && !isInStockInCurrentCity }"
               :disabled="effectiveStock <= 0 || isCartBusy"
               @click="addToCart"
             >
@@ -1249,7 +1272,9 @@ watch(
                   ? 'Нет в наличии'
                   : isCartBusy
                     ? 'Добавляем...'
-                    : 'Добавить в корзину'
+                    : isInStockInCurrentCity
+                      ? 'Добавить в корзину'
+                      : 'Под заказ'
               }}
             </button>
             <div v-else class="buy-stepper">
@@ -1562,6 +1587,11 @@ watch(
   outline-offset: -2px;
 }
 
+.gallery__main-trigger--placeholder {
+  cursor: default;
+  pointer-events: none;
+}
+
 .gallery__main {
   width: 100%;
   aspect-ratio: 1 / 1;
@@ -1749,6 +1779,11 @@ watch(
 
 .details__stock--empty {
   color: #b84a14;
+  font-weight: 600;
+}
+
+.details__stock--order {
+  color: #6c757d;
   font-weight: 600;
 }
 
@@ -2227,6 +2262,14 @@ watch(
 .buy-button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.buy-button--order {
+  background: #6c757d;
+}
+
+.buy-button--order:hover:not(:disabled) {
+  background: #5a6268;
 }
 
 .cta-stack {

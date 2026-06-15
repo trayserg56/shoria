@@ -2,6 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppSkeleton from '@/components/AppSkeleton.vue'
+import ServicePageBlocks from '@/components/ServicePageBlocks.vue'
+import type { FilamentBlock } from '@/components/ServicePageBlocks.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 import { fetchJson } from '@/lib/api'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
@@ -49,6 +51,7 @@ type NewsPostPayload = {
   content_type: NewsContentType
   excerpt: string | null
   content: string | null
+  blocks: FilamentBlock[]
   cover_url: string | null
   seo_title: string | null
   seo_description: string | null
@@ -61,6 +64,7 @@ const route = useRoute()
 const post = ref<NewsPostPayload | null>(null)
 const isLoading = ref(true)
 const hasError = ref(false)
+const hasBlocks = computed(() => Array.isArray(post.value?.blocks) && (post.value?.blocks.length ?? 0) > 0)
 const contentHtml = computed(() => post.value?.content?.trim() || '<p>Контент скоро появится.</p>')
 const contentTypeMeta = computed(() => resolveNewsTypeMeta(post.value?.content_type))
 const spotlightProducts = computed(() => post.value?.spotlight_products ?? [])
@@ -172,7 +176,8 @@ watch(
 
       <img :src="resolveImageSrc(post.cover_url)" :alt="post.title" loading="lazy" class="cover" @error="applyImageFallback" />
 
-      <article class="content" v-html="contentHtml" />
+      <ServicePageBlocks v-if="hasBlocks" :blocks="post.blocks" />
+      <article v-else class="content" v-html="contentHtml" />
     </article>
 
     <section v-if="spotlightProducts.length" class="spotlight">

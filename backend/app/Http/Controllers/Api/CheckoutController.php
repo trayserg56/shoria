@@ -20,6 +20,7 @@ use App\Models\SiteSetting;
 use App\Models\User;
 use App\Support\Analytics\AttributionData;
 use App\Support\Delivery\DeliveryGatewayRegistry;
+use App\Support\Delivery\Gateways\CdekDeliveryGateway;
 use App\Support\Loyalty\LoyaltyProgramService;
 use App\Support\Payments\PaymentGatewayRegistry;
 use App\Support\Store\StoreFeatureFlags;
@@ -58,6 +59,9 @@ class CheckoutController extends Controller
                 'provider_code' => $method->provider_code,
                 'provider_mode' => $method->provider?->mode,
                 'is_test_mode' => $method->provider?->mode === 'sandbox',
+                'method_type' => $method->method_type,
+                'requires_pickup_point' => $method->provider_code === 'cdek' && $method->method_type === 'pickup',
+                'requires_address' => $method->method_type === 'courier',
             ])
             ->values();
 
@@ -121,6 +125,10 @@ class CheckoutController extends Controller
             'loyalty_points_to_spend' => ['nullable', 'integer', 'min:0'],
             'comment' => ['nullable', 'string', 'max:2000'],
             'attribution' => ['nullable', 'array'],
+            'delivery_city' => ['nullable', 'string', 'max:120'],
+            'delivery_address' => ['nullable', 'string', 'max:255'],
+            'delivery_pickup_point_code' => ['nullable', 'string', 'max:60'],
+            'delivery_pickup_point_address' => ['nullable', 'string', 'max:255'],
         ]);
 
         if (
@@ -243,7 +251,9 @@ class CheckoutController extends Controller
             $loyaltyPointsEarned = $this->loyaltyProgram->resolveAccrualPoints($user, $loyaltyAccrualBase, $loyaltySetting);
         }
 
-        $deliveryTotal = $this->resolveDeliveryFee($deliveryMethod, $subtotal);
+        $deliveryCityCode = $this->resolveCityCode($deliveryMethod, $validated['delivery_city'] ?? null);
+        $deliveryQuote = $this->resolveDeliveryQuote($deliveryMethod, $subtotal, $deliveryCityCode);
+        $deliveryTotal = $deliveryQuote['fee'];
         if ($promoCode?->free_delivery) {
             $deliveryTotal = 0.0;
         }
@@ -270,6 +280,8 @@ class CheckoutController extends Controller
             $loyaltyAccrualPercent,
             $loyaltySetting,
             $deliveryTotal,
+            $deliveryCityCode,
+            $deliveryQuote,
             $orderTotal,
             $attribution,
         ): Order {
@@ -312,6 +324,13 @@ class CheckoutController extends Controller
                 'loyalty_discount_total' => $loyaltyDiscountTotal,
                 'loyalty_points_earned' => $loyaltyPointsEarned,
                 'delivery_total' => $deliveryTotal,
+                'delivery_city' => $validated['delivery_city'] ?? null,
+                'delivery_city_code' => $deliveryCityCode,
+                'delivery_address' => $validated['delivery_address'] ?? null,
+                'delivery_pickup_point_code' => $validated['delivery_pickup_point_code'] ?? null,
+                'delivery_pickup_point_address' => $validated['delivery_pickup_point_address'] ?? null,
+                'delivery_period_min' => $deliveryQuote['period_min'],
+                'delivery_period_max' => $deliveryQuote['period_max'],
                 'total' => $orderTotal,
                 'customer_name' => $validated['customer_name'],
                 'customer_email' => $validated['customer_email'],
@@ -398,15 +417,7 @@ class CheckoutController extends Controller
                     );
                 }
 
-                if ($freshUser && $loyaltyPointsEarned > 0) {
-                    $this->loyaltyProgram->applyAccrual(
-                        $freshUser,
-                        $order,
-                        $loyaltyPointsEarned,
-                        $loyaltyAccrualBase,
-                        $loyaltyAccrualPercent,
-                    );
-                }
+                // Баллы начисляются после оплаты — см. OrderObserver
             }
 
             return $order->fresh(['items', 'paymentTransactions', 'giftCertificate']);
@@ -421,6 +432,12 @@ class CheckoutController extends Controller
             'fulfillment_status' => $order->fulfillment_status,
             'refund_status' => $order->refund_status,
             'delivery_method' => $order->delivery_method,
+            'delivery_city' => $order->delivery_city,
+            'delivery_address' => $order->delivery_address,
+            'delivery_pickup_point_code' => $order->delivery_pickup_point_code,
+            'delivery_pickup_point_address' => $order->delivery_pickup_point_address,
+            'delivery_period_min' => $order->delivery_period_min !== null ? (int) $order->delivery_period_min : null,
+            'delivery_period_max' => $order->delivery_period_max !== null ? (int) $order->delivery_period_max : null,
             'payment_method' => $order->payment_method,
             'payment_transaction_status' => $order->paymentTransactions->first()?->status,
             'promo_code' => $order->promo_code,
@@ -636,6 +653,7 @@ class CheckoutController extends Controller
             'gift_certificate_id' => ['nullable', 'integer', 'exists:gift_certificates,id'],
             'loyalty_points_to_spend' => ['nullable', 'integer', 'min:0'],
             'customer_email' => ['nullable', 'email', 'max:255'],
+            'delivery_city' => ['nullable', 'string', 'max:120'],
         ]);
 
         if (
@@ -776,7 +794,9 @@ class CheckoutController extends Controller
             $loyaltyPointsEarned = $this->loyaltyProgram->resolveAccrualPoints($user, $accrualBase, $loyaltySetting);
         }
 
-        $deliveryTotal = $this->resolveDeliveryFee($deliveryMethod, $subtotal);
+        $deliveryCityCode = $this->resolveCityCode($deliveryMethod, $validated['delivery_city'] ?? null);
+        $deliveryQuote = $this->resolveDeliveryQuote($deliveryMethod, $subtotal, $deliveryCityCode);
+        $deliveryTotal = $deliveryQuote['fee'];
         if ($promoCode?->free_delivery) {
             $deliveryTotal = 0.0;
         }
@@ -788,6 +808,8 @@ class CheckoutController extends Controller
             'gift_certificate_discount_total' => $giftDiscountTotal,
             'loyalty_discount_total' => $loyaltyDiscountTotal,
             'delivery_total' => $deliveryTotal,
+            'delivery_period_min' => $deliveryQuote['period_min'],
+            'delivery_period_max' => $deliveryQuote['period_max'],
             'total' => $total,
             'currency' => $cart?->currency ?? 'RUB',
             'promo' => [
@@ -955,13 +977,53 @@ class CheckoutController extends Controller
 
     private function resolveDeliveryFee(DeliveryMethod $method, float $subtotal): float
     {
+        return $this->resolveDeliveryQuote($method, $subtotal)['fee'];
+    }
+
+    /**
+     * @return array{fee: float, period_min: ?int, period_max: ?int}
+     */
+    private function resolveDeliveryQuote(DeliveryMethod $method, float $subtotal, ?int $cityCode = null): array
+    {
         if (! $method->provider_code || ! $method->provider) {
-            return (float) $method->fee;
+            return ['fee' => (float) $method->fee, 'period_min' => null, 'period_max' => null];
         }
 
-        return $this->deliveryGateways
-            ->for($method->provider)
-            ->resolveFee($method->provider, $method, $subtotal);
+        $gateway = $this->deliveryGateways->for($method->provider);
+
+        if ($cityCode && $gateway instanceof CdekDeliveryGateway) {
+            $tariff = $gateway->calculateTariff($method->provider, $method, $cityCode);
+            if ($tariff) {
+                return [
+                    'fee' => $tariff['fee'],
+                    'period_min' => $tariff['period_min'],
+                    'period_max' => $tariff['period_max'],
+                ];
+            }
+        }
+
+        return [
+            'fee' => $gateway->resolveFee($method->provider, $method, $subtotal),
+            'period_min' => null,
+            'period_max' => null,
+        ];
+    }
+
+    private function resolveCityCode(DeliveryMethod $method, ?string $cityName): ?int
+    {
+        $cityName = trim((string) $cityName);
+
+        if ($cityName === '' || ! $method->provider_code || ! $method->provider) {
+            return null;
+        }
+
+        $gateway = $this->deliveryGateways->for($method->provider);
+
+        if (! $gateway instanceof CdekDeliveryGateway) {
+            return null;
+        }
+
+        return $gateway->findCityCode($method->provider, $cityName);
     }
 
     private function resolvePaymentMethodKind(PaymentProvider $provider): string
@@ -1583,15 +1645,7 @@ class CheckoutController extends Controller
                     );
                 }
 
-                if ($freshUser && $loyaltyPointsEarned > 0) {
-                    $this->loyaltyProgram->applyAccrual(
-                        $freshUser,
-                        $order,
-                        $loyaltyPointsEarned,
-                        $loyaltyAccrualBase,
-                        $loyaltyAccrualPercent,
-                    );
-                }
+                // Баллы начисляются после оплаты — см. OrderObserver
             }
 
             return $order->fresh(['items', 'paymentTransactions', 'giftCertificate']);
@@ -1606,6 +1660,12 @@ class CheckoutController extends Controller
             'fulfillment_status' => $order->fulfillment_status,
             'refund_status' => $order->refund_status,
             'delivery_method' => $order->delivery_method,
+            'delivery_city' => $order->delivery_city,
+            'delivery_address' => $order->delivery_address,
+            'delivery_pickup_point_code' => $order->delivery_pickup_point_code,
+            'delivery_pickup_point_address' => $order->delivery_pickup_point_address,
+            'delivery_period_min' => $order->delivery_period_min !== null ? (int) $order->delivery_period_min : null,
+            'delivery_period_max' => $order->delivery_period_max !== null ? (int) $order->delivery_period_max : null,
             'payment_method' => $order->payment_method,
             'payment_transaction_status' => $order->paymentTransactions->first()?->status,
             'promo_code' => $order->promo_code,

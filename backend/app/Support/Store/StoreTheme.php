@@ -65,8 +65,12 @@ final class StoreTheme
             'hero' => [
                 'variant' => 'overlay',
             ],
+            'marketing' => [
+                'variant' => 'grid',
+            ],
             'footer' => [
                 'tone' => 'muted',
+                'variant' => 'columns',
             ],
             'catalog' => [
                 'grid_density' => 'comfortable',
@@ -93,6 +97,8 @@ final class StoreTheme
         $merged['home']['sections'] = self::mergeHomeSections($merged['home']['sections'] ?? []);
         $merged['header'] = self::normalizeHeader($merged['header'] ?? []);
         $merged['hero'] = self::normalizeHero($merged['hero'] ?? []);
+        $merged['marketing'] = self::normalizeMarketing($merged['marketing'] ?? []);
+        $merged['footer'] = self::normalizeFooter($merged['footer'] ?? []);
 
         return $merged;
     }
@@ -110,6 +116,35 @@ final class StoreTheme
         }
 
         return ['variant' => $variant];
+    }
+
+    /**
+     * @param  array<string, mixed>  $marketing
+     * @return array{variant: string}
+     */
+    private static function normalizeMarketing(array $marketing): array
+    {
+        $allowed = ['grid', 'mosaic', 'list'];
+        $variant = $marketing['variant'] ?? 'grid';
+
+        return ['variant' => in_array($variant, $allowed, true) ? $variant : 'grid'];
+    }
+
+    /**
+     * @param  array<string, mixed>  $footer
+     * @return array{tone: string, variant: string}
+     */
+    private static function normalizeFooter(array $footer): array
+    {
+        $allowedTones = ['light', 'muted', 'dark'];
+        $allowedVariants = ['columns', 'minimal', 'centered'];
+        $tone = $footer['tone'] ?? 'muted';
+        $variant = $footer['variant'] ?? 'columns';
+
+        return [
+            'tone' => in_array($tone, $allowedTones, true) ? $tone : 'muted',
+            'variant' => in_array($variant, $allowedVariants, true) ? $variant : 'columns',
+        ];
     }
 
     /**

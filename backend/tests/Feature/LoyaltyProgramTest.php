@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\LoyaltyProgramSetting;
+use App\Models\Order;
 use App\Models\User;
 use Database\Seeders\ShopDemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -97,10 +98,23 @@ class LoyaltyProgramTest extends TestCase
         $checkout->assertJsonPath('loyalty_points_earned', 449);
         $checkout->assertJsonPath('total', 9480);
 
+        // Списание баллов применяется сразу при оформлении заказа.
+        $user->refresh();
+        $this->assertSame(0, (int) $user->loyalty_points_balance);
+        $this->assertSame(0.0, (float) $user->loyalty_total_spent);
+        $this->assertDatabaseCount('loyalty_transactions', 1);
+
+        // Начисление баллов происходит только при выполнении заказа.
+        $order = Order::query()->where('order_number', $checkout->json('order_number'))->firstOrFail();
+        $order->update([
+            'order_status' => 'completed',
+            'fulfillment_status' => 'delivered',
+            'payment_status' => 'paid',
+        ]);
+
         $user->refresh();
         $this->assertSame(449, (int) $user->loyalty_points_balance);
         $this->assertSame(8990.0, (float) $user->loyalty_total_spent);
-
         $this->assertDatabaseCount('loyalty_transactions', 2);
     }
 

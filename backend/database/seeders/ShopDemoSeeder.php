@@ -63,14 +63,22 @@ class ShopDemoSeeder extends Seeder
                 'name' => 'CDEK',
                 'driver' => 'cdek',
                 'mode' => 'sandbox',
-                'is_active' => false,
+                'is_active' => true,
                 'is_default' => false,
                 'supports_pickup_points' => true,
                 'supports_tracking' => true,
                 'sort_order' => 2,
                 'config' => [
+                    // Mock-режим: реалистичные тестовые ответы вместо реального API СДЭК.
+                    // Когда появятся настоящие client_id/client_secret из ЛК СДЭК
+                    // (вкладка «Интеграция» → «Создать новый аккаунт»,
+                    // тестовый контур api.edu.cdek.ru) — задать 'mock' => false
+                    // и заполнить account/secure_password.
+                    'mock' => true,
                     'account' => 'demo-account',
                     'secure_password' => 'demo-password',
+                    // Код города отправления (СДЭК location code), Москва = 44 по умолчанию
+                    'from_city_code' => 44,
                 ],
             ],
         );
@@ -105,6 +113,24 @@ class ShopDemoSeeder extends Seeder
                 'config' => [
                     'merchant_login' => 'demo-merchant',
                     'merchant_password' => 'demo-password',
+                ],
+            ],
+        );
+
+        PaymentProvider::query()->updateOrCreate(
+            ['code' => 'robokassa'],
+            [
+                'name'           => 'Робокасса',
+                'checkout_label' => 'Оплата картой (Робокасса)',
+                'driver'         => 'robokassa',
+                'mode'           => 'sandbox',
+                'is_active'      => true,
+                'is_default'     => true,
+                'sort_order'     => 1,
+                'config'         => [
+                    'merchant_login' => env('ROBOKASSA_MERCHANT_LOGIN', ''),
+                    'password1'      => env('ROBOKASSA_PASSWORD1', ''),
+                    'password2'      => env('ROBOKASSA_PASSWORD2', ''),
                 ],
             ],
         );
@@ -465,6 +491,7 @@ HTML,
                 'is_customer_choice' => true,
                 'sort_order' => 1,
                 'image_url' => 'https://images.unsplash.com/photo-1543508282-6319a3e2621f?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1460353581641-37baddab0fa2?auto=format&fit=crop&w=1200&q=80',
                 'additional_category_slugs' => ['road-running'],
             ],
             [
@@ -486,6 +513,7 @@ HTML,
                 'is_customer_choice' => false,
                 'sort_order' => 2,
                 'image_url' => 'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80',
             ],
             [
                 'name' => 'Neon Track X',
@@ -504,6 +532,7 @@ HTML,
                 'is_customer_choice' => true,
                 'sort_order' => 3,
                 'image_url' => 'https://images.unsplash.com/photo-1515955656352-a1fa3ffcd111?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?auto=format&fit=crop&w=1200&q=80',
             ],
             [
                 'name' => 'Vault Signature',
@@ -524,6 +553,7 @@ HTML,
                 'is_customer_choice' => false,
                 'sort_order' => 4,
                 'image_url' => 'https://images.unsplash.com/photo-1607522370275-f14206abe5d3?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1525966222134-fcfa99b8ae77?auto=format&fit=crop&w=1200&q=80',
             ],
             [
                 'name' => 'Cloud Step V2',
@@ -542,6 +572,7 @@ HTML,
                 'is_customer_choice' => true,
                 'sort_order' => 5,
                 'image_url' => 'https://images.unsplash.com/photo-1605348532760-6753d2c43329?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=1200&q=80',
             ],
             [
                 'name' => 'Sprint Form Pro',
@@ -560,6 +591,7 @@ HTML,
                 'is_customer_choice' => true,
                 'sort_order' => 6,
                 'image_url' => 'https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1515955656352-a1fa3ffcd111?auto=format&fit=crop&w=1200&q=80',
             ],
             [
                 'name' => 'Metro Glide',
@@ -578,6 +610,7 @@ HTML,
                 'is_customer_choice' => false,
                 'sort_order' => 7,
                 'image_url' => 'https://images.unsplash.com/photo-1525966222134-fcfa99b8ae77?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1607522370275-f14206abe5d3?auto=format&fit=crop&w=1200&q=80',
             ],
             [
                 'name' => 'Daily Ease',
@@ -596,6 +629,7 @@ HTML,
                 'is_customer_choice' => true,
                 'sort_order' => 8,
                 'image_url' => 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1605348532760-6753d2c43329?auto=format&fit=crop&w=1200&q=80',
             ],
             [
                 'name' => 'Road Tempo Elite',
@@ -616,6 +650,7 @@ HTML,
                 'is_customer_choice' => true,
                 'sort_order' => 9,
                 'image_url' => 'https://images.unsplash.com/photo-1460353581641-37baddab0fa2?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1543508282-6319a3e2621f?auto=format&fit=crop&w=1200&q=80',
             ],
             [
                 'name' => 'Trail Ridge GTX',
@@ -634,6 +669,7 @@ HTML,
                 'is_customer_choice' => false,
                 'sort_order' => 10,
                 'image_url' => 'https://images.unsplash.com/photo-1543508282-6319a3e2621f?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?auto=format&fit=crop&w=1200&q=80',
             ],
             [
                 'name' => 'Block Tone High',
@@ -652,6 +688,7 @@ HTML,
                 'is_customer_choice' => true,
                 'sort_order' => 11,
                 'image_url' => 'https://images.unsplash.com/photo-1515955656352-a1fa3ffcd111?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=1200&q=80',
             ],
             [
                 'name' => 'Archive Reserve',
@@ -670,6 +707,7 @@ HTML,
                 'is_customer_choice' => false,
                 'sort_order' => 12,
                 'image_url' => 'https://images.unsplash.com/photo-1607522370275-f14206abe5d3?auto=format&fit=crop&w=1200&q=80',
+                'hover_image_url' => 'https://images.unsplash.com/photo-1460353581641-37baddab0fa2?auto=format&fit=crop&w=1200&q=80',
                 'additional_category_slugs' => ['premium'],
             ],
         ];
@@ -771,6 +809,20 @@ HTML,
                     'sort_order' => 1,
                 ],
             );
+
+            if (! empty($item['hover_image_url'])) {
+                ProductImage::query()->firstOrCreate(
+                    [
+                        'product_id' => $product->id,
+                        'url' => $item['hover_image_url'],
+                    ],
+                    [
+                        'alt' => $item['name'],
+                        'is_cover' => false,
+                        'sort_order' => 2,
+                    ],
+                );
+            }
 
             $variantBlueprints = match ($item['slug']) {
                 'cloud-step-v2' => [

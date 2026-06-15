@@ -10,6 +10,7 @@ use App\Support\Delivery\Gateways\CdekDeliveryGateway;
 use App\Support\Delivery\Gateways\ManualDeliveryGateway;
 use App\Support\Payments\Contracts\PaymentGateway;
 use App\Support\Payments\Gateways\ManualCashPaymentGateway;
+use App\Support\Payments\Gateways\RobokassaPaymentGateway;
 use App\Support\Payments\Gateways\SberPaymentGateway;
 use App\Support\Payments\Gateways\TBankPaymentGateway;
 use App\Support\Payments\PaymentGatewayRegistry;
@@ -33,6 +34,7 @@ class AppServiceProvider extends ServiceProvider
             return new PaymentGatewayRegistry([
                 $this->app->make(TBankPaymentGateway::class),
                 $this->app->make(SberPaymentGateway::class),
+                $this->app->make(RobokassaPaymentGateway::class),
                 $this->app->make(ManualCashPaymentGateway::class),
             ]);
         });

@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\NewsController;
 use App\Http\Controllers\Api\NewsletterSubscriptionController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PaymentWebhookController;
+use App\Http\Controllers\Api\RobokassaWebhookController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProductReviewController;
 use App\Http\Controllers\Api\ServicePageController;
@@ -94,6 +95,12 @@ Route::post('/checkout', [CheckoutController::class, 'store'])
 
 Route::post('/payments/webhooks/{providerCode}', [PaymentWebhookController::class, 'store'])
     ->middleware('throttle:webhooks');
+
+// Робокасса: отдельные маршруты (ResultURL возвращает plain-text "OK{InvId}", а не JSON)
+Route::post('/payments/robokassa/result', [RobokassaWebhookController::class, 'result'])
+    ->middleware('throttle:webhooks');
+Route::get('/payments/robokassa/success', [RobokassaWebhookController::class, 'success']);
+Route::get('/payments/robokassa/fail', [RobokassaWebhookController::class, 'fail']);
 
 Route::post('/auth/register', [AuthController::class, 'register'])
     ->middleware('throttle:auth-register');

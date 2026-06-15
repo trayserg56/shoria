@@ -183,11 +183,30 @@ class ThemeEditorPage extends Page
                             ]),
                         Tab::make('Подвал')
                             ->schema([
+                                VariantPicker::make('footer.variant')
+                                    ->label('Вариант футера')
+                                    ->variants([
+                                        'columns' => [
+                                            'label' => 'Колонки',
+                                            'description' => '4 колонки: бренд, меню, аккаунт, контакты',
+                                            'preview' => 'footer-columns',
+                                        ],
+                                        'minimal' => [
+                                            'label' => 'Минимальный',
+                                            'description' => 'Одна строка: лого, ссылки и копирайт',
+                                            'preview' => 'footer-minimal',
+                                        ],
+                                        'centered' => [
+                                            'label' => 'Центрированный',
+                                            'description' => 'Лого и ссылки по центру, копирайт снизу',
+                                            'preview' => 'footer-centered',
+                                        ],
+                                    ]),
                                 Forms\Components\Select::make('footer.tone')
                                     ->label('Тон подвала')
                                     ->options([
                                         'light' => 'Светлый',
-                                        'muted' => 'Нейтральный (как по умолчанию)',
+                                        'muted' => 'Нейтральный',
                                         'dark' => 'Тёмный',
                                     ])
                                     ->required()
@@ -209,6 +228,28 @@ class ThemeEditorPage extends Page
                                                     'label' => 'Сплит',
                                                     'description' => 'Текст слева на белом фоне, картинка справа',
                                                     'preview' => 'hero-split',
+                                                ],
+                                            ]),
+                                    ]),
+                                Section::make('Подборки и акции (баннеры)')
+                                    ->schema([
+                                        VariantPicker::make('marketing.variant')
+                                            ->label('Вариант блока подборок')
+                                            ->variants([
+                                                'grid' => [
+                                                    'label' => 'Сетка',
+                                                    'description' => 'Равные карточки, 3 в ряд',
+                                                    'preview' => 'marketing-grid',
+                                                ],
+                                                'mosaic' => [
+                                                    'label' => 'Мозаика',
+                                                    'description' => 'Первая карточка большая, остальные мелкие',
+                                                    'preview' => 'marketing-mosaic',
+                                                ],
+                                                'list' => [
+                                                    'label' => 'Список',
+                                                    'description' => 'Горизонтальные карточки с текстом сбоку',
+                                                    'preview' => 'marketing-list',
                                                 ],
                                             ]),
                                     ]),

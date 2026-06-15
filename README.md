@@ -1043,10 +1043,63 @@ JS API v3 требует заполненного поля **«Ограниче�
   - CloudPayments API: https://developers.cloudpayments.ru/
   - Sber API (обзор/документация): https://developers.sber.ru/docs/ru/sber-api/overview
 
+## Деплой клиентам (операционная модель — разовая продажа)
+
+Принятая модель продажи: **разовая установка** — клиент платит один раз, получает магазин на своём VPS. Продавец (мы) сохраняет SSH-доступ для обновлений и правок.
+
+### Концепция «2 команды»
+
+```bash
+# 1. Развернуть новый магазин клиента
+make deploy-client CLIENT=shop1 SERVER=user@1.2.3.4 DOMAIN=shop.ru
+
+# 2. Обновить существующий
+make update-client CLIENT=shop1
+```
+
+### Скрипты (создать в `ops/`)
+
+**`ops/deploy-client.sh`** — полный provisioning с нуля:
+1. SSH на сервер клиента
+2. Установка Docker + Docker Compose (если нет)
+3. Клонирование репозитория в `/opt/shoria-{client}`
+4. Копирование `ops/clients/{client}.env`
+5. `docker compose up -d --build`
+6. `php artisan migrate --force && php artisan db:seed`
+7. Настройка Nginx + SSL (Let's Encrypt / certbot)
+8. Добавление нашего SSH-ключа в `~/.ssh/authorized_keys` для будущих обновлений
+
+**`ops/update-client.sh`** — обновление существующего:
+- `git pull` + `docker compose up -d` + `php artisan migrate`
+
+**`ops/clients/example.env`** — шаблон конфига клиента:
+```env
+CLIENT_NAME=example
+DOMAIN=shop.example.ru
+APP_NAME="Example Shop"
+ADMIN_EMAIL=admin@example.ru
+ADMIN_PASSWORD=...
+DB_PASSWORD=...
+```
+
+### Makefile targets (добавить)
+```makefile
+deploy-client   ## make deploy-client CLIENT=name SERVER=user@ip DOMAIN=domain.ru
+update-client   ## make update-client CLIENT=name
+list-clients    ## Показать список клиентов в ops/clients/
+```
+
+### Доступ для обновлений
+- Наш публичный SSH-ключ добавляется на сервер клиента при деплое
+- Фиксируется в договоре: «техническая поддержка и право на обновление»
+- Инструмент: кастомный bash + SSH (без внешних зависимостей); Kamal — альтернатива при масштабировании
+
+---
+
 ## Текущий статус (июнь 2026)
 
 - **Направление:** один сильный **демо-магазин** с переходом к **SaaS/white-label** (см. «Продуктовая стратегия»).
-- **По спринтам:** закрыты **1–14**; **15, 17 и 19** частично выполнены. **Sprint 22** в работе (Блок A + CommerceML 2 реализованы, Блоки B/C и REST API — следующий этап). **Sprint 20 (Hardening)** почти готов (остался slow-request log). **Sprint 21 (UX)** частично. Блоки **15b / 16–19** временно **отложены**.
+- **По спринтам:** закрыты **1–14**; **15, 17 и 19** частично выполнены. **Sprint 22** в работе (Блок A + CommerceML 2 реализованы, Блоки B/C и REST API — следующий этап). **Sprint 20 (Hardening)** закрыт полностью. **Sprint 21 (UX)** частично. Блоки **15b / 16–19** временно **отложены**.
 - **Референс-витрина:** [premier-demo.ru](https://premier-demo.ru/) — ориентир по UX, функционалу и дизайну витрины.
 - **Последние крупные правки:** **«Обновления (12 июня 2026)»** (Sprint 22: склады, цены, CommerceML 2 обмен с 1С, тестовые XML); перед этим — **«Обновления (10 июня 2026)»** (DaData, карта ПВЗ СДЭК на Яндекс.Картах v3); **«Обновления (9–10 июня 2026)»** (режимы каталога, Яндекс OAuth, YML-фид, варианты темы).
 - Длинный перечень ниже (**«Архив развития…»**) — это **хронология накопленного функционала на отметке 21 апреля 2026**, а не актуальная дата «готовности» проекта; не путать с майским состоянием.

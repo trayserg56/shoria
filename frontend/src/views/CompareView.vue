@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink } from 'vue-router'
 import { ShoppingCart, Trash2, X, ArrowLeft, Star, CheckCircle2 } from 'lucide-vue-next'
@@ -8,6 +8,23 @@ import { toast } from '@/lib/toast'
 import { toProductRoute } from '@/lib/product-route'
 import { useCompareStore } from '@/stores/compare'
 import { useCartStore } from '@/stores/cart'
+import { fetchJson } from '@/lib/api'
+
+type ProductCharacteristic = {
+  group: string | null
+  name: string
+  values: string[]
+}
+
+type ProductDetail = {
+  slug: string
+  sku: string | null
+  characteristics: ProductCharacteristic[]
+}
+
+// Загруженные детали товаров (характеристики, артикул)
+const productDetails = ref<Record<string, ProductDetail>>({})
+const detailsLoading = ref(false)
 
 const compareStore = useCompareStore()
 const { items: compareItems } = storeToRefs(compareStore)
@@ -63,17 +80,64 @@ type CompareRow = {
   render: (item: (typeof compareItems.value)[0]) => string | null
 }
 
+// Базовые строки из данных карточки
 const compareRows: CompareRow[] = [
   { label: 'Категория', key: 'category', render: (i) => i.category?.name ?? null },
   { label: 'Бренд', key: 'brand', render: (i) => i.brand ?? null },
+  { label: 'Цена', key: 'price', render: (i) => new Intl.NumberFormat('ru-RU', { style: 'currency', currency: i.currency, maximumFractionDigits: 0 }).format(i.price) },
   { label: 'В наличии', key: 'stock', render: (i) => i.stock > 0 ? `${i.stock} шт.` : 'Нет в наличии' },
   { label: 'Рейтинг', key: 'rating', render: (i) => i.reviews_summary?.average != null ? `${i.reviews_summary.average} / 5 (${i.reviews_summary.count} отзывов)` : null },
   { label: 'Метки', key: 'tags', render: (i) => i.tags?.length ? i.tags.map((t) => t.label).join(', ') : null },
 ]
 
-function rowHasAnyValue(row: CompareRow): boolean {
+// Динамические строки из характеристик — все уникальные name по всем товарам
+const characteristicRows = computed(() => {
+  const names = new Map<string, string>() // key → label (name)
+  for (const item of compareItems.value) {
+    const chars = productDetails.value[item.slug]?.characteristics ?? []
+    for (const c of chars) {
+      const key = `char__${c.name}`
+      if (!names.has(key)) names.set(key, c.name)
+    }
+  }
+  return Array.from(names.entries()).map(([key, name]) => ({
+    key,
+    label: name,
+    render: (item: (typeof compareItems.value)[0]) => {
+      const chars = productDetails.value[item.slug]?.characteristics ?? []
+      const found = chars.find((c) => c.name === name)
+      return found ? found.values.join(', ') : null
+    },
+  }))
+})
+
+// Артикул — отдельно
+const skuRow = computed(() => ({
+  label: 'Артикул',
+  key: 'sku',
+  render: (item: (typeof compareItems.value)[0]) => productDetails.value[item.slug]?.sku ?? null,
+}))
+
+function rowHasAnyValue(row: { render: (i: (typeof compareItems.value)[0]) => string | null }): boolean {
   return compareItems.value.some((item) => row.render(item) !== null)
 }
+
+async function loadDetails() {
+  detailsLoading.value = true
+  const slugs = compareItems.value.map((i) => i.slug).filter((s) => !productDetails.value[s])
+  await Promise.all(
+    slugs.map(async (slug) => {
+      try {
+        const d = await fetchJson<ProductDetail>(`/api/products/${slug}`)
+        productDetails.value[slug] = d
+      } catch { /* тихо */ }
+    }),
+  )
+  detailsLoading.value = false
+}
+
+onMounted(() => loadDetails())
+watch(() => compareItems.value.map((i) => i.slug).join(','), () => loadDetails())
 
 // Подсветка лучшей цены
 function isBestPrice(item: (typeof compareItems.value)[0]): boolean {
@@ -202,19 +266,46 @@ function isBestPrice(item: (typeof compareItems.value)[0]): boolean {
 
           <!-- Строки характеристик -->
           <tbody>
+            <!-- Базовые: категория, бренд, цена, наличие, рейтинг, метки -->
             <template v-for="row in compareRows" :key="row.key">
               <tr v-if="rowHasAnyValue(row)" class="cmp-row">
                 <td class="cmp-label">{{ row.label }}</td>
-                <td
-                  v-for="item in compareItems"
-                  :key="`${row.key}-${item.id}`"
-                  class="cmp-cell"
-                >
+                <td v-for="item in compareItems" :key="`${row.key}-${item.id}`" class="cmp-cell">
                   <span v-if="row.render(item)">{{ row.render(item) }}</span>
                   <span v-else class="cmp-cell--empty">—</span>
                 </td>
               </tr>
             </template>
+
+            <!-- Артикул -->
+            <tr v-if="rowHasAnyValue(skuRow)" class="cmp-row">
+              <td class="cmp-label">{{ skuRow.label }}</td>
+              <td v-for="item in compareItems" :key="`sku-${item.id}`" class="cmp-cell">
+                <span v-if="skuRow.render(item)">{{ skuRow.render(item) }}</span>
+                <span v-else class="cmp-cell--empty">—</span>
+              </td>
+            </tr>
+
+            <!-- Разделитель перед характеристиками -->
+            <tr v-if="characteristicRows.length" class="cmp-row cmp-row--group-header">
+              <td :colspan="compareItems.length + 1" class="cmp-group-label">Характеристики</td>
+            </tr>
+
+            <!-- Динамические характеристики -->
+            <template v-for="row in characteristicRows" :key="row.key">
+              <tr v-if="rowHasAnyValue(row)" class="cmp-row">
+                <td class="cmp-label">{{ row.label }}</td>
+                <td v-for="item in compareItems" :key="`${row.key}-${item.id}`" class="cmp-cell">
+                  <span v-if="row.render(item)">{{ row.render(item) }}</span>
+                  <span v-else class="cmp-cell--empty">—</span>
+                </td>
+              </tr>
+            </template>
+
+            <!-- Лоадер пока грузятся характеристики -->
+            <tr v-if="detailsLoading" class="cmp-row">
+              <td :colspan="compareItems.length + 1" class="cmp-loading">Загружаем характеристики…</td>
+            </tr>
           </tbody>
 
         </table>
@@ -371,6 +462,24 @@ function isBestPrice(item: (typeof compareItems.value)[0]): boolean {
   border-bottom: 1px solid var(--border);
 }
 .cmp-row:last-child { border-bottom: none; }
+
+.cmp-row--group-header td {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted), transparent 20%);
+  border-top: 2px solid var(--border);
+}
+
+.cmp-loading td {
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
 
 /* Чётные строки — лёгкий фон */
 tbody .cmp-row:nth-child(even) .cmp-cell,

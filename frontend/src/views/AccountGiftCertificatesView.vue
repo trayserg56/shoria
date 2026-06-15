@@ -14,6 +14,8 @@ const router = useRouter()
 
 const isLoading = ref(false)
 const isBuying = ref(false)
+const isPayingOrder = ref<string | null>(null)  // order_number заказа, по которому идёт редирект
+
 const myCertificates = ref<
   Array<{
     id: number
@@ -24,6 +26,16 @@ const myCertificates = ref<
     status: string
     expires_at: string | null
     created_at: string | null
+  }>
+>([])
+
+const pendingCertOrders = ref<
+  Array<{
+    order_number: string
+    total: number
+    currency: string
+    payment_status: string
+    placed_at: string | null
   }>
 >([])
 
@@ -103,8 +115,10 @@ async function loadCertificates() {
 
     const response = await requestJson<{
       data: typeof myCertificates.value
+      pending_orders: typeof pendingCertOrders.value
     }>('/api/me/gift-certificates?include_used=1')
     myCertificates.value = response.data
+    pendingCertOrders.value = response.pending_orders ?? []
   } catch (error) {
     console.error(error)
     toast.error('Не удалось загрузить сертификаты')
@@ -148,10 +162,28 @@ async function buyCertificate() {
       params: { orderNumber: order.order_number },
     })
   } catch (error) {
-    console.error(error)
-    toast.error('Не удалось оформить покупку сертификата')
+    const msg = error instanceof Error ? error.message : 'Не удалось оформить покупку сертификата'
+    toast.error(msg)
   } finally {
     isBuying.value = false
+  }
+}
+
+async function payOrder(orderNumber: string) {
+  isPayingOrder.value = orderNumber
+  try {
+    const result = await requestJson<{ payment_url: string | null; order_number: string }>(
+      `/api/orders/${orderNumber}/payment-url`,
+    )
+    if (result.payment_url) {
+      window.location.href = result.payment_url
+    } else {
+      toast.error('Ссылка на оплату недоступна. Свяжитесь с поддержкой.')
+    }
+  } catch {
+    toast.error('Не удалось получить ссылку на оплату')
+  } finally {
+    isPayingOrder.value = null
   }
 }
 
@@ -168,6 +200,33 @@ onMounted(() => {
         <p>Купить номинал или использовать уже привязанные к аккаунту в корзине.</p>
       </div>
     </div>
+
+    <!-- Ожидающие оплаты заказы на сертификаты -->
+    <article v-if="pendingCertOrders.length > 0" class="card card--pending">
+      <h3 class="card__title">Ожидают оплаты</h3>
+      <p class="card__hint">После оплаты сертификат появится в разделе «Ваши сертификаты».</p>
+      <ul class="pending-list">
+        <li v-for="order in pendingCertOrders" :key="order.order_number" class="pending-list__item">
+          <div class="pending-list__info">
+            <span class="pending-list__amount">{{ formatPrice(order.total) }}</span>
+            <span class="pending-list__meta">
+              Заказ {{ order.order_number }}
+              <template v-if="order.placed_at">
+                · {{ new Date(order.placed_at).toLocaleDateString('ru-RU') }}
+              </template>
+            </span>
+          </div>
+          <button
+            type="button"
+            class="pay-btn"
+            :disabled="isPayingOrder === order.order_number"
+            @click="payOrder(order.order_number)"
+          >
+            {{ isPayingOrder === order.order_number ? 'Переходим…' : 'Оплатить' }}
+          </button>
+        </li>
+      </ul>
+    </article>
 
     <div v-if="isLoading" class="card card--skeleton">
       <AppSkeleton width="200px" height="24px" />
@@ -492,4 +551,65 @@ onMounted(() => {
 .card--skeleton {
   min-height: 120px;
 }
+
+/* ── Ожидающие оплаты ─────────────────────────────────────────────── */
+.card--pending {
+  border-color: color-mix(in srgb, #f59e0b, transparent 60%);
+  background: color-mix(in srgb, #fef3c7, transparent 30%);
+}
+
+.pending-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pending-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, #f59e0b, transparent 55%);
+  flex-wrap: wrap;
+}
+
+.pending-list__info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pending-list__amount {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.pending-list__meta {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.pay-btn {
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: none;
+  background: #f59e0b;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.pay-btn:hover { opacity: 0.88; }
+.pay-btn:disabled { opacity: 0.55; cursor: default; }
 </style>

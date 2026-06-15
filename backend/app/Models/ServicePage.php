@@ -15,6 +15,7 @@ class ServicePage extends Model
         'slug',
         'excerpt',
         'content',
+        'blocks',
         'seo_title',
         'seo_description',
         'is_active',
@@ -24,6 +25,7 @@ class ServicePage extends Model
     ];
 
     protected $casts = [
+        'blocks' => 'array',
         'is_active' => 'boolean',
         'show_in_header' => 'boolean',
         'show_in_footer' => 'boolean',

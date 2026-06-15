@@ -15,6 +15,16 @@
   --layout-account-max-width: 1280px;
 }
 
+html.dark {
+  --color-background: #0f1117;
+  --color-text: #f0f0f2;
+  --color-text-soft: #8b8fa8;
+  --card-bg: #1a1d27;
+  --header-strip-bg: #131622;
+  --header-border: #2a2e42;
+  color-scheme: dark;
+}
+
 html {
   /* Не даём браузеру «удерживать» невидимый якорь при смене высоты страницы (главная: скелетон → контент). */
   overflow-anchor: none;

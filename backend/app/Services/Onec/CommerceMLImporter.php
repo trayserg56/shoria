@@ -10,6 +10,7 @@ use App\Models\ProductImage;
 use App\Models\ProductVariant;
 use App\Models\Warehouse;
 use App\Services\Stock\StockService;
+use App\Support\ProductCharacteristics;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use SimpleXMLElement;
@@ -40,6 +41,9 @@ class CommerceMLImporter
 
             $counts = ['created' => 0, 'updated' => 0, 'skipped' => 0];
 
+            // Строим карту свойств: id → ['name' => ..., 'group' => ...]
+            $propertyMap = $this->buildPropertyMap($xml);
+
             // Импорт категорий
             foreach ($xml->Классификатор->Группы->Группа ?? [] as $group) {
                 $this->importCategory($group, null, $counts);
@@ -47,7 +51,7 @@ class CommerceMLImporter
 
             // Импорт товаров
             foreach ($xml->Каталог->Товары->Товар ?? [] as $item) {
-                $this->importProduct($item, $counts);
+                $this->importProduct($item, $counts, $propertyMap);
             }
 
             $session->markSuccess([
@@ -132,7 +136,21 @@ class CommerceMLImporter
         }
     }
 
-    private function importProduct(SimpleXMLElement $item, array &$counts): void
+    private function buildPropertyMap(SimpleXMLElement $xml): array
+    {
+        $map = [];
+        foreach ($xml->Классификатор->Свойства->Свойство ?? [] as $prop) {
+            $id = (string) $prop->Ид;
+            $name = (string) $prop->Наименование;
+            $group = (string) ($prop->Группа ?? 'Общие характеристики');
+            if ($id && $name) {
+                $map[$id] = ['name' => $name, 'group' => $group ?: 'Общие характеристики'];
+            }
+        }
+        return $map;
+    }
+
+    private function importProduct(SimpleXMLElement $item, array &$counts, array $propertyMap = []): void
     {
         $externalId = (string) $item->Ид;
         $name = (string) $item->Наименование;
@@ -197,12 +215,46 @@ class CommerceMLImporter
         // Изображения
         $this->importProductImages($product, $item);
 
-        // Характеристики / варианты
+        // Свойства товара → characteristics JSON
+        $this->importProductProperties($product, $item, $propertyMap);
+
+        // Варианты (размеры / цвета)
         foreach ($item->ХарактеристикиТовара->ХарактеристикаТовара ?? [] as $char) {
             $this->importVariant($product, $char, $counts);
         }
 
         $isNew ? $counts['created']++ : $counts['updated']++;
+    }
+
+    private function importProductProperties(Product $product, SimpleXMLElement $item, array $propertyMap): void
+    {
+        $rows = [];
+
+        foreach ($item->ЗначенияСвойств->ЗначениеСвойства ?? [] as $propValue) {
+            $propId = (string) $propValue->Ид;
+            $value = trim((string) $propValue->Значение);
+
+            if (! $propId || $value === '') {
+                continue;
+            }
+
+            $meta = $propertyMap[$propId] ?? ['name' => $propId, 'group' => 'Характеристики'];
+
+            // Разбиваем значения через " / " — так же как expandForStorage,
+            // чтобы whereJsonContains в фильтре каталога работал корректно
+            foreach (ProductCharacteristics::splitSlashJoinedList($value) as $piece) {
+                $rows[] = [
+                    'group' => $meta['group'],
+                    'name' => $meta['name'],
+                    'value' => $piece,
+                ];
+            }
+        }
+
+        if (! empty($rows)) {
+            $product->characteristics = $rows;
+            $product->saveQuietly();
+        }
     }
 
     private function importProductImages(Product $product, SimpleXMLElement $item): void

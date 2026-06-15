@@ -109,6 +109,13 @@ type NewsletterSubscribeResponse = {
   message: string
 }
 
+type StoreStats = {
+  products_count: number
+  brands_count: number
+  orders_count: number
+  rating_avg: number | null
+}
+
 const fallbackBanner: Banner = {
   title: 'Shoria Spring Drop',
   subtitle: 'Текущая версия витрины загружена в демо-режиме, API подключается автоматически.',
@@ -139,6 +146,7 @@ const recentSlider = ref<HTMLElement | null>(null)
 const brandsSlider = ref<HTMLElement | null>(null)
 const heroActiveIndex = ref(0)
 const brands = ref<Brand[]>([])
+const storeStats = ref<StoreStats | null>(null)
 const selectedFeaturedTagFilter = ref<'untagged' | string>('untagged')
 
 const siteSettingsRef = inject(siteSettingsInjectionKey) as Ref<SiteSettingsPayload> | undefined
@@ -148,6 +156,10 @@ function homeSectionOn(key: string): boolean {
 }
 
 const heroVariant = computed(() => siteSettingsRef?.value?.theme?.hero?.variant ?? 'overlay')
+const marketingVariant = computed(() => siteSettingsRef?.value?.theme?.marketing?.variant ?? 'grid')
+
+// Ровно 2 ряда: 10 на десктопе (5×2), не больше
+const homeCategories = computed(() => state.value.categories.slice(0, 10))
 
 const FEATURED_TAG_ORDER = ['hit', 'new', 'customer_choice'] as const
 
@@ -390,10 +402,18 @@ async function loadHome(retry = true) {
 async function loadBrands() {
   try {
     const payload = await fetchJson<Brand[]>('/api/brands')
-    brands.value = payload.slice(0, 8)
+    brands.value = payload.slice(0, 10)
   } catch (error) {
     console.error(error)
     brands.value = []
+  }
+}
+
+async function loadStats() {
+  try {
+    storeStats.value = await fetchJson<StoreStats>('/api/stats')
+  } catch {
+    storeStats.value = null
   }
 }
 
@@ -403,11 +423,9 @@ onMounted(async () => {
   await Promise.all([
     loadHome(),
     loadBrands(),
+    loadStats(),
   ])
   isLoading.value = false
-  await nextTick()
-  window.scrollTo(0, 0)
-  requestAnimationFrame(() => window.scrollTo(0, 0))
 })
 
 async function subscribeToNewsletter() {
@@ -455,24 +473,15 @@ async function subscribeToNewsletter() {
   <main class="home">
     <template v-if="isLoading">
       <section v-if="homeSectionOn('hero')" class="home-hero home-hero--skeleton" aria-hidden="true">
-        <AppSkeleton class="home-hero__skeleton-plate" width="100%" height="clamp(380px, 52vh, 520px)" radius="0" />
+        <AppSkeleton class="home-hero__skeleton-plate" width="100%" height="calc(100svh - var(--header-h, 118px))" radius="0" />
       </section>
 
       <div class="home__container">
-      <section v-if="homeSectionOn('trust')" class="trust trust--skeleton">
-        <article v-for="index in 4" :key="`trust-skeleton-${index}`" class="trust-card trust-card--skeleton">
-          <AppSkeleton width="42%" height="18px" />
-          <AppSkeleton width="100%" height="14px" />
-          <AppSkeleton width="82%" height="14px" />
+      <section v-if="homeSectionOn('trust')" class="stats stats--skeleton">
+        <article v-for="index in 4" :key="`stats-skeleton-${index}`" class="stats-card">
+          <AppSkeleton width="70%" height="42px" />
+          <AppSkeleton width="55%" height="18px" />
         </article>
-      </section>
-
-      <section v-if="homeSectionOn('marketing')" class="section marketing marketing--skeleton" aria-hidden="true">
-        <div class="marketing__grid">
-          <article v-for="index in 3" :key="`mkt-skeleton-${index}`" class="marketing-card marketing-card--skeleton">
-            <AppSkeleton width="100%" height="100%" radius="20px" />
-          </article>
-        </div>
       </section>
 
       <section v-if="homeSectionOn('categories')" class="section">
@@ -482,7 +491,9 @@ async function subscribeToNewsletter() {
         </header>
         <div class="category-grid">
           <article v-for="index in 4" :key="`category-skeleton-${index}`" class="card category-card category-card--skeleton">
-            <AppSkeleton width="100%" height="180px" radius="22px 22px 0 0" />
+            <div class="skeleton-aspect skeleton-aspect--4-3">
+              <AppSkeleton width="100%" height="100%" radius="0" />
+            </div>
             <div class="card__content">
               <AppSkeleton width="48%" height="20px" />
             </div>
@@ -523,6 +534,14 @@ async function subscribeToNewsletter() {
         </div>
       </section>
 
+      <section v-if="homeSectionOn('marketing')" class="section marketing marketing--skeleton" aria-hidden="true">
+        <div class="marketing__grid">
+          <article v-for="index in 3" :key="`mkt-skeleton-${index}`" class="marketing-card marketing-card--skeleton">
+            <AppSkeleton width="100%" height="100%" radius="20px" />
+          </article>
+        </div>
+      </section>
+
       <section v-if="homeSectionOn('news')" class="section">
         <header class="section__header">
           <AppSkeleton width="220px" height="32px" />
@@ -530,7 +549,9 @@ async function subscribeToNewsletter() {
         </header>
         <div class="news-grid">
           <article v-for="index in 3" :key="`news-skeleton-${index}`" class="card news-card">
-            <AppSkeleton width="100%" height="220px" radius="24px 24px 0 0" />
+            <div class="skeleton-aspect skeleton-aspect--16-10">
+              <AppSkeleton width="100%" height="100%" radius="0" />
+            </div>
             <div class="card__content">
               <AppSkeleton width="24%" height="14px" />
               <AppSkeleton width="72%" height="24px" />
@@ -633,59 +654,32 @@ async function subscribeToNewsletter() {
     </section>
 
     <div class="home__container">
-    <section v-if="homeSectionOn('trust')" class="trust">
-      <article v-for="item in trustHighlights" :key="item.title" class="trust-card">
-        <component :is="item.icon" class="trust-card__icon" :size="22" :stroke-width="1.75" aria-hidden="true" />
-        <div class="trust-card__body">
-          <h2>{{ item.title }}</h2>
-          <p>{{ item.text }}</p>
-        </div>
+    <section v-if="homeSectionOn('trust') && storeStats" class="stats">
+      <article class="stats-card">
+        <span class="stats-card__value">{{ storeStats.products_count.toLocaleString('ru-RU') }}</span>
+        <span class="stats-card__label">товаров в каталоге</span>
       </article>
-    </section>
-
-    <section
-      v-if="homeSectionOn('marketing') && (state.marketing_cards?.length ?? 0) > 0"
-      class="section marketing"
-      aria-label="Подборки и акции"
-    >
-      <div class="marketing__grid">
-        <component
-          :is="marketingCardLinkTag(card.link_url)"
-          v-for="card in state.marketing_cards"
-          :key="`marketing-${card.id}`"
-          class="marketing-card marketing-card--link"
-          :aria-label="`Открыть: ${card.title}`"
-          v-bind="marketingCardLinkProps(card.link_url)"
-          :style="{
-            '--mkt-bg': resolveBackgroundImage(card.image_url),
-          }"
-        >
-          <div class="marketing-card__scrim" aria-hidden="true" />
-          <div class="marketing-card__inner">
-            <p v-if="card.label" class="marketing-card__label">{{ card.label }}</p>
-            <h3 class="marketing-card__title">{{ card.title }}</h3>
-            <div v-if="(card.lines?.length ?? 0) > 0" class="marketing-card__lines">
-              <p
-                v-for="(line, lineIndex) in card.lines"
-                :key="`marketing-${card.id}-line-${lineIndex}`"
-                class="marketing-card__line"
-              >
-                {{ line }}
-              </p>
-            </div>
-          </div>
-        </component>
-      </div>
+      <article class="stats-card">
+        <span class="stats-card__value">{{ storeStats.brands_count }}</span>
+        <span class="stats-card__label">брендов</span>
+      </article>
+      <article class="stats-card">
+        <span class="stats-card__value">{{ storeStats.orders_count.toLocaleString('ru-RU') }}</span>
+        <span class="stats-card__label">выполненных заказов</span>
+      </article>
+      <article v-if="storeStats.rating_avg" class="stats-card">
+        <span class="stats-card__value">{{ storeStats.rating_avg }} <span class="stats-card__star">★</span></span>
+        <span class="stats-card__label">средний рейтинг</span>
+      </article>
     </section>
 
     <section v-if="homeSectionOn('categories')" class="section">
       <header class="section__header">
-        <h2>Категории</h2>
-        <p>Быстрый выбор по стилю и сценарию носки.</p>
+        <RouterLink to="/catalog" class="section__title-link"><h2>Категории</h2></RouterLink>
       </header>
       <div class="category-grid">
-        <template v-if="state.categories.length">
-          <article v-for="item in state.categories" :key="item.id" class="card category-card">
+        <template v-if="homeCategories.length">
+          <article v-for="item in homeCategories" :key="item.id" class="card category-card">
             <RouterLink class="category-link category-link--tile" :to="`/catalog/${item.slug}`">
               <div class="category-card__media">
                 <img :src="resolveImageSrc(item.image_url)" :alt="item.name" loading="lazy" @error="applyImageFallback" />
@@ -710,28 +704,18 @@ async function subscribeToNewsletter() {
     <section v-if="homeSectionOn('brands') && brands.length" class="section">
       <div class="section__toolbar">
         <header class="section__header">
-          <h2>Бренды</h2>
-          <p>Популярные бренды из каталога.</p>
-          <RouterLink class="section__more-link" to="/brands">Смотреть все бренды</RouterLink>
+          <RouterLink to="/brands" class="section__title-link"><h2>Бренды</h2></RouterLink>
         </header>
-        <div class="section__head-actions">
-          <button type="button" class="slider-nav" aria-label="Предыдущие бренды" @click="scrollSlider(brandsSlider, 'prev')">
-            <ChevronLeft :size="18" :stroke-width="2" aria-hidden="true" />
-          </button>
-          <button type="button" class="slider-nav" aria-label="Следующие бренды" @click="scrollSlider(brandsSlider, 'next')">
-            <ChevronRight :size="18" :stroke-width="2" aria-hidden="true" />
-          </button>
-        </div>
       </div>
-      <div ref="brandsSlider" class="slider brands-slider">
+      <div class="brands-grid">
         <RouterLink
-          v-for="brand in brands"
+          v-for="brand in brands.slice(0, 10)"
           :key="`home-brand-${brand.id}`"
           :to="{ path: '/catalog', query: { brands: brand.name } }"
-          class="brand-slide"
+          class="brand-card"
         >
           <img :src="resolveImageSrc(brand.image_url)" :alt="brand.name" loading="lazy" @error="applyImageFallback" />
-          <div class="brand-slide__body">
+          <div class="brand-card__body">
             <h3>{{ brand.name }}</h3>
             <p>{{ brand.products_count }} товаров</p>
           </div>
@@ -743,7 +727,6 @@ async function subscribeToNewsletter() {
       <div class="section__toolbar">
         <header class="section__header">
           <h2>Рекомендуем</h2>
-          <p>Подборка для главной. Выберите метку или товары без меток.</p>
         </header>
         <div class="section__head-actions">
           <button type="button" class="slider-nav" aria-label="Предыдущие товары" @click="scrollSlider(featuredSlider, 'prev')">
@@ -815,11 +798,49 @@ async function subscribeToNewsletter() {
       </div>
     </section>
 
+    <section
+      v-if="homeSectionOn('marketing') && (state.marketing_cards?.length ?? 0) > 0"
+      :class="`section marketing marketing--${marketingVariant}`"
+      aria-label="Подборки и акции"
+    >
+      <div class="marketing__grid">
+        <component
+          :is="marketingCardLinkTag(card.link_url)"
+          v-for="(card, cardIndex) in state.marketing_cards"
+          :key="`marketing-${card.id}`"
+          :class="[
+            'marketing-card marketing-card--link',
+            marketingVariant === 'mosaic' && cardIndex === 0 ? 'marketing-card--mosaic-hero' : '',
+            marketingVariant === 'list' ? 'marketing-card--list' : '',
+          ]"
+          :aria-label="`Открыть: ${card.title}`"
+          v-bind="marketingCardLinkProps(card.link_url)"
+          :style="{
+            '--mkt-bg': resolveBackgroundImage(card.image_url),
+          }"
+        >
+          <div class="marketing-card__scrim" aria-hidden="true" />
+          <div class="marketing-card__inner">
+            <p v-if="card.label" class="marketing-card__label">{{ card.label }}</p>
+            <h3 class="marketing-card__title">{{ card.title }}</h3>
+            <div v-if="(card.lines?.length ?? 0) > 0" class="marketing-card__lines">
+              <p
+                v-for="(line, lineIndex) in card.lines"
+                :key="`marketing-${card.id}-line-${lineIndex}`"
+                class="marketing-card__line"
+              >
+                {{ line }}
+              </p>
+            </div>
+          </div>
+        </component>
+      </div>
+    </section>
+
     <section v-if="homeSectionOn('recent') && recentlyViewed.length" class="section">
       <div class="section__toolbar">
         <header class="section__header">
           <h2>Недавно просмотренные</h2>
-          <p>Быстрый возврат к моделям, которые вы уже смотрели.</p>
         </header>
         <div class="section__head-actions">
           <button type="button" class="slider-nav" aria-label="Предыдущие из просмотренных" @click="scrollSlider(recentSlider, 'prev')">
@@ -845,7 +866,6 @@ async function subscribeToNewsletter() {
     <section v-if="homeSectionOn('why')" class="section why">
       <header class="section__header">
         <h2>Почему Shoria</h2>
-        <p>Коротко о том, что снижает риск для покупателя и повышает конверсию.</p>
       </header>
       <div class="why-grid">
         <article v-for="item in whyShoria" :key="item.title" class="why-card">
@@ -861,7 +881,6 @@ async function subscribeToNewsletter() {
     <section v-if="homeSectionOn('newsletter')" class="section capture">
       <header class="section__header">
         <h2>Подписка на дропы и скидки</h2>
-        <p>Оставь email, чтобы получать подборки и важные релизы раньше.</p>
       </header>
       <form class="capture__form" @submit.prevent="subscribeToNewsletter">
         <label class="sr-only" for="newsletter-email">Email</label>
@@ -887,7 +906,6 @@ async function subscribeToNewsletter() {
       <div class="section__toolbar section__toolbar--news">
         <header class="section__header">
           <h2>Новости и подборки</h2>
-          <p>Контент-блок для SEO и возвратного трафика.</p>
         </header>
         <RouterLink class="section__more-link section__more-link--aside" to="/news">Все новости</RouterLink>
       </div>
@@ -928,14 +946,13 @@ async function subscribeToNewsletter() {
 .home {
   width: 100%;
   padding: 0 0 48px;
-  overflow-anchor: none;
+  overflow-anchor: auto;
 }
 
 .home__container {
   width: min(var(--layout-max-width), 92vw);
   margin: 0 auto;
-  padding: 24px 0 0;
-  border-top: 1px solid color-mix(in srgb, var(--border), transparent 35%);
+  padding: 40px 0 0;
 }
 
 /* Full-bleed hero */
@@ -972,7 +989,7 @@ async function subscribeToNewsletter() {
   position: relative;
   flex: 0 0 100%;
   scroll-snap-align: start;
-  min-height: clamp(360px, 52vh, 520px);
+  min-height: calc(100svh - var(--header-h, 118px));
   overflow: hidden;
   isolation: isolate;
   background: linear-gradient(
@@ -1006,7 +1023,9 @@ async function subscribeToNewsletter() {
 .home-hero__overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(110deg, rgb(15 23 42 / 58%) 0%, transparent 58%);
+  background:
+    linear-gradient(to bottom, rgb(0 0 0 / 0.55) 0%, transparent 22%),
+    linear-gradient(110deg, rgb(15 23 42 / 58%) 0%, transparent 58%);
   pointer-events: none;
   z-index: 0;
 }
@@ -1018,7 +1037,7 @@ async function subscribeToNewsletter() {
   max-width: min(var(--layout-max-width), 92vw);
   margin: 0 auto;
   padding: clamp(28px, 5vw, 56px) clamp(16px, 4vw, 24px);
-  min-height: clamp(360px, 52vh, 520px);
+  min-height: calc(100svh - var(--header-h, 118px));
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1371,58 +1390,73 @@ async function subscribeToNewsletter() {
   padding: 0 2px 2px;
 }
 
-.trust--skeleton .trust-card--skeleton {
-  display: grid;
-  gap: 10px;
+.stats--skeleton .stats-card {
+  gap: 4px;
 }
 
 .category-card--skeleton {
   overflow: hidden;
 }
 
+.skeleton-aspect {
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+}
+
+.skeleton-aspect--4-3 {
+  aspect-ratio: 4 / 3;
+  border-radius: 22px 22px 0 0;
+}
+
+.skeleton-aspect--16-10 {
+  aspect-ratio: 16 / 10;
+  border-radius: 24px 24px 0 0;
+}
+
 .section {
   margin-top: 40px;
 }
 
-.trust {
+.stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
   margin-top: 0;
 }
 
-.trust-card {
+.stats-card {
   display: flex;
-  gap: 14px;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   border-radius: 14px;
   background: var(--muted);
   border: 1px solid var(--border);
-  padding: 14px 16px;
+  padding: 20px 16px;
+  text-align: center;
 }
 
-.trust-card__icon {
-  flex-shrink: 0;
-  color: var(--primary);
-  margin-top: 2px;
-}
-
-.trust-card__body {
-  min-width: 0;
-  flex: 1;
-}
-
-.trust-card h2 {
-  margin: 0;
-  font-size: 17px;
-  line-height: 1.25;
+.stats-card__value {
+  font-family: var(--font-display);
+  font-size: clamp(32px, 4vw, 46px);
+  line-height: 1;
   font-weight: 700;
+  color: var(--foreground);
+  letter-spacing: -0.01em;
 }
 
-.trust-card p {
-  margin-top: 6px;
-  color: var(--color-text-soft);
-  font-size: 14px;
+.stats-card__star {
+  font-size: 0.65em;
+  color: #f59e0b;
+  vertical-align: middle;
+}
+
+.stats-card__label {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  font-weight: 500;
 }
 
 .marketing {
@@ -1430,7 +1464,7 @@ async function subscribeToNewsletter() {
 }
 
 .marketing--skeleton .marketing-card--skeleton {
-  min-height: 240px;
+  min-height: 260px;
 }
 
 .marketing__grid {
@@ -1532,6 +1566,82 @@ async function subscribeToNewsletter() {
   color: rgb(255 255 255 / 0.92);
 }
 
+/* ── marketing variant: mosaic ── */
+@media (min-width: 1024px) {
+  .marketing--mosaic .marketing__grid {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+  }
+
+  .marketing--mosaic .marketing-card--mosaic-hero {
+    grid-row: 1 / 3;
+    min-height: 540px;
+  }
+}
+
+/* ── marketing variant: list ── */
+.marketing--list .marketing__grid {
+  grid-template-columns: 1fr;
+}
+
+.marketing--list .marketing-card--list {
+  min-height: 120px;
+  border-radius: 16px;
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  overflow: hidden;
+}
+
+.marketing--list .marketing-card--list .marketing-card__scrim {
+  background: linear-gradient(
+    to right,
+    rgb(0 0 0 / 0.0) 0%,
+    rgb(0 0 0 / 0.35) 40%,
+    rgb(0 0 0 / 0.75) 100%
+  );
+}
+
+.marketing--list .marketing-card--list .marketing-card__inner {
+  grid-column: 2;
+  min-height: 120px;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px 24px;
+  text-align: left;
+}
+
+.marketing--list .marketing-card--list .marketing-card__title {
+  max-width: none;
+  font-size: clamp(16px, 1.8vw, 20px);
+  margin-bottom: 8px;
+}
+
+@media (max-width: 639px) {
+  .marketing--list .marketing-card--list {
+    grid-template-columns: 120px 1fr;
+    min-height: 96px;
+  }
+}
+
+/* ── skeleton ── */
+.section__title-link {
+  text-decoration: none;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section__title-link h2 {
+  margin: 0;
+}
+
+.section__title-link:hover h2 {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 2px;
+}
+
 .section__header {
   margin-bottom: 14px;
 }
@@ -1568,55 +1678,103 @@ async function subscribeToNewsletter() {
   gap: 16px;
 }
 
+.category-grid__footer {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.category-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 28px;
+  border-radius: 999px;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.category-all-btn:hover {
+  background: var(--muted);
+  border-color: var(--foreground);
+}
+
 .category-grid {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (min-width: 768px) {
+  .category-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 1100px) {
+  .category-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
 }
 
 .slider-card {
   flex: 0 0 clamp(220px, 20vw, 272px);
 }
 
-.brands-slider {
+.brands-grid {
+  display: grid;
   gap: 14px;
+  grid-template-columns: repeat(3, 1fr);
 }
 
-.brand-slide {
-  flex: 0 0 calc((100% - 42px) / 4);
-  min-width: 220px;
+@media (min-width: 768px) {
+  .brands-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 1100px) {
+  .brands-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+.brand-card {
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--card);
   overflow: hidden;
   color: inherit;
   text-decoration: none;
-  transition:
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.brand-slide:hover {
+.brand-card:hover {
   border-color: color-mix(in srgb, var(--primary), transparent 55%);
   box-shadow: 0 4px 16px rgb(15 23 42 / 8%);
 }
 
-.brand-slide img {
+.brand-card img {
   width: 100%;
   height: 140px;
   object-fit: cover;
 }
 
-.brand-slide__body {
+.brand-card__body {
   padding: 12px 14px 14px;
 }
 
-.brand-slide__body h3 {
+.brand-card__body h3 {
   margin: 0;
   font-size: 18px;
   font-weight: 700;
 }
 
-.brand-slide__body p {
-  margin-top: 6px;
+.brand-card__body p {
+  margin-top: 4px;
   color: var(--color-text-soft);
   font-size: 14px;
 }

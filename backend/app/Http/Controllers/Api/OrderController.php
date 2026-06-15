@@ -40,6 +40,7 @@ class OrderController extends Controller
             ->paginate($perPage)
             ->through(fn (Order $order) => [
                 'order_number' => $order->order_number,
+                'checkout_kind' => $order->checkout_kind ?? Order::CHECKOUT_KIND_CART,
                 'status' => $order->status,
                 'order_status' => $order->order_status,
                 'payment_status' => $order->payment_status,
@@ -54,6 +55,49 @@ class OrderController extends Controller
             ]);
 
         return response()->json($orders);
+    }
+
+    /**
+     * Возвращает ссылку на страницу оплаты для заказа со статусом pending.
+     * Когда будет подключён реальный платёжный шлюз — здесь появится URL редиректа.
+     */
+    public function paymentUrl(Request $request, string $orderNumber): JsonResponse
+    {
+        ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity($request);
+
+        $query = Order::query()
+            ->with(['paymentTransactions'])
+            ->where('order_number', $orderNumber);
+
+        if ($user) {
+            $query->where('user_id', $user->id);
+        } else {
+            $query->whereNull('user_id')->where('session_id', $sessionId);
+        }
+
+        $order = $query->firstOrFail();
+
+        // Проверяем, что оплата действительно ожидает
+        if ($order->payment_status !== 'pending') {
+            return response()->json([
+                'payment_url' => null,
+                'reason'      => 'not_pending',
+            ]);
+        }
+
+        // Ищем URL в мета-данных транзакции (заполняется реальным gateway при создании)
+        $transaction = $order->paymentTransactions
+            ->where('status', 'pending')
+            ->first();
+
+        $paymentUrl = data_get($transaction?->meta, 'payment_url');
+
+        return response()->json([
+            'payment_url'  => $paymentUrl,
+            'order_number' => $order->order_number,
+            'amount'       => (float) $order->total,
+            'currency'     => $order->currency,
+        ]);
     }
 
     public function show(Request $request, string $orderNumber): JsonResponse
@@ -98,6 +142,12 @@ class OrderController extends Controller
             'refund_status' => $order->refund_status,
             'payment_transaction_status' => $order->paymentTransactions->first()?->status,
             'delivery_method' => $order->delivery_method,
+            'delivery_city' => $order->delivery_city,
+            'delivery_address' => $order->delivery_address,
+            'delivery_pickup_point_code' => $order->delivery_pickup_point_code,
+            'delivery_pickup_point_address' => $order->delivery_pickup_point_address,
+            'delivery_period_min' => $order->delivery_period_min !== null ? (int) $order->delivery_period_min : null,
+            'delivery_period_max' => $order->delivery_period_max !== null ? (int) $order->delivery_period_max : null,
             'payment_method' => $order->payment_method,
             'promo_code' => $order->promo_code,
             'gift_certificate_code' => $order->giftCertificate?->code,

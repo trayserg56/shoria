@@ -69,6 +69,7 @@ class NewsController extends Controller
             'content_type' => $post->content_type,
             'excerpt' => $post->excerpt,
             'content' => $post->content,
+            'blocks' => $post->blocks ?? [],
             'cover_url' => $post->cover_url,
             'seo_title' => $post->seo_title,
             'seo_description' => $post->seo_description,

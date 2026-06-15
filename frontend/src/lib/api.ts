@@ -86,7 +86,20 @@ export async function requestJson<T>(path: string, init?: RequestInit): Promise<
     })
 
     if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`)
+      // Пытаемся вытащить читаемое сообщение из Laravel validation / JSON ответа
+      let serverMessage: string | undefined
+      try {
+        const body = await response.clone().json() as Record<string, unknown>
+        if (typeof body.message === 'string' && body.message) {
+          serverMessage = body.message
+        } else if (body.errors && typeof body.errors === 'object') {
+          const firstField = Object.values(body.errors as Record<string, string[]>)[0]
+          if (Array.isArray(firstField) && typeof firstField[0] === 'string') {
+            serverMessage = firstField[0]
+          }
+        }
+      } catch { /* не JSON — ничего */ }
+      throw new Error(serverMessage ?? `Request failed: ${response.status}`)
     }
 
     return response.json() as Promise<T>
@@ -121,10 +134,14 @@ export async function fetchJson<T>(path: string): Promise<T> {
 
   const request = requestJson<T>(path)
     .then((value) => {
-      publicGetCache.set(path, {
-        expiresAt: Date.now() + ttl,
-        value,
-      })
+      // Не кэшируем пустые массивы — при следующем запросе нужен свежий ответ
+      const isEmpty = Array.isArray(value) && (value as unknown[]).length === 0
+      if (!isEmpty && value !== null && value !== undefined) {
+        publicGetCache.set(path, {
+          expiresAt: Date.now() + ttl,
+          value,
+        })
+      }
 
       return value
     })

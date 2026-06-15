@@ -129,6 +129,8 @@ services:
     environment:
       # URL API для браузера (с хоста). При необходимости смените порт.
       VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+      # Яндекс.Карты JS API — карта ПВЗ в чекауте. Без ключа карта не отображается (остаётся список).
+      VITE_YANDEX_MAPS_API_KEY: ${VITE_YANDEX_MAPS_API_KEY:-}
     command: ["sh", "-c", "if [ ! -f package.json ]; then echo 'Frontend not initialized. Run: make init-frontend'; sleep infinity; else npm install && npm run dev -- --host 0.0.0.0 --port 5173; fi"]
     profiles: ["frontend"]
 

@@ -3,6 +3,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import AppSkeleton from '@/components/AppSkeleton.vue'
+import { requestJson } from '@/lib/api'
+import { toast } from '@/lib/toast'
 import { useCartStore } from '@/stores/cart'
 
 const cartStore = useCartStore()
@@ -11,6 +13,7 @@ const router = useRouter()
 
 const { orderHistory, orderHistoryMeta } = storeToRefs(cartStore)
 const isLoading = ref(false)
+const isPayingOrder = ref<string | null>(null)
 
 const activeStatus = computed(() => String(route.query.status ?? ''))
 const activePage = computed(() => Number(route.query.page ?? '1'))
@@ -89,6 +92,24 @@ function setPage(page: number) {
   })
 }
 
+async function payOrder(orderNumber: string) {
+  isPayingOrder.value = orderNumber
+  try {
+    const result = await requestJson<{ payment_url: string | null }>(
+      `/api/orders/${orderNumber}/payment-url`,
+    )
+    if (result.payment_url) {
+      window.location.href = result.payment_url
+    } else {
+      toast.error('Ссылка на оплату ещё не доступна. Свяжитесь с поддержкой.')
+    }
+  } catch {
+    toast.error('Не удалось получить ссылку на оплату')
+  } finally {
+    isPayingOrder.value = null
+  }
+}
+
 onMounted(loadOrders)
 
 watch(
@@ -142,16 +163,34 @@ watch(
           </RouterLink>
           <p>{{ formatDate(order.placed_at) }}</p>
           <p class="meta">
-            {{ order.delivery_method === 'courier' ? 'Курьер' : 'Самовывоз' }} ·
-            {{ order.payment_method === 'card' ? 'Карта' : 'Наличные' }}
+            <template v-if="order.checkout_kind === 'gift_certificate'">
+              🎁 Подарочный сертификат
+            </template>
+            <template v-else>
+              {{ order.delivery_method === 'courier' ? 'Курьер' : 'Самовывоз' }} ·
+              {{ order.payment_method === 'card' ? 'Карта' : 'Наличные' }}
+            </template>
           </p>
         </div>
         <div class="order-row__right">
           <div class="order-row__badges">
             <span class="status-badge">{{ resolveOrderStatusLabel(order.order_status) }}</span>
-            <span class="status-badge status-badge--payment">{{ resolvePaymentStatusLabel(order.payment_status) }}</span>
+            <span
+              class="status-badge"
+              :class="order.payment_status === 'pending' ? 'status-badge--pending' : 'status-badge--payment'"
+            >{{ resolvePaymentStatusLabel(order.payment_status) }}</span>
           </div>
           <strong>{{ formatPrice(order.total) }}</strong>
+          <!-- Кнопка оплаты для online-заказов, ожидающих оплаты -->
+          <button
+            v-if="order.payment_status === 'pending'"
+            type="button"
+            class="pay-inline-btn"
+            :disabled="isPayingOrder === order.order_number"
+            @click="payOrder(order.order_number)"
+          >
+            {{ isPayingOrder === order.order_number ? 'Переходим…' : 'Оплатить →' }}
+          </button>
         </div>
       </article>
     </section>
@@ -251,8 +290,9 @@ watch(
 
 .order-row__right {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
 }
 
 .order-row__badges {
@@ -274,6 +314,30 @@ watch(
   background: #fff2e8;
   color: #c74803;
 }
+
+.status-badge--pending {
+  background: color-mix(in srgb, #f59e0b, transparent 82%);
+  color: #92400e;
+  font-weight: 600;
+}
+
+.pay-inline-btn {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: none;
+  background: #f59e0b;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+.pay-inline-btn:hover { opacity: 0.88; }
+.pay-inline-btn:disabled { opacity: 0.55; cursor: default; }
 
 .empty a {
   color: #c74803;

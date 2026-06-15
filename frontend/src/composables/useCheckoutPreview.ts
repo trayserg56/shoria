@@ -12,6 +12,8 @@ type UseCheckoutPreviewParams = {
   loyaltyPointsToSpend: Ref<number>
   /** Если передан — уходит в `POST /api/checkout/preview` (влияет на персональные промо). */
   customerEmail?: Ref<string>
+  /** Город доставки — нужен для расчёта тарифа СДЭК. */
+  deliveryCity?: Ref<string>
 }
 
 /**
@@ -32,6 +34,8 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
   const giftCertificateDiscountAmount = ref(0)
   const loyaltyDiscountAmount = ref(0)
   const deliveryAmount = ref(0)
+  const deliveryPeriodMin = ref<number | null>(null)
+  const deliveryPeriodMax = ref<number | null>(null)
   const checkoutTotalPreview = ref(0)
 
   const loyaltyMaxPoints = ref(0)
@@ -100,10 +104,18 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
         gift_certificate_id?: number
         customer_email?: string
         loyalty_points_to_spend: number
+        delivery_city?: string
       } = {
         delivery_method: params.deliveryMethod.value,
         promo_code: params.promoCode.value.trim() || undefined,
         loyalty_points_to_spend: loyaltyEnabled.value ? params.loyaltyPointsToSpend.value : 0,
+      }
+
+      if (params.deliveryCity) {
+        const city = params.deliveryCity.value.trim()
+        if (city) {
+          payload.delivery_city = city
+        }
       }
 
       const id = params.giftCertificateId?.value
@@ -127,6 +139,8 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
       giftCertificateDiscountAmount.value = preview.gift_certificate_discount_total
       loyaltyDiscountAmount.value = preview.loyalty_discount_total
       deliveryAmount.value = preview.delivery_total
+      deliveryPeriodMin.value = preview.delivery_period_min
+      deliveryPeriodMax.value = preview.delivery_period_max
       checkoutTotalPreview.value = preview.total
       hasPreviewSnapshot.value = true
       promoStatusMessage.value = preview.promo.message ?? ''
@@ -147,6 +161,8 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
       giftCertificateDiscountAmount.value = 0
       loyaltyDiscountAmount.value = 0
       deliveryAmount.value = selectedDeliveryFee.value
+      deliveryPeriodMin.value = null
+      deliveryPeriodMax.value = null
       subtotalAmount.value = cartSubtotalFallback.value
       checkoutTotalPreview.value = cartSubtotalFallback.value + selectedDeliveryFee.value
       loyaltyMaxPoints.value = 0
@@ -183,6 +199,8 @@ export function useCheckoutPreview(params: UseCheckoutPreviewParams) {
     displayedGiftCertificateDiscount,
     displayedLoyaltyDiscount,
     displayedDelivery,
+    deliveryPeriodMin,
+    deliveryPeriodMax,
     displayedTotal,
     checkoutTotalPreview,
     loyaltyMaxPoints,

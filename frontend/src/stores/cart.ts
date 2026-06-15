@@ -45,6 +45,10 @@ type CheckoutPayload = {
   gift_certificate_id?: number
   loyalty_points_to_spend?: number
   comment?: string
+  delivery_city?: string
+  delivery_address?: string
+  delivery_pickup_point_code?: string
+  delivery_pickup_point_address?: string
 }
 
 type CheckoutOptions = {
@@ -55,6 +59,9 @@ type CheckoutOptions = {
     provider_code: string | null
     provider_mode: string | null
     is_test_mode: boolean
+    method_type: string | null
+    requires_pickup_point: boolean
+    requires_address: boolean
   }>
   payment_methods: Array<{
     code: string
@@ -107,6 +114,8 @@ type CheckoutPreview = {
   gift_certificate_discount_total: number
   loyalty_discount_total: number
   delivery_total: number
+  delivery_period_min: number | null
+  delivery_period_max: number | null
   total: number
   currency: string
   promo: {
@@ -157,6 +166,12 @@ type CheckoutResponse = {
   refund_status: string
   payment_transaction_status: string | null
   delivery_method: string
+  delivery_city: string | null
+  delivery_address: string | null
+  delivery_pickup_point_code: string | null
+  delivery_pickup_point_address: string | null
+  delivery_period_min: number | null
+  delivery_period_max: number | null
   payment_method: string
   promo_code: string | null
   gift_certificate_code: string | null
@@ -191,6 +206,7 @@ type CheckoutResponse = {
 
 type OrderSummary = {
   order_number: string
+  checkout_kind: string
   status: string
   order_status: string
   payment_status: string
@@ -222,6 +238,12 @@ type OrderDetails = {
   refund_status: string
   payment_transaction_status: string | null
   delivery_method: string
+  delivery_city: string | null
+  delivery_address: string | null
+  delivery_pickup_point_code: string | null
+  delivery_pickup_point_address: string | null
+  delivery_period_min: number | null
+  delivery_period_max: number | null
   payment_method: string
   promo_code: string | null
   gift_certificate_code: string | null
@@ -498,6 +520,7 @@ export const useCartStore = defineStore('cart', () => {
     gift_certificate_id?: number
     customer_email?: string
     loyalty_points_to_spend?: number
+    delivery_city?: string
   }) {
     return requestJson<CheckoutPreview>('/api/checkout/preview', {
       method: 'POST',

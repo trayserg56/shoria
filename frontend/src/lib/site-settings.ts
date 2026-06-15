@@ -33,8 +33,12 @@ export type StoreTheme = {
   hero: {
     variant: 'overlay' | 'split'
   }
+  marketing: {
+    variant: 'grid' | 'mosaic' | 'list'
+  }
   footer: {
     tone: 'light' | 'muted' | 'dark'
+    variant: 'columns' | 'minimal' | 'centered'
   }
   catalog: {
     grid_density: 'comfortable' | 'compact'
@@ -78,7 +82,8 @@ export function defaultStoreTheme(): StoreTheme {
     },
     header: { sticky: true, variant: 'classic' },
     hero: { variant: 'overlay' },
-    footer: { tone: 'muted' },
+    marketing: { variant: 'grid' },
+    footer: { tone: 'muted', variant: 'columns' },
     catalog: { grid_density: 'comfortable' },
     home: {
       sections: {
@@ -105,6 +110,7 @@ export function mergeStoreTheme(raw: StoreTheme | undefined | null): StoreTheme 
   const g = (raw.general && typeof raw.general === 'object' ? raw.general : {}) as Record<string, unknown>
   const h = (raw.header && typeof raw.header === 'object' ? raw.header : {}) as Record<string, unknown>
   const hr = (raw.hero && typeof raw.hero === 'object' ? raw.hero : {}) as Record<string, unknown>
+  const mk = (raw.marketing && typeof raw.marketing === 'object' ? raw.marketing : {}) as Record<string, unknown>
   const f = (raw.footer && typeof raw.footer === 'object' ? raw.footer : {}) as Record<string, unknown>
   const c = (raw.catalog && typeof raw.catalog === 'object' ? raw.catalog : {}) as Record<string, unknown>
   const ho = (raw.home && typeof raw.home === 'object' ? raw.home : {}) as Record<string, unknown>
@@ -173,8 +179,12 @@ export function mergeStoreTheme(raw: StoreTheme | undefined | null): StoreTheme 
     hero: {
       variant: hr.variant === 'split' ? 'split' : 'overlay',
     },
+    marketing: {
+      variant: mk.variant === 'mosaic' || mk.variant === 'list' ? mk.variant : 'grid',
+    },
     footer: {
       tone: f.tone === 'light' || f.tone === 'dark' || f.tone === 'muted' ? f.tone : d.footer.tone,
+      variant: f.variant === 'minimal' || f.variant === 'centered' ? f.variant : 'columns',
     },
     catalog: {
       grid_density: c.grid_density === 'compact' ? 'compact' : 'comfortable',

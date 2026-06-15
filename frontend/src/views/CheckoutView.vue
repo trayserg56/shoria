@@ -5,7 +5,11 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { trackEvent } from '@/lib/analytics'
 import { requestJson } from '@/lib/api'
+import { getAppSessionId } from '@/lib/session'
 import AppSkeleton from '@/components/AppSkeleton.vue'
+import AddressAutocomplete from '@/components/AddressAutocomplete.vue'
+import CdekPickupMap from '@/components/CdekPickupMap.vue'
+import type { AddressSuggestion } from '@/composables/useAddressSuggest'
 import { toast } from '@/lib/toast'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
@@ -15,6 +19,7 @@ import {
   loadCheckoutIncentives,
 } from '@/lib/checkout-context'
 import { siteSettingsInjectionKey, defaultSiteFeatureFlags, type SiteSettingsPayload } from '@/lib/site-settings'
+import { getStoredCityName } from '@/lib/site-city'
 
 const authStore = useAuthStore()
 const cartStore = useCartStore()
@@ -53,6 +58,34 @@ const loyaltyPointsToSpend = ref(0)
 const checkoutError = ref('')
 const checkoutLoading = ref(false)
 
+const deliveryCity = ref('')
+const pickupAddress = ref('')
+const pickupFocusPoint = ref<{ lat: number; lon: number } | null>(null)
+const deliveryAddress = ref('')
+const deliveryPickupPointCode = ref('')
+const myAddresses = ref<
+  Array<{
+    id: number
+    label: string
+    city: string
+    city_code: number | null
+    address: string
+    is_default: boolean
+  }>
+>([])
+const pickupPoints = ref<
+  Array<{
+    code: string
+    name: string
+    address: string | null
+    work_time: string | null
+    lat: number | null
+    lon: number | null
+  }>
+>([])
+const pickupPointsLoading = ref(false)
+const pickupPointsError = ref('')
+
 const {
   previewLoading,
   loyaltyEnabled,
@@ -61,6 +94,8 @@ const {
   displayedGiftCertificateDiscount,
   displayedLoyaltyDiscount,
   displayedDelivery,
+  deliveryPeriodMin,
+  deliveryPeriodMax,
   displayedTotal,
   giftCertificateStatusMessage,
   giftCertificateStatusApplied,
@@ -73,6 +108,7 @@ const {
   giftCertificateId,
   loyaltyPointsToSpend,
   customerEmail,
+  deliveryCity,
 })
 
 function prefillCheckoutCustomerFields() {
@@ -124,13 +160,49 @@ const canCheckout = computed(
     && !!paymentMethod.value
     && !hasUnavailableItems.value,
 )
+
+const activeStep = ref(1)
+
+const step1Valid = computed(
+  () =>
+    customerName.value.trim() !== ''
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.value.trim())
+    && customerPhone.value.trim().length >= 5,
+)
+
+const step2Valid = computed(() => {
+  if (!deliveryMethod.value) {
+    return false
+  }
+
+  if (requiresPickupPoint.value) {
+    return deliveryPickupPointCode.value !== ''
+  }
+
+  if (requiresAddress.value) {
+    return deliveryAddress.value.trim() !== ''
+  }
+
+  return true
+})
+
+function continueToStep(step: number) {
+  activeStep.value = step
+}
+
 const deliveryMethods = computed(() => checkoutOptions.value?.delivery_methods ?? [])
 const paymentMethods = computed(() => checkoutOptions.value?.payment_methods ?? [])
 const deliveryMethodOptions = computed(() =>
-  deliveryMethods.value.map((method) => ({
-    label: `${method.name}${method.is_test_mode ? ' · тест' : ''} (${formatPrice(method.fee)})`,
-    value: String(method.code),
-  })),
+  deliveryMethods.value.map((method) => {
+    const priceLabel = method.provider_code === 'cdek'
+      ? `от ${formatPrice(method.fee)}`
+      : formatPrice(method.fee)
+
+    return {
+      label: `${method.name}${method.is_test_mode ? ' · тест' : ''} (${priceLabel})`,
+      value: String(method.code),
+    }
+  }),
 )
 const paymentMethodOptions = computed(() =>
   paymentMethods.value.map((method) => ({
@@ -138,6 +210,135 @@ const paymentMethodOptions = computed(() =>
     value: String(method.code),
   })),
 )
+
+const selectedDeliveryMethodLabel = computed(
+  () => deliveryMethods.value.find((method) => method.code === deliveryMethod.value)?.name ?? '',
+)
+const selectedPaymentMethodLabel = computed(
+  () => paymentMethods.value.find((method) => method.code === paymentMethod.value)?.name ?? '',
+)
+
+const selectedDeliveryMethod = computed(() =>
+  deliveryMethods.value.find((method) => method.code === deliveryMethod.value),
+)
+const requiresPickupPoint = computed(() => selectedDeliveryMethod.value?.requires_pickup_point ?? false)
+const requiresAddress = computed(() => selectedDeliveryMethod.value?.requires_address ?? false)
+const requiresCity = computed(() => requiresPickupPoint.value || requiresAddress.value)
+
+const deliveryPeriodLabel = computed(() => {
+  if (deliveryPeriodMin.value == null && deliveryPeriodMax.value == null) {
+    return ''
+  }
+
+  if (deliveryPeriodMin.value === deliveryPeriodMax.value) {
+    return `${deliveryPeriodMin.value} дн.`
+  }
+
+  return `${deliveryPeriodMin.value}–${deliveryPeriodMax.value} дн.`
+})
+
+const pickupPointOptions = computed(() =>
+  pickupPoints.value.map((point) => ({
+    label: [point.name, point.address].filter(Boolean).join(' — '),
+    value: point.code,
+  })),
+)
+const selectedPickupPointLabel = computed(
+  () => pickupPointOptions.value.find((opt) => opt.value === deliveryPickupPointCode.value)?.label ?? '',
+)
+
+async function loadPickupPoints() {
+  pickupPointsError.value = ''
+  pickupPoints.value = []
+  deliveryPickupPointCode.value = ''
+
+  const city = deliveryCity.value.trim()
+  if (!city) {
+    return
+  }
+
+  pickupPointsLoading.value = true
+
+  try {
+    const response = await requestJson<{
+      data: Array<{ code: string; name: string; address: string | null; work_time: string | null; lat: number | null; lon: number | null }>
+      message?: string
+    }>(`/api/delivery/cdek/pickup-points?city=${encodeURIComponent(city)}`)
+
+    pickupPoints.value = response.data
+    if (response.data.length === 0) {
+      pickupPointsError.value = response.message || 'ПВЗ не найдены для этого города.'
+    }
+  } catch (error) {
+    console.error(error)
+    pickupPointsError.value = 'Не удалось загрузить список ПВЗ.'
+  } finally {
+    pickupPointsLoading.value = false
+  }
+}
+
+async function loadMyAddresses() {
+  if (!user.value) {
+    myAddresses.value = []
+    return
+  }
+
+  try {
+    const response = await requestJson<{
+      data: Array<{
+        id: number
+        label: string
+        city: string
+        city_code: number | null
+        address: string
+        is_default: boolean
+      }>
+    }>('/api/me/addresses')
+    myAddresses.value = response.data
+  } catch {
+    myAddresses.value = []
+  }
+}
+
+async function applySavedAddress(id: number) {
+  const address = myAddresses.value.find((item) => item.id === id)
+  if (!address) {
+    return
+  }
+
+  deliveryCity.value = address.city
+  deliveryAddress.value = address.address
+  pickupAddress.value = address.address
+
+  try {
+    const response = await requestJson<{ data: AddressSuggestion[] }>(
+      `/api/address/suggest?q=${encodeURIComponent(address.address)}`,
+    )
+    const [suggestion] = response.data
+
+    if (suggestion) {
+      onPickupAddressSelect(suggestion)
+    }
+  } catch {
+    pickupFocusPoint.value = null
+  }
+}
+
+function onDeliveryAddressSelect(suggestion: AddressSuggestion) {
+  if (suggestion.city) {
+    deliveryCity.value = suggestion.city
+  }
+}
+
+function onPickupAddressSelect(suggestion: AddressSuggestion) {
+  if (suggestion.city) {
+    deliveryCity.value = suggestion.city
+  }
+
+  pickupFocusPoint.value = (suggestion.lat != null && suggestion.lon != null)
+    ? { lat: suggestion.lat, lon: suggestion.lon }
+    : null
+}
 
 async function submitCheckout() {
   checkoutError.value = ''
@@ -162,6 +363,14 @@ async function submitCheckout() {
         giftCertificateId.value != null ? giftCertificateId.value : undefined,
       loyalty_points_to_spend: loyaltyEnabled.value ? loyaltyPointsToSpend.value : undefined,
       comment: comment.value,
+      delivery_city: deliveryCity.value.trim() || undefined,
+      delivery_address: requiresAddress.value ? (deliveryAddress.value.trim() || undefined) : undefined,
+      delivery_pickup_point_code: requiresPickupPoint.value
+        ? (deliveryPickupPointCode.value || undefined)
+        : undefined,
+      delivery_pickup_point_address: requiresPickupPoint.value
+        ? pickupPoints.value.find((point) => point.code === deliveryPickupPointCode.value)?.address ?? undefined
+        : undefined,
     })
 
     void trackEvent('purchase', {
@@ -171,6 +380,23 @@ async function submitCheckout() {
     })
 
     clearCheckoutIncentives()
+
+    // Если payment_status === 'pending' — нужна онлайн-оплата (Робокасса и др.)
+    if (order.payment_status === 'pending') {
+      try {
+        const sessionId = getAppSessionId()
+        const { payment_url } = await requestJson<{ payment_url: string | null }>(
+          `/api/orders/${order.order_number}/payment-url?session_id=${encodeURIComponent(sessionId)}`
+        )
+        if (payment_url) {
+          window.location.href = payment_url
+          return
+        }
+      } catch {
+        // Не удалось получить ссылку — падаем на страницу заказа
+      }
+    }
+
     toast.success(`Заказ ${order.order_number} оформлен`)
 
     void router.push({
@@ -269,7 +495,15 @@ onMounted(async () => {
     return
   }
 
+  deliveryCity.value = getStoredCityName()
+
   await loadMyGiftCertificates()
+  await loadMyAddresses()
+
+  if (requiresPickupPoint.value) {
+    await loadPickupPoints()
+  }
+
   await refreshPreview()
 })
 
@@ -286,6 +520,20 @@ watch(
   () => user.value?.id,
   () => {
     void loadMyGiftCertificates()
+    void loadMyAddresses()
+  },
+)
+
+watch(
+  () => [deliveryMethod.value, deliveryCity.value] as const,
+  () => {
+    if (requiresPickupPoint.value) {
+      void loadPickupPoints()
+    } else {
+      pickupPoints.value = []
+      pickupPointsError.value = ''
+      deliveryPickupPointCode.value = ''
+    }
   },
 )
 
@@ -299,6 +547,7 @@ watch(
       customerEmail.value,
       loyaltyPointsToSpend.value,
       cartSubtotal.value,
+      deliveryCity.value,
     ],
   () => {
     if (loyaltyPointsToSpend.value < 0) {
@@ -370,78 +619,249 @@ watch(
 
     <section v-else class="checkout-with-sidebar">
       <form id="checkout-form" class="checkout-form checkout-form--main" @submit.prevent="submitCheckout">
-        <h2 class="checkout-form__title">Данные и доставка</h2>
-        <div class="checkout-form__field">
-          <label class="checkout-form__label" for="checkout-customer-name">Имя</label>
-          <input
-            id="checkout-customer-name"
-            v-model="customerName"
-            class="checkout__input"
-            type="text"
-            name="customer_name"
-            autocomplete="name"
-            required
-          />
-        </div>
-        <div class="checkout-form__field">
-          <label class="checkout-form__label" for="checkout-customer-email">Email</label>
-          <input
-            id="checkout-customer-email"
-            v-model="customerEmail"
-            class="checkout__input"
-            type="email"
-            name="customer_email"
-            autocomplete="email"
-            required
-          />
-        </div>
-        <div class="checkout-form__field">
-          <label class="checkout-form__label" for="checkout-customer-phone">Телефон</label>
-          <input
-            id="checkout-customer-phone"
-            v-model="customerPhone"
-            class="checkout__input"
-            type="tel"
-            name="customer_phone"
-            autocomplete="tel"
-            required
-          />
-        </div>
-        <div class="checkout-form__field">
-          <label class="checkout-form__label" for="checkout-delivery">Доставка</label>
-          <select id="checkout-delivery" v-model="deliveryMethod" class="checkout__select" required>
-            <option
-              v-for="opt in deliveryMethodOptions"
-              :key="opt.value"
-              :value="opt.value"
+        <!-- Шаг 1: Покупатель -->
+        <section class="checkout-block">
+          <div class="checkout-block__header">
+            <h2 class="checkout-block__title">Покупатель</h2>
+            <button
+              v-if="activeStep > 1"
+              type="button"
+              class="checkout-block__edit"
+              @click="continueToStep(1)"
             >
-              {{ opt.label }}
-            </option>
-          </select>
-        </div>
-        <div class="checkout-form__field">
-          <label class="checkout-form__label" for="checkout-payment">Оплата</label>
-          <select id="checkout-payment" v-model="paymentMethod" class="checkout__select" required>
-            <option
-              v-for="opt in paymentMethodOptions"
-              :key="opt.value"
-              :value="opt.value"
+              Изменить
+            </button>
+          </div>
+
+          <div v-if="activeStep === 1" class="checkout-block__body">
+            <div class="checkout-form__field">
+              <label class="checkout-form__label" for="checkout-customer-name">Имя</label>
+              <input
+                id="checkout-customer-name"
+                v-model="customerName"
+                class="checkout__input"
+                type="text"
+                name="customer_name"
+                autocomplete="name"
+                required
+              />
+            </div>
+            <div class="checkout-form__field">
+              <label class="checkout-form__label" for="checkout-customer-email">Email</label>
+              <input
+                id="checkout-customer-email"
+                v-model="customerEmail"
+                class="checkout__input"
+                type="email"
+                name="customer_email"
+                autocomplete="email"
+                required
+              />
+            </div>
+            <div class="checkout-form__field">
+              <label class="checkout-form__label" for="checkout-customer-phone">Телефон</label>
+              <input
+                id="checkout-customer-phone"
+                v-model="customerPhone"
+                class="checkout__input"
+                type="tel"
+                name="customer_phone"
+                autocomplete="tel"
+                required
+              />
+            </div>
+            <button
+              type="button"
+              class="checkout-block__continue"
+              :disabled="!step1Valid"
+              @click="continueToStep(2)"
             >
-              {{ opt.label }}
-            </option>
-          </select>
-        </div>
-        <div class="checkout-form__field">
-          <label class="checkout-form__label" for="checkout-comment">Комментарий</label>
-          <textarea
-            id="checkout-comment"
-            v-model="comment"
-            class="checkout__textarea"
-            name="comment"
-            rows="3"
-            placeholder="Комментарий к заказу"
-          />
-        </div>
+              Продолжить
+            </button>
+          </div>
+          <div v-else class="checkout-block__summary">
+            <p class="checkout-block__summary-line">{{ customerName }}</p>
+            <p class="checkout-block__summary-line checkout-block__summary-line--muted">
+              {{ customerEmail }} · {{ customerPhone }}
+            </p>
+          </div>
+        </section>
+
+        <!-- Шаг 2: Способ доставки -->
+        <section class="checkout-block" :class="{ 'checkout-block--locked': activeStep < 2 }">
+          <div class="checkout-block__header">
+            <h2 class="checkout-block__title">Способ доставки</h2>
+            <button
+              v-if="activeStep > 2"
+              type="button"
+              class="checkout-block__edit"
+              @click="continueToStep(2)"
+            >
+              Изменить
+            </button>
+          </div>
+
+          <p v-if="activeStep < 2" class="checkout-block__locked-hint">
+            Сначала заполните данные покупателя
+          </p>
+
+          <div v-if="activeStep === 2" class="checkout-block__body">
+            <div class="checkout-form__field">
+              <label class="checkout-form__label" for="checkout-delivery">Доставка</label>
+              <select id="checkout-delivery" v-model="deliveryMethod" class="checkout__select" required>
+                <option
+                  v-for="opt in deliveryMethodOptions"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+            <div v-if="requiresPickupPoint" class="checkout-form__field">
+              <label class="checkout-form__label" for="checkout-delivery-city">Город доставки</label>
+              <AddressAutocomplete
+                id="checkout-delivery-city"
+                v-model="pickupAddress"
+                input-class="checkout__input"
+                name="delivery_city"
+                placeholder="Например, Оренбург, ул Транспортная"
+                @select="onPickupAddressSelect"
+              />
+              <p v-if="deliveryPeriodLabel" class="checkout-form__hint">Срок доставки: {{ deliveryPeriodLabel }}</p>
+            </div>
+            <div v-else-if="requiresCity" class="checkout-form__field">
+              <label class="checkout-form__label" for="checkout-delivery-city">Город доставки</label>
+              <input
+                id="checkout-delivery-city"
+                v-model="deliveryCity"
+                class="checkout__input"
+                type="text"
+                name="delivery_city"
+                placeholder="Например, Москва"
+              />
+              <p v-if="deliveryPeriodLabel" class="checkout-form__hint">Срок доставки: {{ deliveryPeriodLabel }}</p>
+            </div>
+
+            <div v-if="user && myAddresses.length > 0 && requiresCity" class="checkout-form__field">
+              <label class="checkout-form__label">Сохранённые адреса</label>
+              <div class="checkout-address-chips">
+                <button
+                  v-for="address in myAddresses"
+                  :key="address.id"
+                  type="button"
+                  class="checkout-address-chip"
+                  @click="applySavedAddress(address.id)"
+                >
+                  {{ address.label }}: {{ address.city }}, {{ address.address }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="requiresPickupPoint" class="checkout-form__field">
+              <label class="checkout-form__label" for="checkout-pickup-point">Пункт выдачи СДЭК</label>
+              <select
+                id="checkout-pickup-point"
+                v-model="deliveryPickupPointCode"
+                class="checkout__select"
+                :disabled="pickupPointsLoading || pickupPointOptions.length === 0"
+              >
+                <option value="" disabled>Выберите ПВЗ</option>
+                <option v-for="opt in pickupPointOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </option>
+              </select>
+              <p v-if="pickupPointsLoading" class="checkout-form__hint">Загрузка пунктов выдачи…</p>
+              <p v-else-if="pickupPointsError" class="checkout-form__hint">{{ pickupPointsError }}</p>
+              <CdekPickupMap
+                v-if="pickupPoints.length > 0 || pickupFocusPoint"
+                v-model:selected-code="deliveryPickupPointCode"
+                :points="pickupPoints"
+                :focus-point="pickupFocusPoint"
+              />
+            </div>
+
+            <div v-if="requiresAddress" class="checkout-form__field">
+              <label class="checkout-form__label" for="checkout-delivery-address">Адрес доставки</label>
+              <AddressAutocomplete
+                id="checkout-delivery-address"
+                v-model="deliveryAddress"
+                input-class="checkout__input"
+                name="delivery_address"
+                placeholder="Например: Транспортная 1/1, город Оренбург"
+                @select="onDeliveryAddressSelect"
+              />
+            </div>
+
+            <button
+              type="button"
+              class="checkout-block__continue"
+              :disabled="!step2Valid"
+              @click="continueToStep(3)"
+            >
+              Продолжить
+            </button>
+          </div>
+          <div v-else-if="activeStep > 2" class="checkout-block__summary">
+            <div class="checkout-block__summary-row">
+              <span>Способ доставки</span>
+              <strong>{{ selectedDeliveryMethodLabel }}</strong>
+            </div>
+            <div v-if="deliveryCity" class="checkout-block__summary-row">
+              <span>Город</span>
+              <strong>{{ deliveryCity }}</strong>
+            </div>
+            <div v-if="requiresPickupPoint && selectedPickupPointLabel" class="checkout-block__summary-row">
+              <span>Пункт выдачи</span>
+              <strong>{{ selectedPickupPointLabel }}</strong>
+            </div>
+            <div v-else-if="requiresAddress && deliveryAddress" class="checkout-block__summary-row">
+              <span>Адрес</span>
+              <strong>{{ deliveryAddress }}</strong>
+            </div>
+            <div class="checkout-block__summary-row">
+              <span>Стоимость доставки</span>
+              <strong>{{ formatPrice(displayedDelivery) }}</strong>
+            </div>
+          </div>
+        </section>
+
+        <!-- Шаг 3: Оплата и комментарий -->
+        <section class="checkout-block" :class="{ 'checkout-block--locked': activeStep < 3 }">
+          <div class="checkout-block__header">
+            <h2 class="checkout-block__title">Оплата и комментарий</h2>
+          </div>
+
+          <p v-if="activeStep < 3" class="checkout-block__locked-hint">
+            Сначала укажите способ доставки
+          </p>
+
+          <div v-else class="checkout-block__body">
+            <div class="checkout-form__field">
+              <label class="checkout-form__label" for="checkout-payment">Оплата</label>
+              <select id="checkout-payment" v-model="paymentMethod" class="checkout__select" required>
+                <option
+                  v-for="opt in paymentMethodOptions"
+                  :key="opt.value"
+                  :value="opt.value"
+                >
+                  {{ opt.label }}
+                </option>
+              </select>
+            </div>
+            <div class="checkout-form__field">
+              <label class="checkout-form__label" for="checkout-comment">Комментарий</label>
+              <textarea
+                id="checkout-comment"
+                v-model="comment"
+                class="checkout__textarea"
+                name="comment"
+                rows="3"
+                placeholder="Комментарий к заказу"
+              />
+            </div>
+          </div>
+        </section>
 
         <p v-if="hasUnavailableItems" class="error error--soft">
           {{ unavailableCartMessage }}
@@ -479,7 +899,7 @@ watch(
                 <dd>−{{ formatPrice(displayedLoyaltyDiscount) }}</dd>
               </div>
               <div class="order-summary__line order-summary__line--muted">
-                <dt>Доставка</dt>
+                <dt>Доставка{{ deliveryPeriodLabel ? ` (${deliveryPeriodLabel})` : '' }}</dt>
                 <dd>{{ formatPrice(displayedDelivery) }}</dd>
               </div>
               <div class="order-summary__line order-summary__total">
@@ -612,6 +1032,17 @@ watch(
 
 .checkout-form {
   position: relative;
+}
+
+.checkout-form--main {
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.checkout-form--skeleton {
+  display: grid;
+  gap: 14px;
   border-radius: 16px;
   padding: 22px 22px 24px;
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
@@ -619,19 +1050,105 @@ watch(
   box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
 }
 
-.checkout-form--main {
-  min-width: 0;
+.checkout-block {
+  border-radius: 16px;
+  padding: 22px 22px 24px;
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  background: var(--card);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
 }
 
-.checkout-form--skeleton {
-  display: grid;
-  gap: 14px;
+.checkout-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.checkout-form__title {
-  margin: 0 0 6px;
+.checkout-block__title {
+  margin: 0;
   font-size: 18px;
   font-weight: 700;
+}
+
+.checkout-block__edit {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: inherit;
+  cursor: pointer;
+}
+
+.checkout-block__edit:hover {
+  border-color: #000;
+}
+
+.checkout-block__body {
+  margin-top: 6px;
+}
+
+.checkout-block__continue {
+  margin-top: 18px;
+  min-height: 50px;
+  padding: 0 28px;
+  border: none;
+  border-radius: 12px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.checkout-block__continue:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.checkout-block--locked {
+  opacity: 0.5;
+}
+
+.checkout-block--locked .checkout-block__title {
+  color: #94a3b8;
+}
+
+.checkout-block__locked-hint {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.checkout-block__summary {
+  margin-top: 4px;
+  display: grid;
+  gap: 6px;
+}
+
+.checkout-block__summary-line {
+  margin: 0;
+  font-weight: 600;
+}
+
+.checkout-block__summary-line--muted {
+  font-weight: 400;
+  color: #64748b;
+}
+
+.checkout-block__summary-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.checkout-block__summary-row span {
+  color: #64748b;
 }
 
 .checkout-form__field {
@@ -690,6 +1207,32 @@ watch(
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
+}
+
+.checkout-form__hint {
+  margin: 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.checkout-address-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.checkout-address-chip {
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  cursor: pointer;
+  color: var(--foreground);
+}
+
+.checkout-address-chip:hover {
+  border-color: #000;
 }
 
 .order-summary {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { NConfigProvider, darkTheme, dateRuRU, ruRU, type GlobalThemeOverrides } from 'naive-ui'
@@ -28,9 +28,12 @@ import {
 } from 'lucide-vue-next'
 import { Toaster, toast } from '@/lib/toast'
 import 'vue-sonner/style.css'
-import { closeProductQuickView } from '@/lib/product-quick-view'
+import { closeProductQuickView, initProductQuickView, productQuickViewState, openProductQuickView } from '@/lib/product-quick-view'
 import { captureFirstTouchAttribution } from '@/lib/attribution'
-import { fetchJson } from '@/lib/api'
+import { fetchJson, requestJson } from '@/lib/api'
+import AddressAutocomplete from '@/components/AddressAutocomplete.vue'
+import type { AddressSuggestion } from '@/composables/useAddressSuggest'
+import { useSiteCityStore } from '@/stores/site-city'
 import {
   defaultSiteSettingsPayload,
   filterNavItemsByFeatureFlags,
@@ -55,8 +58,18 @@ const compareStore = useCompareStore()
 const { totalItems: wishlistTotalItems } = storeToRefs(wishlistStore)
 const { totalItems: compareTotalItems } = storeToRefs(compareStore)
 const { isAuthenticated } = storeToRefs(authStore)
+const cityStore = useSiteCityStore()
 const route = useRoute()
 const router = useRouter()
+
+// Восстанавливаем быстрый просмотр если ?preview= есть в URL при загрузке страницы.
+// Читаем из location.search — роутер не знает об изменениях через history.replaceState.
+const previewSlugOnLoad = new URLSearchParams(location.search).get('preview')
+if (previewSlugOnLoad) {
+  router.isReady().then(() => {
+    openProductQuickView(previewSlugOnLoad)
+  })
+}
 
 const authModalOpen = ref(false)
 const isHeaderLoading = ref(true)
@@ -121,6 +134,7 @@ type StoredCity = {
   region: string
   district: string
   source: 'auto' | 'manual' | 'default'
+  address?: string
 }
 
 type RussianCityEntry = {
@@ -140,6 +154,11 @@ const citySelection = ref<StoredCity>({
 })
 const selectedDistrict = ref('')
 const selectedRegion = ref('')
+const cityModalStep = ref<'city' | 'address'>('city')
+const addressSaveLabel = ref('')
+const addressSaveValue = ref('')
+const addressSaveCity = ref('')
+const addressSaveSubmitting = ref(false)
 let cityCatalogPromise: Promise<void> | null = null
 
 const fallbackCityOptions: CityOption[] = [
@@ -151,6 +170,7 @@ const fallbackCityOptions: CityOption[] = [
 const cityOptions = ref<CityOption[]>(fallbackCityOptions)
 
 const cityLabel = computed(() => citySelection.value.name)
+const addressLabel = computed(() => citySelection.value.address?.trim() || '')
 const citySearchNormalized = computed(() => citySearch.value.trim().toLowerCase())
 const filteredCities = computed(() => {
   if (!citySearchNormalized.value) {
@@ -240,6 +260,20 @@ const footerCopyrightLine = computed(() => {
   }
   return `© ${currentYear} ${siteSettings.value.logo_text}. Все права защищены.`
 })
+
+const footerVariant = computed(() => siteSettings.value.theme.footer.variant ?? 'columns')
+
+const headerEl = ref<HTMLElement | null>(null)
+
+function applyHeaderHeightVar() {
+  if (headerEl.value) {
+    document.documentElement.style.setProperty(
+      '--header-h',
+      `${headerEl.value.offsetHeight}px`,
+    )
+  }
+}
+
 
 const footerToneClass = computed(() => {
   const tone = siteSettings.value.theme.footer.tone
@@ -405,7 +439,7 @@ function applyCity(city: StoredCity) {
   citySelection.value = city
   selectedDistrict.value = city.district
   selectedRegion.value = city.region
-  localStorage.setItem(CITY_STORAGE_KEY, JSON.stringify(city))
+  cityStore.setCity(city)
 }
 
 function findCityOption(name: string, regionHint?: string): CityOption | null {
@@ -503,7 +537,13 @@ function openCityPicker() {
   citySearch.value = ''
   selectedDistrict.value = citySelection.value.district
   selectedRegion.value = citySelection.value.region
+  cityModalStep.value = 'city'
   cityPickerOpen.value = true
+}
+
+function closeCityPicker() {
+  cityPickerOpen.value = false
+  cityModalStep.value = 'city'
 }
 
 function selectDistrict(value: string) {
@@ -518,18 +558,67 @@ function selectRegion(value: string) {
 }
 
 function selectCity(city: CityOption) {
+  const previousAddress = citySelection.value.address?.trim() || ''
+
   applyCity({
     name: city.name,
     region: city.region,
     district: city.district,
     source: 'manual',
+    address: previousAddress,
   })
-  cityPickerOpen.value = false
+
+  cityModalStep.value = 'address'
+  addressSaveLabel.value = ''
+  addressSaveValue.value = previousAddress
+  addressSaveCity.value = city.name
+}
+
+function onAddressSaveSelect(suggestion: AddressSuggestion) {
+  if (suggestion.city) {
+    addressSaveCity.value = suggestion.city
+  }
+}
+
+async function submitAddressSave() {
+  const address = addressSaveValue.value.trim()
+
+  applyCity({
+    ...citySelection.value,
+    address,
+  })
+
+  if (!address || !isAuthenticated.value) {
+    closeCityPicker()
+    return
+  }
+
+  addressSaveSubmitting.value = true
+
+  try {
+    await requestJson('/api/me/addresses', {
+      method: 'POST',
+      body: JSON.stringify({
+        label: addressSaveLabel.value.trim() || 'Адрес',
+        city: addressSaveCity.value || citySelection.value.name,
+        address,
+      }),
+    })
+    toast.success('Адрес сохранён')
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Не удалось сохранить адрес')
+  } finally {
+    addressSaveSubmitting.value = false
+    closeCityPicker()
+  }
 }
 
 onMounted(async () => {
   document.addEventListener('pointerdown', onDocumentPointerDownCloseCatalog, true)
   document.addEventListener('keydown', onDocumentKeydownCloseCatalog)
+  await nextTick()
+  applyHeaderHeightVar()
+  window.addEventListener('resize', applyHeaderHeightVar, { passive: true })
 
   initColorScheme()
   captureFirstTouchAttribution()
@@ -547,6 +636,13 @@ onMounted(async () => {
     await cartStore.loadCart()
   } finally {
     isHeaderLoading.value = false
+  }
+})
+
+watch(() => cityStore.requestPickerOpen, (open) => {
+  if (open) {
+    openCityPicker()
+    cityStore.requestPickerOpen = false
   }
 })
 
@@ -678,11 +774,15 @@ async function openSuggestion(item: SearchSuggestion) {
 
 watch(
   () => route.fullPath,
-  () => {
+  (newPath, oldPath) => {
     headerSearchInput.value = (route.query.q as string | undefined) ?? ''
     searchSuggestions.value = []
     mobileDrawerOpen.value = false
-    closeProductQuickView()
+    // Не закрываем модалку если изменился только ?preview
+    const withoutPreview = (p: string) => p.replace(/([?&])preview=[^&]*(&|$)/, '$1').replace(/[?&]$/, '')
+    if (withoutPreview(newPath) !== withoutPreview(oldPath)) {
+      closeProductQuickView()
+    }
     if (categoryMenuRef.value?.open) {
       categoryMenuRef.value.open = false
     }
@@ -712,6 +812,7 @@ watch(headerSearchInput, (value) => {
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocumentPointerDownCloseCatalog, true)
   document.removeEventListener('keydown', onDocumentKeydownCloseCatalog)
+  window.removeEventListener('resize', applyHeaderHeightVar)
   if (suggestDebounce !== null) {
     window.clearTimeout(suggestDebounce)
   }
@@ -722,6 +823,7 @@ onBeforeUnmount(() => {
   <NConfigProvider :theme="naiveActiveTheme" :theme-overrides="naiveThemeMerged" :locale="ruRU" :date-locale="dateRuRU">
   <div class="app-shell">
     <header
+      ref="headerEl"
       class="site-header"
       :class="[
         { 'site-header--static': !siteSettings.theme.header.sticky },
@@ -732,7 +834,10 @@ onBeforeUnmount(() => {
         <div class="site-header__strip">
           <div class="site-header__inner site-header__inner--strip">
             <button type="button" class="site-header__city" @click="openCityPicker">
-              <span class="site-header__city-label">{{ cityLabel }}</span>
+              <span class="site-header__city-text">
+                <span class="site-header__city-label">{{ cityLabel }}</span>
+                <span v-if="addressLabel" class="site-header__city-address">{{ addressLabel }}</span>
+              </span>
               <ChevronDown class="site-header__city-chevron" :size="16" aria-hidden="true" />
             </button>
             <nav class="site-header__strip-nav" aria-label="Сервисное меню">
@@ -1023,7 +1128,10 @@ onBeforeUnmount(() => {
             </button>
           </div>
           <button type="button" class="mobile-drawer__city" @click="openCityPicker(); mobileDrawerOpen = false">
-            {{ cityLabel }}
+            <span class="mobile-drawer__city-text">
+              <span>{{ cityLabel }}</span>
+              <span v-if="addressLabel" class="mobile-drawer__city-address">{{ addressLabel }}</span>
+            </span>
             <ChevronDown :size="16" />
           </button>
           <nav class="mobile-drawer__nav">
@@ -1109,11 +1217,11 @@ onBeforeUnmount(() => {
       </div>
     </Teleport>
       <Teleport to="body">
-        <div v-if="cityPickerOpen" class="city-modal" @click.self="cityPickerOpen = false">
-          <section class="city-modal__card">
+        <div v-if="cityPickerOpen" class="city-modal" @click.self="closeCityPicker">
+          <section v-if="cityModalStep === 'city'" class="city-modal__card">
           <header class="city-modal__header">
             <h2>Выберите город</h2>
-            <button type="button" class="city-modal__close" @click="cityPickerOpen = false">×</button>
+            <button type="button" class="city-modal__close" @click="closeCityPicker">×</button>
           </header>
 
           <Input
@@ -1178,60 +1286,138 @@ onBeforeUnmount(() => {
             </div>
           </div>
           </section>
+
+          <section v-else class="city-modal__card city-modal__card--address">
+            <header class="city-modal__header">
+              <h2>Адрес в г. {{ citySelection.name }}</h2>
+              <button type="button" class="city-modal__close" @click="closeCityPicker">×</button>
+            </header>
+
+            <div class="city-modal__address-field">
+              <label class="city-modal__address-label" for="city-modal-address-value">Адрес</label>
+              <AddressAutocomplete
+                id="city-modal-address-value"
+                v-model="addressSaveValue"
+                input-class="city-modal__address-input"
+                placeholder="Улица, дом"
+                @select="onAddressSaveSelect"
+              />
+            </div>
+
+            <div v-if="isAuthenticated" class="city-modal__address-field">
+              <label class="city-modal__address-label" for="city-modal-address-label">Метка (для сохранения в профиле)</label>
+              <input
+                id="city-modal-address-label"
+                v-model="addressSaveLabel"
+                type="text"
+                class="city-modal__address-input"
+                placeholder="Дом, Работа"
+              />
+            </div>
+
+            <div class="city-modal__address-actions">
+              <button type="button" class="city-modal__address-skip" @click="closeCityPicker">Пропустить</button>
+              <button
+                type="button"
+                class="city-modal__address-save"
+                :disabled="addressSaveSubmitting"
+                @click="submitAddressSave"
+              >
+                {{ addressSaveSubmitting ? 'Сохранение…' : 'Сохранить' }}
+              </button>
+            </div>
+          </section>
         </div>
       </Teleport>
       <RouterView />
-      <footer class="footer" :class="footerToneClass">
-      <div class="footer__grid">
-        <div>
-          <p class="footer__brand">{{ siteSettings.logo_text }}</p>
-          <p class="footer__text">Шаблонный e-commerce проект для быстрого запуска витрины.</p>
-        </div>
-        <div>
-          <p class="footer__title">Покупателям</p>
-          <nav class="footer__links">
-            <template v-for="item in footerCustomersMenuItems" :key="`footer-customers-${item.id}`">
-              <a
-                v-if="item.is_external"
-                :href="item.path"
-                :target="item.open_in_new_tab ? '_blank' : undefined"
-                :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
-              >
-                {{ item.label }}
-              </a>
-              <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
-            </template>
-          </nav>
-        </div>
-        <div>
-          <p class="footer__title">Аккаунт</p>
-          <nav class="footer__links">
-            <template v-for="item in footerAccountMenuItems" :key="`footer-account-${item.id}`">
-              <a
-                v-if="item.is_external"
-                :href="item.path"
-                :target="item.open_in_new_tab ? '_blank' : undefined"
-                :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
-              >
-                {{ item.label }}
-              </a>
-              <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
-            </template>
-          </nav>
-        </div>
-        <div>
-          <p class="footer__title">Контакты</p>
-          <p v-if="siteSettings.support_email" class="footer__text">
-            Email:
-            <a :href="`mailto:${siteSettings.support_email}`">{{ siteSettings.support_email }}</a>
-          </p>
-          <p class="footer__text">
-            Телефон:
-            <a :href="`tel:${siteSettings.phone_tel}`">{{ siteSettings.phone_display }}</a>
-          </p>
-        </div>
-      </div>
-      <p class="footer__copy">{{ footerCopyrightLine }}</p>
+      <footer class="footer" :class="[footerToneClass, `footer--variant-${footerVariant}`]">
+
+        <!-- variant: columns (default) — 4 колонки -->
+        <template v-if="footerVariant === 'columns'">
+          <div class="footer__grid">
+            <div>
+              <p class="footer__brand">{{ siteSettings.logo_text }}</p>
+              <p class="footer__text">Шаблонный e-commerce проект для быстрого запуска витрины.</p>
+            </div>
+            <div>
+              <p class="footer__title">Покупателям</p>
+              <nav class="footer__links">
+                <template v-for="item in footerCustomersMenuItems" :key="`footer-customers-${item.id}`">
+                  <a
+                    v-if="item.is_external"
+                    :href="item.path"
+                    :target="item.open_in_new_tab ? '_blank' : undefined"
+                    :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
+                  >{{ item.label }}</a>
+                  <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
+                </template>
+              </nav>
+            </div>
+            <div>
+              <p class="footer__title">Аккаунт</p>
+              <nav class="footer__links">
+                <template v-for="item in footerAccountMenuItems" :key="`footer-account-${item.id}`">
+                  <a
+                    v-if="item.is_external"
+                    :href="item.path"
+                    :target="item.open_in_new_tab ? '_blank' : undefined"
+                    :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
+                  >{{ item.label }}</a>
+                  <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
+                </template>
+              </nav>
+            </div>
+            <div>
+              <p class="footer__title">Контакты</p>
+              <p v-if="siteSettings.support_email" class="footer__text">
+                Email: <a :href="`mailto:${siteSettings.support_email}`">{{ siteSettings.support_email }}</a>
+              </p>
+              <p class="footer__text">
+                Телефон: <a :href="`tel:${siteSettings.phone_tel}`">{{ siteSettings.phone_display }}</a>
+              </p>
+            </div>
+          </div>
+          <p class="footer__copy">{{ footerCopyrightLine }}</p>
+        </template>
+
+        <!-- variant: minimal — одна строка: лого слева, ссылки по центру, копирайт справа -->
+        <template v-else-if="footerVariant === 'minimal'">
+          <div class="footer__minimal-row">
+            <p class="footer__brand">{{ siteSettings.logo_text }}</p>
+            <nav class="footer__links footer__links--inline">
+              <template v-for="item in footerCustomersMenuItems.slice(0, 5)" :key="`footer-min-${item.id}`">
+                <a
+                  v-if="item.is_external"
+                  :href="item.path"
+                  :target="item.open_in_new_tab ? '_blank' : undefined"
+                  :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
+                >{{ item.label }}</a>
+                <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
+              </template>
+            </nav>
+            <p class="footer__copy footer__copy--inline">{{ footerCopyrightLine }}</p>
+          </div>
+        </template>
+
+        <!-- variant: centered — всё по центру -->
+        <template v-else-if="footerVariant === 'centered'">
+          <div class="footer__centered">
+            <p class="footer__brand">{{ siteSettings.logo_text }}</p>
+            <nav class="footer__links footer__links--inline footer__links--centered">
+              <template v-for="item in footerCustomersMenuItems.slice(0, 6)" :key="`footer-cen-${item.id}`">
+                <a
+                  v-if="item.is_external"
+                  :href="item.path"
+                  :target="item.open_in_new_tab ? '_blank' : undefined"
+                  :rel="item.open_in_new_tab ? 'noopener noreferrer' : undefined"
+                >{{ item.label }}</a>
+                <RouterLink v-else :to="item.path">{{ item.label }}</RouterLink>
+              </template>
+            </nav>
+            <p class="footer__copy footer__copy--centered">{{ footerCopyrightLine }}</p>
+          </div>
+        </template>
+
       </footer>
     <QuickReviewPrompt />
     <AuthModal :open="authModalOpen" @close="closeAuthModal" @authenticated="onAuthenticated" />
@@ -1260,6 +1446,7 @@ onBeforeUnmount(() => {
   top: auto;
   z-index: auto;
 }
+
 
 .site-header__strip {
   background: var(--header-strip-bg, #f3f4f6);
@@ -1307,6 +1494,25 @@ onBeforeUnmount(() => {
 
 .site-header__city-chevron {
   opacity: 0.55;
+  flex-shrink: 0;
+}
+
+.site-header__city-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.25;
+  max-width: 220px;
+}
+
+.site-header__city-address {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .site-header__strip-nav {
@@ -1980,6 +2186,20 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
+.mobile-drawer__city-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+}
+
+.mobile-drawer__city-address {
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.65;
+}
+
 .mobile-drawer__nav {
   display: flex;
   flex-direction: column;
@@ -2172,6 +2392,72 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
+/* ── footer variant: minimal ── */
+.footer__minimal-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 24px;
+}
+
+.footer__minimal-row .footer__brand {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.footer__links--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 0;
+}
+
+.footer__copy--inline {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  font-size: 13px;
+}
+
+@media (max-width: 767px) {
+  .footer__minimal-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .footer__copy--inline {
+    width: 100%;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+}
+
+/* ── footer variant: centered ── */
+.footer__centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.footer__centered .footer__brand {
+  font-size: 34px;
+}
+
+.footer__links--centered {
+  justify-content: center;
+}
+
+.footer__copy--centered {
+  margin-top: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  width: 100%;
+  text-align: center;
+}
+
 .city-modal {
   position: fixed;
   inset: 0;
@@ -2191,8 +2477,75 @@ onBeforeUnmount(() => {
   border: 1px solid #e6ddd0;
   box-shadow: 0 24px 54px rgb(16 24 40 / 28%);
   display: grid;
+  grid-template-rows: auto auto auto 1fr;
   gap: 14px;
   padding: 24px;
+}
+
+.city-modal__card--address {
+  width: min(480px, 94vw);
+  max-height: none;
+  grid-template-rows: auto auto auto auto;
+}
+
+.city-modal__address-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.city-modal__address-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.city-modal__address-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 48px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #e6ddd0;
+  background: #fff;
+  font-size: 16px;
+  font-family: inherit;
+  color: inherit;
+}
+
+.city-modal__address-input:focus {
+  outline: none;
+  border-color: #000;
+}
+
+.city-modal__address-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.city-modal__address-skip {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 12px 16px;
+}
+
+.city-modal__address-save {
+  border: none;
+  border-radius: 12px;
+  background: #000;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 12px 24px;
+}
+
+.city-modal__address-save:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .city-modal__header {
@@ -2243,7 +2596,8 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 1fr 1.25fr 1fr;
   gap: 16px;
-  min-height: 340px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .city-modal__column {
@@ -2251,7 +2605,9 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
+  min-height: 0;
   padding-right: 6px;
+  overscroll-behavior: contain;
 }
 
 .city-modal__label {

@@ -2,6 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppSkeleton from '@/components/AppSkeleton.vue'
+import ServicePageBlocks from '@/components/ServicePageBlocks.vue'
+import type { FilamentBlock } from '@/components/ServicePageBlocks.vue'
 import { fetchJson } from '@/lib/api'
 import { clearStructuredData, setSeoMeta } from '@/lib/seo'
 
@@ -11,6 +13,7 @@ type ServicePagePayload = {
   slug: string
   excerpt: string | null
   content: string | null
+  blocks: FilamentBlock[]
   seo_title: string | null
   seo_description: string | null
   updated_at: string | null
@@ -20,6 +23,7 @@ const route = useRoute()
 const page = ref<ServicePagePayload | null>(null)
 const isLoading = ref(true)
 const hasError = ref(false)
+const hasBlocks = computed(() => Array.isArray(page.value?.blocks) && (page.value?.blocks.length ?? 0) > 0)
 const contentHtml = computed(() => page.value?.content?.trim() || '<p>Контент скоро появится.</p>')
 
 function formatDate(value: string | null) {
@@ -113,7 +117,9 @@ watch(
       <h1>{{ page.title }}</h1>
       <p v-if="page.excerpt" class="service-page__excerpt">{{ page.excerpt }}</p>
       <p v-if="page.updated_at" class="service-page__date">Обновлено: {{ formatDate(page.updated_at) }}</p>
-      <article class="service-page__content" v-html="contentHtml" />
+      <!-- Конструктор блоков (приоритет) или устаревший HTML -->
+      <ServicePageBlocks v-if="hasBlocks" :blocks="page.blocks" />
+      <article v-else class="service-page__content" v-html="contentHtml" />
     </article>
   </main>
 </template>
