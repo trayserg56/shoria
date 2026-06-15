@@ -11,11 +11,12 @@ class TrackingEventStoreTest extends TestCase
 
     public function test_events_endpoint_accepts_view_product_payload(): void
     {
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
         $response = $this->postJson('/api/events', [
             'event_name' => 'view_product',
             'page_url' => 'http://127.0.0.1:8080/product/lifestyle/city-frame-one',
             'referrer' => null,
-            'session_id' => 'test-session-1',
+            'session_id' => $sessionId,
             'occurred_at' => now()->toIso8601String(),
             'attribution' => [
                 'source' => 'direct',
@@ -33,7 +34,7 @@ class TrackingEventStoreTest extends TestCase
         $response->assertJson(['ok' => true]);
         $this->assertDatabaseHas('tracking_events', [
             'event_name' => 'view_product',
-            'session_id' => 'test-session-1',
+            'session_id' => $sessionId,
         ]);
     }
 }

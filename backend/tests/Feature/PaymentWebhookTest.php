@@ -17,7 +17,7 @@ class PaymentWebhookTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'webhook-paid-session';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -72,7 +72,7 @@ class PaymentWebhookTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'webhook-ignored-session';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,

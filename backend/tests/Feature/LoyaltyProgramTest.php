@@ -25,7 +25,7 @@ class LoyaltyProgramTest extends TestCase
         ]);
 
         $token = $user->createToken('test')->plainTextToken;
-        $sessionId = 'test-session-loyalty-preview';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -70,7 +70,7 @@ class LoyaltyProgramTest extends TestCase
         ]);
 
         $token = $user->createToken('test')->plainTextToken;
-        $sessionId = 'test-session-loyalty-checkout';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
@@ -122,7 +122,7 @@ class LoyaltyProgramTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-loyalty-guest';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,

@@ -72,7 +72,7 @@ class AuthFlowTest extends TestCase
     {
         $this->seed(ShopDemoSeeder::class);
 
-        $sessionId = 'test-session-auth-adopt';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $addItemResponse = $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,

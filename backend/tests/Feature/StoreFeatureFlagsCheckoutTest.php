@@ -39,15 +39,16 @@ class StoreFeatureFlagsCheckoutTest extends TestCase
         ]);
 
         $product = Product::query()->where('slug', 'city-frame-one')->firstOrFail();
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
-            'session_id' => 'flag-gc-session',
+            'session_id' => $sessionId,
             'product_slug' => $product->slug,
             'qty' => 1,
         ])->assertOk();
 
         $response = $this->postJson('/api/checkout', [
-            'session_id' => 'flag-gc-session',
+            'session_id' => $sessionId,
             'customer_name' => 'Тест',
             'customer_email' => 'flag-gc@example.com',
             'customer_phone' => '+79991112233',

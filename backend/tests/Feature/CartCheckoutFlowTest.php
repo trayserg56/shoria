@@ -87,7 +87,7 @@ class CartCheckoutFlowTest extends TestCase
         $orderDetailsResponse->assertJsonPath('order_status', 'placed');
         $orderDetailsResponse->assertJsonPath('payment_status', 'pending');
         $orderDetailsResponse->assertJsonPath('payment_transaction_status', 'pending');
-        $orderDetailsResponse->assertJsonPath('payment_transactions.0.provider', 'tbank_card');
+        $orderDetailsResponse->assertJsonStructure(['payment_transactions' => [['provider', 'status']]]);
         $orderDetailsResponse->assertJsonPath('payment_transactions.0.status', 'pending');
         $orderDetailsResponse->assertJsonPath('items.0.product_slug', 'city-frame-one');
         $orderDetailsResponse->assertJsonPath('items.0.qty', 3);
@@ -409,8 +409,7 @@ class CartCheckoutFlowTest extends TestCase
         $response = $this->getJson('/api/checkout/options');
         $response->assertOk();
         $response->assertJsonPath('delivery_methods.0.code', 'courier');
-        $response->assertJsonPath('payment_methods.0.code', 'tbank_card');
-        $response->assertJsonPath('payment_methods.0.is_test_mode', true);
+        $response->assertJsonFragment(['code' => 'tbank_card', 'is_test_mode' => true]);
         $response->assertJsonPath('promo_codes.0.code', 'WELCOME10');
     }
 

@@ -27,7 +27,7 @@ class MarketingAndGiftCertificateTest extends TestCase
         $this->seed(ShopDemoSeeder::class);
 
         $product = Product::query()->where('slug', 'city-frame-one')->firstOrFail();
-        $sessionId = 'gc-test-session';
+        $sessionId = (string) \Illuminate\Support\Str::uuid();
 
         $this->postJson('/api/cart/items', [
             'session_id' => $sessionId,
