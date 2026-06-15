@@ -10,6 +10,7 @@ use App\Models\ProductVariant;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -56,50 +57,55 @@ class CartController extends Controller
 
         $cart = $this->findOrCreateOpenCart($user, $sessionId);
 
-        $itemQuery = $cart->items()
-            ->where('product_id', $product->id);
+        $cart = DB::transaction(function () use ($cart, $product, $selectedVariant, $qtyToAdd) {
+            // Блокируем запись стока, чтобы исключить race condition
+            // когда два запроса одновременно читают stock и оба проходят проверку
+            if ($selectedVariant) {
+                $lockedVariant = ProductVariant::query()->whereKey($selectedVariant->id)->lockForUpdate()->first();
+                $availableStock = (int) $lockedVariant->stock;
+            } else {
+                $lockedProduct = Product::query()->whereKey($product->id)->lockForUpdate()->first();
+                $availableStock = (int) $lockedProduct->stock;
+            }
 
-        if ($selectedVariant) {
-            $itemQuery->where('product_variant_id', $selectedVariant->id);
-        } else {
-            $itemQuery->whereNull('product_variant_id');
-        }
+            $itemQuery = $cart->items()->where('product_id', $product->id);
 
-        $item = $itemQuery->first();
+            if ($selectedVariant) {
+                $itemQuery->where('product_variant_id', $selectedVariant->id);
+            } else {
+                $itemQuery->whereNull('product_variant_id');
+            }
 
-        $nextQty = $qtyToAdd;
+            $item = $itemQuery->lockForUpdate()->first();
+            $nextQty = $qtyToAdd + (int) ($item?->qty ?? 0);
 
-        if ($item) {
-            $nextQty += $item->qty;
-        }
+            if ($nextQty > $availableStock) {
+                throw ValidationException::withMessages([
+                    'qty' => 'Недостаточный остаток товара на складе.',
+                ]);
+            }
 
-        $availableStock = $selectedVariant?->stock ?? $product->stock;
+            $coverImage = $this->resolveCoverImageUrl($product, $selectedVariant);
+            $unitPrice = (float) ($selectedVariant?->price ?? $product->price);
 
-        if ($nextQty > $availableStock) {
-            return response()->json([
-                'message' => 'Недостаточный остаток товара на складе.',
-            ], 422);
-        }
+            if (! $item) {
+                $item = new CartItem;
+                $item->cart_id = $cart->id;
+                $item->product_id = $product->id;
+                $item->product_variant_id = $selectedVariant?->id;
+            }
 
-        $coverImage = $this->resolveCoverImageUrl($product, $selectedVariant);
+            $item->product_name = $product->name;
+            $item->product_slug = $product->slug;
+            $item->variant_label = $this->resolveVariantLabel($selectedVariant);
+            $item->image_url = $coverImage;
+            $item->qty = $nextQty;
+            $item->unit_price = $unitPrice;
+            $item->total_price = $unitPrice * $nextQty;
+            $item->save();
 
-        $unitPrice = (float) ($selectedVariant?->price ?? $product->price);
-
-        if (! $item) {
-            $item = new CartItem;
-            $item->cart_id = $cart->id;
-            $item->product_id = $product->id;
-            $item->product_variant_id = $selectedVariant?->id;
-        }
-
-        $item->product_name = $product->name;
-        $item->product_slug = $product->slug;
-        $item->variant_label = $this->resolveVariantLabel($selectedVariant);
-        $item->image_url = $coverImage;
-        $item->qty = $nextQty;
-        $item->unit_price = $unitPrice;
-        $item->total_price = $unitPrice * $item->qty;
-        $item->save();
+            return $cart;
+        });
 
         $cart = $this->recalculateCart($cart);
         $this->clearAbandonedCartReminder($cart);
@@ -121,26 +127,30 @@ class CartController extends Controller
         $qty = (int) $validated['qty'];
 
         $cart = $this->findOrCreateOpenCart($user, $sessionId);
-        $item = $cart->items()->where('id', $itemId)->firstOrFail();
-        $product = Product::query()
-            ->with('variants:id,product_id,slug,size_label,color_label,price,stock,is_active,sort_order')
-            ->findOrFail($item->product_id);
-        $variant = $item->product_variant_id
-            ? $product->variants->firstWhere('id', $item->product_variant_id)
-            : null;
 
-        $availableStock = $variant?->stock ?? $product->stock;
+        $cart = DB::transaction(function () use ($cart, $itemId, $qty) {
+            $item = $cart->items()->where('id', $itemId)->lockForUpdate()->firstOrFail();
+            $product = Product::query()->whereKey($item->product_id)->lockForUpdate()->firstOrFail();
 
-        if ($qty > $availableStock) {
-            return response()->json([
-                'message' => 'Недостаточный остаток товара на складе.',
-            ], 422);
-        }
+            $variant = $item->product_variant_id
+                ? ProductVariant::query()->whereKey($item->product_variant_id)->lockForUpdate()->first()
+                : null;
 
-        $item->unit_price = (float) ($variant?->price ?? $product->price);
-        $item->qty = $qty;
-        $item->total_price = ((float) $item->unit_price) * $qty;
-        $item->save();
+            $availableStock = (int) ($variant?->stock ?? $product->stock);
+
+            if ($qty > $availableStock) {
+                throw ValidationException::withMessages([
+                    'qty' => 'Недостаточный остаток товара на складе.',
+                ]);
+            }
+
+            $item->unit_price = (float) ($variant?->price ?? $product->price);
+            $item->qty = $qty;
+            $item->total_price = ((float) $item->unit_price) * $qty;
+            $item->save();
+
+            return $cart;
+        });
 
         $cart = $this->recalculateCart($cart);
         $this->clearAbandonedCartReminder($cart);
