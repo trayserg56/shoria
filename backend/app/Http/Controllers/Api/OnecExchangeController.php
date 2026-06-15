@@ -47,10 +47,11 @@ class OnecExchangeController extends Controller
     private function checkAuth(Request $request): Response
     {
         // 1С ожидает ответ "success\n<name>\n<value>" (имя и значение сессионной cookie)
-        $sessionName = session()->getName();
-        $request->session()->regenerate();
+        // API-маршрут не имеет session middleware, используем кэш-токен
+        $token = md5(uniqid('1c', true));
+        Cache::put("1c_session:{$token}", true, now()->addHours(2));
 
-        return response("success\n{$sessionName}\n" . $request->session()->getId());
+        return response("success\nCOMERCEML_SESSION\n{$token}");
     }
 
     private function init(Request $request): Response
