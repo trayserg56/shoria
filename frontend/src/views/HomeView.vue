@@ -471,41 +471,39 @@ async function subscribeToNewsletter() {
 
 <template>
   <main class="home">
-    <template v-if="isLoading">
+    <Transition name="home-fade">
+    <div v-if="isLoading" key="skeleton">
       <section v-if="homeSectionOn('hero')" class="home-hero home-hero--skeleton" aria-hidden="true">
         <AppSkeleton class="home-hero__skeleton-plate" width="100%" height="calc(100svh - var(--header-h, 118px))" radius="0" />
       </section>
 
       <div class="home__container">
       <section v-if="homeSectionOn('trust')" class="stats stats--skeleton">
-        <article v-for="index in 4" :key="`stats-skeleton-${index}`" class="stats-card">
-          <AppSkeleton width="70%" height="42px" />
+        <article v-for="index in 3" :key="`stats-skeleton-${index}`" class="stats-card">
+          <AppSkeleton width="70%" height="clamp(26px, 4vw, 46px)" />
           <AppSkeleton width="55%" height="18px" />
         </article>
       </section>
 
       <section v-if="homeSectionOn('categories')" class="section">
         <header class="section__header">
-          <AppSkeleton width="180px" height="32px" />
-          <AppSkeleton width="320px" height="16px" />
+          <AppSkeleton width="180px" height="clamp(26px, 3.6vw, 40px)" />
         </header>
         <div class="category-grid">
           <article v-for="index in 4" :key="`category-skeleton-${index}`" class="card category-card category-card--skeleton">
             <div class="skeleton-aspect skeleton-aspect--4-3">
-              <AppSkeleton width="100%" height="100%" radius="0" />
-            </div>
-            <div class="card__content">
-              <AppSkeleton width="48%" height="20px" />
+              <AppSkeleton width="100%" height="100%" radius="16px" />
             </div>
           </article>
         </div>
       </section>
 
       <section v-if="homeSectionOn('featured')" class="section">
-        <header class="section__header">
-          <AppSkeleton width="140px" height="32px" />
-          <AppSkeleton width="280px" height="16px" />
-        </header>
+        <div class="section__toolbar">
+          <header class="section__header">
+            <AppSkeleton width="140px" height="clamp(26px, 3.6vw, 40px)" />
+          </header>
+        </div>
         <div class="home-tag-tabs home-tag-tabs--skeleton" aria-hidden="true">
           <AppSkeleton width="100px" height="32px" radius="8px" />
           <AppSkeleton width="72px" height="32px" radius="8px" />
@@ -543,10 +541,11 @@ async function subscribeToNewsletter() {
       </section>
 
       <section v-if="homeSectionOn('news')" class="section">
-        <header class="section__header">
-          <AppSkeleton width="220px" height="32px" />
-          <AppSkeleton width="300px" height="16px" />
-        </header>
+        <div class="section__toolbar section__toolbar--news">
+          <header class="section__header">
+            <AppSkeleton width="220px" height="clamp(26px, 3.6vw, 40px)" />
+          </header>
+        </div>
         <div class="news-grid">
           <article v-for="index in 3" :key="`news-skeleton-${index}`" class="card news-card">
             <div class="skeleton-aspect skeleton-aspect--16-10">
@@ -562,9 +561,9 @@ async function subscribeToNewsletter() {
         </div>
       </section>
       </div>
-    </template>
+    </div>
 
-    <template v-else>
+    <div v-else key="content">
     <section
       v-if="homeSectionOn('hero')"
       class="home-hero"
@@ -934,7 +933,8 @@ async function subscribeToNewsletter() {
       </div>
     </section>
     </div>
-    </template>
+    </div>
+    </Transition>
 
     <p v-if="hasError" class="status status--warn">
       API пока недоступно, показаны демо-данные. Проверь `VITE_API_URL` и backend контейнер.
@@ -943,6 +943,14 @@ async function subscribeToNewsletter() {
 </template>
 
 <style scoped>
+.home-fade-enter-active {
+  transition: opacity 0.25s ease;
+}
+
+.home-fade-enter-from {
+  opacity: 0;
+}
+
 .home {
   width: 100%;
   padding: 0 0 48px;

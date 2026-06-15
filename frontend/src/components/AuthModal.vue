@@ -148,41 +148,42 @@ async function submitForgotPassword() {
         <h2 v-else>Восстановление пароля</h2>
       </header>
 
-      <form v-if="mode === 'register'" class="form" @submit.prevent="submitRegister">
-        <label>
-          Имя
-          <input v-model="regName" type="text" required />
-        </label>
-        <label>
-          Email
-          <input v-model="regEmail" type="email" required />
-        </label>
-        <label>
-          Пароль
-          <input v-model="regPassword" type="password" minlength="8" required />
-        </label>
-        <button type="submit" :disabled="isSubmitting">
-          {{ isSubmitting ? 'Создаем...' : 'Зарегистрироваться' }}
-        </button>
-      </form>
-
-      <div v-if="mode === 'register' && (vkOAuthHref || yandexOAuthHref)" class="social-login">
-        <span class="social-divider">или войти через</span>
-        <div class="social-buttons">
-          <a v-if="yandexOAuthHref" class="social-btn yandex-btn" :href="yandexOAuthHref">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-              <path d="M13.31 11.53H11.7V6.34h1.68c2.01 0 3.04.94 3.04 2.57 0 1.7-1.08 2.62-3.11 2.62ZM21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9ZM14.42 14.1c1.8-.56 2.88-2.01 2.88-3.86 0-2.56-1.76-4.24-4.76-4.24H9.7V18h2V13.1h1.42l2.74 4.9h2.22l-3.06-4.9h.4Z"/>
-            </svg>
-            Яндекс
-          </a>
-          <a v-if="vkOAuthHref" class="social-btn vk-btn" :href="vkOAuthHref">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-              <path d="M21.547 7h-3.29a.743.743 0 0 0-.655.392s-1.312 2.416-1.734 3.23C14.734 12.813 14 12.126 14 11.11V7.603A1.104 1.104 0 0 0 12.896 6.5h-2.474a1.982 1.982 0 0 0-1.75.813s1.255-.204 1.255 1.49c0 .42.022 1.626.04 2.64a.73.73 0 0 1-1.272.503 21.54 21.54 0 0 1-2.498-4.543.693.693 0 0 0-.63-.403h-2.99a.508.508 0 0 0-.48.685C3.005 10.175 6.918 18 11.38 18h1.878a.742.742 0 0 0 .742-.742v-1.135a.73.73 0 0 1 1.23-.53l2.247 2.112a1.09 1.09 0 0 0 .746.295h2.953c1.424 0 1.424-.988.647-1.753-.546-.538-2.518-2.617-2.518-2.617a1.02 1.02 0 0 1-.078-1.323c.637-.84 1.68-2.212 2.122-2.8.603-.804 1.697-2.507.197-2.507z"/>
-            </svg>
-            ВКонтакте
-          </a>
+      <template v-if="mode === 'register'">
+        <form class="form" @submit.prevent="submitRegister">
+          <label>
+            Имя
+            <input v-model="regName" type="text" required />
+          </label>
+          <label>
+            Email
+            <input v-model="regEmail" type="email" required />
+          </label>
+          <label>
+            Пароль
+            <input v-model="regPassword" type="password" minlength="8" required />
+          </label>
+          <button type="submit" :disabled="isSubmitting">
+            {{ isSubmitting ? 'Создаем...' : 'Зарегистрироваться' }}
+          </button>
+        </form>
+        <div v-if="vkOAuthHref || yandexOAuthHref" class="social-login">
+          <span class="social-divider">или войти через</span>
+          <div class="social-buttons">
+            <a v-if="yandexOAuthHref" class="social-btn yandex-btn" :href="yandexOAuthHref">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M13.31 11.53H11.7V6.34h1.68c2.01 0 3.04.94 3.04 2.57 0 1.7-1.08 2.62-3.11 2.62ZM21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9ZM14.42 14.1c1.8-.56 2.88-2.01 2.88-3.86 0-2.56-1.76-4.24-4.76-4.24H9.7V18h2V13.1h1.42l2.74 4.9h2.22l-3.06-4.9h.4Z"/>
+              </svg>
+              Яндекс
+            </a>
+            <a v-if="vkOAuthHref" class="social-btn vk-btn" :href="vkOAuthHref">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21.547 7h-3.29a.743.743 0 0 0-.655.392s-1.312 2.416-1.734 3.23C14.734 12.813 14 12.126 14 11.11V7.603A1.104 1.104 0 0 0 12.896 6.5h-2.474a1.982 1.982 0 0 0-1.75.813s1.255-.204 1.255 1.49c0 .42.022 1.626.04 2.64a.73.73 0 0 1-1.272.503 21.54 21.54 0 0 1-2.498-4.543.693.693 0 0 0-.63-.403h-2.99a.508.508 0 0 0-.48.685C3.005 10.175 6.918 18 11.38 18h1.878a.742.742 0 0 0 .742-.742v-1.135a.73.73 0 0 1 1.23-.53l2.247 2.112a1.09 1.09 0 0 0 .746.295h2.953c1.424 0 1.424-.988.647-1.753-.546-.538-2.518-2.617-2.518-2.617a1.02 1.02 0 0 1-.078-1.323c.637-.84 1.68-2.212 2.122-2.8.603-.804 1.697-2.507.197-2.507z"/>
+              </svg>
+              ВКонтакте
+            </a>
+          </div>
         </div>
-      </div>
+      </template>
 
       <template v-else-if="mode === 'login'">
         <form class="form" @submit.prevent="submitLogin">
@@ -218,7 +219,7 @@ async function submitForgotPassword() {
         </div>
       </template>
 
-      <form v-else class="form" @submit.prevent="submitForgotPassword">
+      <form v-else-if="mode === 'forgot'" class="form" @submit.prevent="submitForgotPassword">
         <label>
           Email
           <input v-model="resetEmail" type="email" required />
