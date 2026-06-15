@@ -90,9 +90,9 @@ class OrdersExporter
                 $this->appendEl($dom, $good, 'Ид', $extId);
                 $this->appendEl($dom, $good, 'Наименование', $item->product_name ?? '');
                 $this->appendEl($dom, $good, 'Артикул', $item->product?->sku ?? '');
-                $this->appendEl($dom, $good, 'КоличествоУпаковок', (string) $item->quantity);
-                $this->appendEl($dom, $good, 'ЦенаЗаЕдиницу', number_format((float) $item->price, 2, '.', ''));
-                $this->appendEl($dom, $good, 'Сумма', number_format((float) ($item->price * $item->quantity), 2, '.', ''));
+                $this->appendEl($dom, $good, 'КоличествоУпаковок', (string) $item->qty);
+                $this->appendEl($dom, $good, 'ЦенаЗаЕдиницу', number_format((float) $item->unit_price, 2, '.', ''));
+                $this->appendEl($dom, $good, 'Сумма', number_format((float) $item->total_price, 2, '.', ''));
             }
 
             // Реквизиты

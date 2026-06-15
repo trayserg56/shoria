@@ -498,21 +498,21 @@ watch(
 
       <div class="product-card__actions product-card__interaction">
         <button
-          v-if="currentCartQty === 0 && !isOutOfStock"
+          v-if="isOutOfStock && currentCartQty === 0"
+          type="button"
+          class="action action--cart"
+          disabled
+        >
+          Нет в наличии
+        </button>
+        <button
+          v-else-if="currentCartQty === 0"
           type="button"
           class="action action--cart"
           :disabled="isCartBusy"
           @click.stop.prevent="addToCart"
         >
           {{ isCartBusy ? 'Добавляем...' : 'В корзину' }}
-        </button>
-        <button
-          v-else-if="currentCartQty === 0 && wishlistFeatureEnabled"
-          type="button"
-          class="action action--wishlist"
-          @click.stop.prevent="toggleWishlist"
-        >
-          {{ isWishlisted ? 'В избранном' : 'В избранное' }}
         </button>
         <div v-else-if="currentCartQty > 0" class="cart-stepper">
           <div class="cart-stepper__controls">

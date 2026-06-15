@@ -596,6 +596,41 @@ curl -u 1c:secret "http://localhost:8080/api/1c/exchange?type=catalog&mode=impor
 
 После подтягивания ветки: **`php artisan migrate`**, задать `ONEC_USERNAME` и `ONEC_PASSWORD` в `backend/.env`.
 
+## Обновления (15 июня 2026) — Робокасса, исправления CommerceML 2, тестовые данные 1С
+
+**Робокасса — интеграция платёжного провайдера**
+
+- Добавлен провайдер Робокасса в таблицу `payment_providers` через миграцию `2026_06_15_100000_seed_robokassa_payment_provider.php`.
+- Миграция использует `PaymentProvider::create()` (не raw `DB::insert`), чтобы поле `config` корректно шифровалось (`encrypted` cast в модели). Raw-вставка через `DB::table()` приводила к `DecryptException` при чтении.
+- Настройка в продакшне: `Password1`, `Password2`, `merchant_login` заполняются в Filament → Настройки → Платёжные провайдеры → Робокасса.
+- Sandbox-режим (`mode=sandbox`) активен по умолчанию.
+
+**CommerceML 2 — исправления протокола обмена с 1С**
+
+- **`checkAuth`** (`OnecExchangeController`): убран вызов `$request->session()` — API-маршруты не имеют session middleware (→ 500). Заменён на `Cache::put("1c_session:{$token}", ...)` — token передаётся в заголовке Cookie, как требует стандарт.
+- **`Category::$fillable`**: добавлено поле `external_id`. Без него `firstOrNew(['external_id' => ...])` создавал объект, но не сохранял внешний ключ → каждый импорт дублировал категории, товары оставались без `category_id`.
+- **`CommerceMLImporter::importPricesAndStock()`**: после импорта офферов добавлена синхронизация денормализованных `products.price` и `products.stock` из вариантов (`min(price)` / `sum(stock)`). Без этого витрина показывала цену 0 и «Нет в наличии» даже при заполненных вариантах.
+- **`CommerceMLImporter::importCatalog()`**: добавлена обработка `<ПакетПредложений>` если он присутствует в `import.xml` (совмещённый файл), — для совместимости с 1С-конфигурациями, которые шлют один файл.
+
+**CommerceML 2 — два файла вместо одного (стандарт Bitrix/1С)**
+
+- Тестовые данные разделены на два файла согласно стандарту CommerceML 2:
+  - **`ops/1c-test-data/import.xml`** — каталог: 3 категории, 5 товаров с вариантами и изображениями (`import_files/cloudrun-pro-x5-1.jpg` и др.)
+  - **`ops/1c-test-data/offers.xml`** — предложения: 2 типа цен (Розничная/Оптовая), 1 склад (`WH-MAIN-001`), цены и остатки для всех вариантов
+- `OnecExchangeController` уже маршрутизирует по имени файла: `offers.xml` / `prices.xml` / `rests.xml` → `importOffers()`, остальное → `importCatalog()`.
+
+**Выгрузка заказов в 1С (`GET /api/1c/exchange?type=sale&mode=query`)**
+
+- `OrdersExporter::export()` выгружает заказы в XML CommerceML 2 (`КоммерческаяИнформация/Документы`).
+- Каждый документ содержит: `Ид`, `Номер`, `Дата`, `Сумма`, `СтатусЗаказа` (маппинг: `placed→Новый`, `confirmed→Подтверждён` и др.), контрагента с именем/email/телефоном, список товаров с `Ид` (из `variant.external_id`), количеством и суммой, реквизиты (способ оплаты, доставки, адрес).
+- По умолчанию выгружает заказы за последние 24 часа; параметр `?since=YYYY-MM-DD` задаёт нижнюю границу.
+- Исходящие вебхуки в 1С (`SendOnecWebhookJob`) отправляют HTTP POST на `ONEC_WEBHOOK_URL` при создании заказа и смене статуса (HMAC-SHA256 подпись, 3 попытки).
+
+**Продакшн (VPS `ecomsample.tw1.ru`)**
+
+- Добавлены переменные в `backend/.env`: `ONEC_PASSWORD=...` (без этого middleware `OnecBasicAuth` отдавал 503 для всего обмена с 1С).
+- Склад в БД обновлён: `Warehouse::where('id',1)->update(['external_id'=>'WH-MAIN-001'])` для соответствия `offers.xml`.
+
 ## Обновления (10 июня 2026) — автоподсказки адресов (DaData) и карта ПВЗ (Яндекс.Карты v3)
 
 **Backend: подсказки адреса (DaData)**
