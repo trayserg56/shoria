@@ -2,20 +2,21 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\ResolvesCartIdentity;
 use App\Http\Controllers\Controller;
 use App\Models\Cart;
+use App\Models\User;
 use App\Models\CartItem;
 use App\Models\Product;
 use App\Models\ProductVariant;
-use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
-use Laravel\Sanctum\PersonalAccessToken;
 
 class CartController extends Controller
 {
+    use ResolvesCartIdentity;
     public function show(Request $request): JsonResponse
     {
         ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity($request);
@@ -183,55 +184,6 @@ class CartController extends Controller
 
         Cart::query()->whereKey($cart->id)->update(['abandoned_cart_reminded_at' => null]);
         $cart->abandoned_cart_reminded_at = null;
-    }
-
-    private function resolveIdentity(Request $request, ?string $sessionFromPayload = null): array
-    {
-        $user = $this->resolveAuthenticatedUser($request);
-
-        $sessionId = (string) (
-            $sessionFromPayload
-            ?? $request->input('session_id')
-            ?? $request->query('session_id')
-            ?? $request->header('X-Session-Id')
-        );
-
-        if (! $user && $sessionId === '') {
-            throw ValidationException::withMessages([
-                'session_id' => 'session_id обязателен для операций с корзиной.',
-            ]);
-        }
-
-        return [
-            'user' => $user,
-            'session_id' => $sessionId !== '' ? $sessionId : null,
-        ];
-    }
-
-    private function resolveAuthenticatedUser(Request $request): ?User
-    {
-        /** @var User|null $user */
-        $user = $request->user('sanctum');
-
-        if ($user) {
-            return $user;
-        }
-
-        $token = $request->bearerToken();
-
-        if (! $token) {
-            return null;
-        }
-
-        $accessToken = PersonalAccessToken::findToken($token);
-
-        if (! $accessToken || $accessToken->tokenable_type !== User::class) {
-            return null;
-        }
-
-        $tokenable = $accessToken->tokenable;
-
-        return $tokenable instanceof User ? $tokenable : null;
     }
 
     private function findOrCreateOpenCart(?User $user, ?string $sessionId): Cart

@@ -2,17 +2,16 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\ResolvesCartIdentity;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
-use Laravel\Sanctum\PersonalAccessToken;
 
 class OrderController extends Controller
 {
+    use ResolvesCartIdentity;
     public function index(Request $request): JsonResponse
     {
         ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity($request);
@@ -192,52 +191,4 @@ class OrderController extends Controller
         ]);
     }
 
-    private function resolveIdentity(Request $request): array
-    {
-        $user = $this->resolveAuthenticatedUser($request);
-        $sessionId = (string) $request->query('session_id', '');
-
-        if (! $user && $sessionId === '') {
-            throw ValidationException::withMessages([
-                'session_id' => 'session_id обязателен.',
-            ]);
-        }
-
-        if ($sessionId !== '' && ! preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $sessionId)) {
-            throw ValidationException::withMessages([
-                'session_id' => 'Некорректный session_id.',
-            ]);
-        }
-
-        return [
-            'user' => $user,
-            'session_id' => $sessionId !== '' ? $sessionId : null,
-        ];
-    }
-
-    private function resolveAuthenticatedUser(Request $request): ?User
-    {
-        /** @var User|null $user */
-        $user = $request->user('sanctum');
-
-        if ($user) {
-            return $user;
-        }
-
-        $token = $request->bearerToken();
-
-        if (! $token) {
-            return null;
-        }
-
-        $accessToken = PersonalAccessToken::findToken($token);
-
-        if (! $accessToken || $accessToken->tokenable_type !== User::class) {
-            return null;
-        }
-
-        $tokenable = $accessToken->tokenable;
-
-        return $tokenable instanceof User ? $tokenable : null;
-    }
 }

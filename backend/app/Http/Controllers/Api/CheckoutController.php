@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\Concerns\ResolvesCartIdentity;
 use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\CartItem;
@@ -35,6 +36,8 @@ use Laravel\Sanctum\PersonalAccessToken;
 
 class CheckoutController extends Controller
 {
+    use ResolvesCartIdentity;
+
     public function __construct(
         private PaymentGatewayRegistry $paymentGateways,
         private DeliveryGatewayRegistry $deliveryGateways,
@@ -159,6 +162,7 @@ class CheckoutController extends Controller
         ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity(
             $request,
             $validated['session_id'] ?? null,
+            'session_id обязателен для гостевого checkout.',
         );
 
         $cartQuery = Cart::query()
@@ -701,6 +705,7 @@ class CheckoutController extends Controller
         ['user' => $user, 'session_id' => $sessionId] = $this->resolveIdentity(
             $request,
             $validated['session_id'] ?? null,
+            'session_id обязателен для гостевого checkout.',
         );
 
         $cartQuery = Cart::query()
@@ -1292,54 +1297,6 @@ class CheckoutController extends Controller
         return ! (clone $query)
             ->where('customer_email', $normalizedEmail)
             ->exists();
-    }
-
-    private function resolveIdentity(Request $request, ?string $sessionFromPayload = null): array
-    {
-        $user = $this->resolveAuthenticatedUser($request);
-
-        $sessionId = (string) (
-            $sessionFromPayload
-            ?? $request->query('session_id')
-            ?? $request->header('X-Session-Id')
-        );
-
-        if (! $user && $sessionId === '') {
-            throw ValidationException::withMessages([
-                'session_id' => 'session_id обязателен для гостевого checkout.',
-            ]);
-        }
-
-        return [
-            'user' => $user,
-            'session_id' => $sessionId !== '' ? $sessionId : null,
-        ];
-    }
-
-    private function resolveAuthenticatedUser(Request $request): ?User
-    {
-        /** @var User|null $user */
-        $user = $request->user('sanctum');
-
-        if ($user) {
-            return $user;
-        }
-
-        $token = $request->bearerToken();
-
-        if (! $token) {
-            return null;
-        }
-
-        $accessToken = PersonalAccessToken::findToken($token);
-
-        if (! $accessToken || $accessToken->tokenable_type !== User::class) {
-            return null;
-        }
-
-        $tokenable = $accessToken->tokenable;
-
-        return $tokenable instanceof User ? $tokenable : null;
     }
 
     /**
