@@ -17,6 +17,7 @@ class Category extends Model
     use HasAuthorship, HasFactory, InvalidatesCatalogCache;
 
     protected $fillable = [
+        'external_id',
         'parent_id',
         'name',
         'slug',

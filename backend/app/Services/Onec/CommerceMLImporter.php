@@ -54,6 +54,11 @@ class CommerceMLImporter
                 $this->importProduct($item, $counts, $propertyMap);
             }
 
+            // Если в том же файле есть блок цен/остатков — обрабатываем сразу
+            if (isset($xml->ПакетПредложений)) {
+                $this->importPricesAndStock($xml, $counts);
+            }
+
             $session->markSuccess([
                 'records_processed' => $counts['created'] + $counts['updated'] + $counts['skipped'],
                 'records_created' => $counts['created'],
