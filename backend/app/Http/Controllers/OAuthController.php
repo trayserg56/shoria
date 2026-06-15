@@ -21,7 +21,7 @@ class OAuthController extends Controller
             throw new HttpException(503, 'VK OAuth is not configured.');
         }
 
-        return Socialite::driver(self::PROVIDER_VK)->scopes([])->redirect();
+        return Socialite::driver(self::PROVIDER_VK)->setScopes([])->redirect();
     }
 
     public function handleVkCallback(): RedirectResponse
