@@ -5,6 +5,7 @@ import AppSkeleton from '@/components/AppSkeleton.vue'
 import ServicePageBlocks from '@/components/ServicePageBlocks.vue'
 import type { FilamentBlock } from '@/components/ServicePageBlocks.vue'
 import { fetchJson } from '@/lib/api'
+import { sanitizeHtml } from '@/lib/sanitize'
 import { clearStructuredData, setSeoMeta } from '@/lib/seo'
 
 type ServicePagePayload = {
@@ -24,7 +25,7 @@ const page = ref<ServicePagePayload | null>(null)
 const isLoading = ref(true)
 const hasError = ref(false)
 const hasBlocks = computed(() => Array.isArray(page.value?.blocks) && (page.value?.blocks.length ?? 0) > 0)
-const contentHtml = computed(() => page.value?.content?.trim() || '<p>Контент скоро появится.</p>')
+const contentHtml = computed(() => sanitizeHtml(page.value?.content?.trim() || '<p>Контент скоро появится.</p>'))
 
 function formatDate(value: string | null) {
   if (!value) {

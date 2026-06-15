@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { sanitizeHtml } from '@/lib/sanitize'
 
 // ─── Типы блоков ───────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ function isExternal(url: string): boolean {
     <template v-for="(block, idx) in blocks" :key="idx">
 
       <!-- ── Текст ─────────────────────────────────────────────────────── -->
-      <div v-if="block.type === 'text'" class="spb-text" v-html="(block.data as BlockText['data']).content" />
+      <div v-if="block.type === 'text'" class="spb-text" v-html="sanitizeHtml((block.data as BlockText['data']).content)" />
 
       <!-- ── Выноска ────────────────────────────────────────────────────── -->
       <div

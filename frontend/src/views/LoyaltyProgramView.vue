@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import { requestJson } from '@/lib/api'
+import { sanitizeHtml } from '@/lib/sanitize'
 import { setSeoMeta } from '@/lib/seo'
 
 type LoyaltyInfo = {
@@ -87,7 +88,7 @@ onMounted(async () => {
 
       <section class="card prose">
         <h2>Условия программы</h2>
-        <div v-if="info.terms_content" v-html="info.terms_content" />
+        <div v-if="info.terms_content" v-html="sanitizeHtml(info.terms_content)" />
         <div v-else>
           <p>Баллы начисляются после оформления заказа и доступны для списания в следующих покупках.</p>
           <p>

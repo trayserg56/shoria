@@ -377,7 +377,24 @@ class CheckoutController extends Controller
             $cart->save();
 
             if ($promoCode) {
-                PromoCode::query()->whereKey($promoCode->id)->increment('used_count');
+                // Повторная блокировка внутри транзакции — защита от race condition
+                // когда два запроса одновременно прошли первичную проверку вне транзакции
+                $lockedPromo = PromoCode::query()
+                    ->whereKey($promoCode->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (
+                    ! $lockedPromo ||
+                    ! $lockedPromo->is_active ||
+                    ($lockedPromo->usage_limit !== null && $lockedPromo->used_count >= $lockedPromo->usage_limit)
+                ) {
+                    throw ValidationException::withMessages([
+                        'promo_code' => 'Промокод уже исчерпал лимит использований.',
+                    ]);
+                }
+
+                $lockedPromo->increment('used_count');
 
                 PromoCodeUsage::query()->create([
                     'promo_code_id' => $promoCode->id,

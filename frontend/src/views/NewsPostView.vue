@@ -6,6 +6,7 @@ import ServicePageBlocks from '@/components/ServicePageBlocks.vue'
 import type { FilamentBlock } from '@/components/ServicePageBlocks.vue'
 import UnifiedProductCard from '@/components/UnifiedProductCard.vue'
 import { fetchJson } from '@/lib/api'
+import { sanitizeHtml } from '@/lib/sanitize'
 import { applyImageFallback, resolveImageSrc } from '@/lib/image-fallback'
 import { clearStructuredData, setSeoMeta, setStructuredData } from '@/lib/seo'
 import {
@@ -65,7 +66,7 @@ const post = ref<NewsPostPayload | null>(null)
 const isLoading = ref(true)
 const hasError = ref(false)
 const hasBlocks = computed(() => Array.isArray(post.value?.blocks) && (post.value?.blocks.length ?? 0) > 0)
-const contentHtml = computed(() => post.value?.content?.trim() || '<p>Контент скоро появится.</p>')
+const contentHtml = computed(() => sanitizeHtml(post.value?.content?.trim() || '<p>Контент скоро появится.</p>'))
 const contentTypeMeta = computed(() => resolveNewsTypeMeta(post.value?.content_type))
 const spotlightProducts = computed(() => post.value?.spotlight_products ?? [])
 
